@@ -1,3 +1,5 @@
+# Engineering principles
+
 **Maintainability is the capacity to make the next change clearly.**
 
 1. Begin with the specified outcome, authority, constraints, and proof.
@@ -11,4 +13,5 @@
 9. Act only within authority; scale evidence, oversight, and reversibility with risk.
 10. A check proves only what it tests; expose assumptions, uncertainty, actions, and evidence.
 11. Stop when the full acceptance boundary is proven.
-12. After it works, remove every artifact not required to keep it working.
+12. After it works, remove artifacts that no longer support behavior, proof,
+    operation, or the next change.
