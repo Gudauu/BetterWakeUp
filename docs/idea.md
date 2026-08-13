@@ -4,114 +4,62 @@
 
 Help people build difficult habits by creating real financial accountability.
 
-Instead of rewarding users for success, users voluntarily lock up their own money. If they successfully complete every day's commitment until the end of the challenge, they receive all of their money back. If they fail even once, the commitment is forfeited.
+Users voluntarily lock up their own money as collateral, not as a wager.
+Complete every required day and 100% is returned; fail once and it is forfeited.
+The outcome is determined entirely by the user's own actions, so this is a commitment contract rather than gambling.
 
-The goal is not to make money from users failing, but to make the cost of failure feel real enough that users are motivated to follow through.
+The goal is not to profit from failure but to make the cost of failure feel real enough to motivate follow-through.
+A successful user is one who gets all of their own money back, and the platform should be built to encourage that: accountability, trust, and habit formation over revenue from forfeits.
 
----
+## First Goal: Wake Up Early
 
-# Core User Flow
+Version 1 supports one goal.
+Before each day's deadline the app must detect a movement target on the device (for example, 200 meters).
 
-1. User creates a challenge.
-2. User chooses:
-   - Goal (Wake up early)
-   - Wake-up deadline (e.g. 9:00 AM)
-   - Challenge duration (e.g. 30 days, 90 days, 1 year)
-   - Deposit amount (e.g. $20)
-3. User deposits the money.
-4. Every day before the deadline, the user opens the app and keeps it open until both daily checks are complete:
-   - The verification task is completed on the device.
-   - The result is synchronized to and acknowledged by the server.
-5. If every day receives both checks until the challenge ends:
-   - 100% of the deposit is returned.
-6. If either check is missing at the deadline:
-   - The challenge immediately ends.
-   - The deposit is forfeited.
+## Challenge Parameters
 
----
+The user sets all of these at creation. None can be changed after the challenge is funded.
 
-# First Goal
+| Parameter | Meaning | Example |
+|---|---|---|
+| Required task days | Count of scheduled tasks that must be completed | 30, 90, or 365 |
+| Weekly schedule | Which weekdays are active, and each active day's wake-up deadline | Monday through Friday at 9:00 AM, weekends inactive |
+| Movement target | Distance the device must record before the deadline | 200 m |
+| Deposit | Amount locked for the duration | $20 |
+| Pause allowance | Number of tasks that may be skipped ahead of time without failure | 5 |
+| No Regret Time | Minimum advance notice required to pause a task | 8 hours |
+| Time zone | Time zone the schedule is evaluated in | Confirmed by the user |
 
-Wake Up Early
+Each active weekday may carry a different deadline.
+The app derives upcoming task dates and an expected end date from the required task count, the weekly schedule, and the confirmed time zone, and shows that end date before the user deposits.
 
-User specifies:
+## Core Flow
 
-- Wake-up deadline
-- Daily movement target
-
-Example:
-
-Wake up before 9:00 AM.
-
-Before 9:00 AM, the app must detect at least 200 meters of movement.
-
-The user must open the app before 9:00 AM.
-
-While open, the app:
-
-- Evaluates the movement recorded on the device.
-- Stores the local completion result.
-- Finds any unsynchronized results.
-- Sends them to the server.
-- Keeps retrying while the app remains open until the server acknowledges them.
-
-The app shows two separate checks:
-
-- Task completed on this device.
-- Result synchronized with the server.
-
-Today's requirement is complete only when both checks appear before the deadline.
-
----
-
-# Challenge Structure
-
-Example:
-
-Duration:
-90 days
-
-Deposit:
-$20
-
-Requirements:
-
-Complete the wake-up verification every single day.
-
-Missing either the local completion check or the server synchronization check on any day ends the challenge.
+1. User configures the challenge and reviews the projected end date.
+2. User deposits. The full amount locks immediately.
+3. On every active task day, the user opens the app and keeps it open until both daily checks pass.
+4. All required task days pass both checks, so 100% of the deposit is returned.
+5. Either check is missing at a deadline, so the challenge ends immediately and the deposit is forfeited.
 
 No partial refunds.
 
----
+## Daily Completion
 
-# Completion and Synchronization Policy
+A day counts only when **both** checks pass before that day's deadline.
+The app displays them separately and must not show the day as complete while synchronization is pending.
 
-Daily completion has two required parts.
+**1. Local task completion.** The device evaluates the movement target and records the result locally before attempting to send it.
 
-## 1. Local Task Completion
+**2. Server synchronization.** The server must receive and acknowledge that result before the same deadline.
+A locally completed task that the server has not acknowledged does not count.
 
-The device evaluates whether the user completed the movement target before the deadline.
+While open, the app evaluates recorded movement, stores the local result, finds any unsynchronized results, sends them, and retries until the server acknowledges.
+Retries happen automatically whenever the app is open.
+Background execution is never required.
 
-The app records this result locally before attempting to synchronize it.
+### Disclosure
 
-## 2. Server Synchronization
-
-The server must receive and acknowledge the local result before the same deadline.
-
-A locally completed task that has not been acknowledged by the server does not count as a completed daily requirement.
-
-The user is responsible for opening the app early enough and keeping it open until the synchronization check appears.
-
-The app must make the synchronization state obvious and must not show the day as fully complete while synchronization is pending.
-
-The app automatically retries unsynchronized results whenever it is open.
-
-Mobile background execution is not required for task completion or synchronization.
-
-## Network and Device Responsibility
-
-Network delivery cannot be guaranteed in every environment.
-
+Network delivery cannot be guaranteed in every environment, so the user carries the responsibility of opening the app early enough and keeping it open until both checks appear.
 Before accepting a challenge, the app must clearly explain that:
 
 - Local task completion alone is insufficient.
@@ -120,113 +68,71 @@ Before accepting a challenge, the app must clearly explain that:
 - Closing the app before acknowledgment can leave the result unsynchronized.
 - The user is responsible for confirming that both checks appear.
 
-The interface should warn the user when the deadline is near and synchronization is still pending.
+The interface should warn the user when a deadline is near and synchronization is still pending.
 
----
+## Task Counting
 
-# Time Zone Policy
+- Only active weekdays produce tasks.
+- Inactive weekdays do not count toward the required total and cannot cause failure.
+- A paused task does not count toward the required total, so pausing pushes the expected end date to a later active weekday.
+- Missing either check on an active, unpaused task day ends the challenge.
 
-The user confirms a time zone when creating a challenge.
+## Planned Pauses
 
-The schedule continues to use that time zone until the user explicitly changes it.
+Each pause skips one upcoming active task without causing failure. A pause:
 
+- Applies only to the next active task, which may not be the next calendar day.
+- Consumes one day from the pause allowance.
+- Does not count as a completed task.
+- Extends the expected end date.
+- Cannot be reversed after confirmation.
+
+The app must name the exact task date before the user confirms.
+When no allowance remains, the pause action is unavailable.
+
+### No Regret Time
+
+No Regret Time is the minimum advance notice required to pause the next active task.
+
+```
+Pause cutoff = task deadline - No Regret Time
+```
+
+With a Tuesday 8:00 AM deadline and 8 hours of No Regret Time, the cutoff is Tuesday 12:00 AM.
+The user may pause before then; at or after the cutoff, the pause action is unavailable for that task.
+
+## Time Zone
+
+The user confirms a time zone at creation, and the schedule keeps using it until the user explicitly changes it.
 The app may suggest the device's current time zone, but the user must confirm the choice.
+Automatic travel detection never changes an active challenge's time zone.
 
-Automatic travel detection does not change an active challenge's time zone.
+A time zone change applies only to task windows that have not started.
+It does not alter completed, failed, paused, or currently active task days.
+The rules for changing time zone mid-challenge must be shown before the user starts.
 
-The rules for changing the time zone during an active challenge must be shown before the user starts the challenge.
+## Deposit and Forfeiture
 
----
+The deposit is locked when the challenge begins and stays unavailable until the challenge succeeds or fails.
+There is no early withdrawal.
 
-# Deposit Rules
+A forfeited deposit is distributed:
 
-The entire deposit is locked when the challenge begins.
-
-The money remains unavailable until either:
-
-- The challenge is completed successfully.
-- The challenge fails.
-
-Users cannot withdraw early.
-
-Users cannot reduce the commitment after starting.
-
----
-
-# Failed Challenge
-
-When a challenge fails because either daily check is missing at the deadline:
-
-Deposit is permanently forfeited.
-
-Distribution:
-
-20%
-Platform maintenance
-
-80%
-Donated to charity
+| Share | Destination |
+|---|---|
+| 20% | Platform maintenance |
+| 80% | Donated to charity |
 
 The donation policy should be transparent and publicly documented.
 
----
+## Grace Recovery
 
-# Grace Recovery
+Each account receives exactly one lifetime Emergency Recovery, which never replenishes.
 
-Each account receives one lifetime Emergency Recovery.
+Spending it on a failed challenge reverses the failure: the challenge continues, the missed day is forgiven, and the Emergency Recovery is permanently consumed.
 
-If a challenge fails:
+## Future Expansion
 
-The user may spend their Emergency Recovery to reverse the failure.
+Later versions may support other commitment-based habits: exercise, reading, meditation, studying, walking, limiting social media, and daily journaling.
 
-Effects:
-
-- The challenge continues.
-- The missed day is forgiven.
-- The Emergency Recovery is permanently consumed.
-
-Each account receives exactly one.
-
-It never replenishes.
-
----
-
-# Business Philosophy
-
-The product is not gambling.
-
-The outcome is entirely determined by the user's own actions.
-
-Users voluntarily enter a commitment contract.
-
-The money is not a prize.
-
-It is collateral for completing a self-selected goal.
-
----
-
-# Success Metric
-
-A successful user is one who gets all of their own money back.
-
-The platform should encourage users to succeed rather than profit from failure.
-
-The business model should emphasize accountability, trust, and habit formation.
-
----
-
-# Future Expansion
-
-The first version focuses only on waking up early.
-
-Later versions may support additional commitment-based habits, such as:
-
-- Exercise
-- Reading
-- Meditation
-- Studying
-- Walking
-- Limiting social media
-- Daily journaling
-
-The long-term vision is to become a general-purpose commitment contract platform where users can put meaningful financial accountability behind any habit.
+The long-term vision is a general-purpose commitment contract platform where users can put meaningful financial accountability behind any habit.
