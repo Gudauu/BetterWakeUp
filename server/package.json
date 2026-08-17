@@ -16,7 +16,8 @@
     "drizzle-orm": "0.45.2",
     "hono": "4.13.2",
     "pg": "8.23.0",
-    "ws": "8.21.3"
+    "ws": "8.21.3",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "12.1.0",

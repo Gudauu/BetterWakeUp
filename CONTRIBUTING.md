@@ -37,6 +37,22 @@ A test compares the checked-in artifact against a fresh build, so a change that
 was not regenerated fails CI rather than reaching a consumer. Biome does not
 format the `generated` directory, since the generator decides its layout.
 
+Request schemas reject unknown fields at every level of nesting, and response
+schemas do not. `deepStrict` in `packages/contract/src/strict.ts` applies the
+first rule, and `ENDPOINTS` wraps every request schema in it, so write a request
+schema as a plain `z.object` and let the registry make it strict. The asymmetry
+is deliberate: a client that misspells a field must be told, and an older app
+must survive a server that added a response field. A schema that decides for
+itself, such as the payment webhook's `looseObject`, is left alone.
+
+`deepStrict` throws on a schema construct it has not been taught to walk, so
+introducing one to the contract fails at import rather than quietly leaving a
+hole. Teach it the construct in `strict.ts` rather than working around it.
+
+Path parameters are part of the contract too: an endpoint whose path has a
+`:name` segment carries a `params` schema, and the server validates against it
+rather than trusting a segment because the router matched it.
+
 ## The database
 
 `server/src/db` holds the Drizzle setup. Production runs on Neon through the
@@ -124,6 +140,20 @@ a request body would give the sweep an HTTP surface.
 `createApp` in `server/src/http/app.ts` registers the request log line and the
 error model. Routes go on the app, so they inherit both; do not add per-route
 logging or error handling.
+
+### Routes
+
+Routes are mounted from the contract's endpoint registry by `registerRoutes` in
+`server/src/http/routes.ts`. Pass `createApp` a handler keyed by endpoint name;
+never declare a path string in the server. An endpoint with no handler is not
+mounted and answers `not_found`, which is how the surface grows one issue at a
+time without a half-built route pretending to work.
+
+A handler receives a `HandlerInput`: a body, path parameters, and an idempotency
+key that were all parsed at the boundary against the contract. It never re-checks
+them, and it never reads the raw request. Its return value is parsed against the
+response schema on the way out, and a response that does not match is
+`internal_error`, because it is our bug and not something an app can act on.
 
 ### Logging
 

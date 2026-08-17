@@ -386,6 +386,61 @@ discrimination and the scrubbing were both verified by neutering them: making
 scheduled arm, and making `scrub` return its input fails exactly the six that
 assert redaction.
 
+### Issue 11: validation boundary
+
+Every route is mounted from the contract's endpoint registry by `registerRoutes`
+in `server/src/http/routes.ts`, and every mounted route parses its path
+parameters, its body, and its idempotency key at the edge before a handler runs.
+No path string is written in the server, so the app and the server cannot
+disagree about where an operation lives, and an endpoint with no handler yet is
+absent rather than half-built: it answers `not_found`.
+
+The three failures the issue names produce one shape. An unknown field, a
+missing field, and a field of the wrong type each return `validation_failed`
+with a `details` entry per problem, carrying the path to the field. Every failed
+field is reported, not only the first, because a client fixing one field per
+round trip is a slow way to find out that four were wrong.
+
+Unknown fields are rejected in the contract rather than by the server inspecting
+keys. `deepStrict` in `packages/contract/src/strict.ts` rebuilds a schema with
+every object made strict at every level of nesting, and `ENDPOINTS` wraps each
+request schema in it. Requests reject unknown fields; responses deliberately do
+not, because an older app must survive a server that added a response field,
+while a client that misspelled a request field must be told rather than have the
+server silently substitute its own value.
+
+`deepStrict` rebuilds with Zod's `clone` rather than re-declaring a
+`strictObject` or a fresh `z.array`, so the refinements attached to a schema
+survive having their inner schemas replaced: the weekly schedule's
+"a weekday at most once" rule and the deposit's "zero or at least the minimum"
+rule are both carried across. It throws on a construct it has not been taught to
+walk, so a new one fails at import rather than leaving a silent hole through
+which unknown fields would reach a command. A schema that already decided about
+unknown keys is left alone, which is what keeps the payment webhook's
+`looseObject` loose: the provider owns that payload.
+
+Path parameters became part of the contract. Each endpoint carries a `params`
+schema, so `:challengeId` is validated as a UUID and the webhook's `:provider`
+against the provider enum, rather than a path segment being trusted because the
+router matched it. The generated JSON Schema artifact now describes them too.
+
+Responses are parsed on the way out. A handler returning something the response
+schema rejects produces `internal_error` rather than reaching an app that cannot
+parse it, which puts the failure where it belongs: our bug, logged at error, and
+described to the client only as an unexpected error.
+
+Two decisions worth recording. A body sent to an endpoint that takes none is
+rejected rather than ignored, for the same reason an unknown field is: it is a
+client acting on a belief the server does not share. And a request whose body is
+expected must carry a JSON content type, so a form post or a text body fails at
+the boundary with a named header rather than inside `JSON.parse`.
+
+38 tests: 22 in the contract over `deepStrict` and the registry, and 16 in
+`server/test/validation.test.ts` over the mounted routes. Making `deepStrict` a
+no-op fails exactly the 18 tests that depend on strictness, including the
+artifact freshness test, and leaves the missing-field and wrong-type tests
+passing, which is the two layers being genuinely separate.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

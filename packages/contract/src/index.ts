@@ -16,4 +16,5 @@ export * from "./identity.ts";
 export * from "./movement.ts";
 export * from "./payments.ts";
 export * from "./primitives.ts";
+export * from "./strict.ts";
 export * from "./tasks.ts";

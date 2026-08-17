@@ -43,6 +43,7 @@ export function buildContractJsonSchema(): unknown {
         path: endpoint.path,
         auth: endpoint.auth,
         idempotent: endpoint.idempotent,
+        params: endpoint.params === null ? null : toJsonSchema(endpoint.params, "input"),
         request: endpoint.request === null ? null : toJsonSchema(endpoint.request, "input"),
         response: toJsonSchema(endpoint.response, "output"),
       },

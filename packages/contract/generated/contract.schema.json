@@ -143,6 +143,7 @@
       "path": "/sessions",
       "auth": "none",
       "idempotent": false,
+      "params": null,
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -167,7 +168,8 @@
         "required": [
           "provider",
           "idToken"
-        ]
+        ],
+        "additionalProperties": false
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -257,6 +259,7 @@
       "path": "/sessions",
       "auth": "session",
       "idempotent": false,
+      "params": null,
       "request": null,
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -270,6 +273,7 @@
       "path": "/accounts",
       "auth": "session",
       "idempotent": true,
+      "params": null,
       "request": null,
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -283,6 +287,7 @@
       "path": "/challenges/projections",
       "auth": "session",
       "idempotent": false,
+      "params": null,
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -322,7 +327,8 @@
                   "required": [
                     "weekday",
                     "deadline"
-                  ]
+                  ],
+                  "additionalProperties": false
                 }
               },
               "stepTarget": {
@@ -354,7 +360,8 @@
                 "required": [
                   "amount",
                   "currency"
-                ]
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -364,12 +371,14 @@
               "noRegretMinutes",
               "timeZone",
               "deposit"
-            ]
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
           "configuration"
-        ]
+        ],
+        "additionalProperties": false
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -408,6 +417,7 @@
       "path": "/challenges",
       "auth": "session",
       "idempotent": true,
+      "params": null,
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -447,7 +457,8 @@
                   "required": [
                     "weekday",
                     "deadline"
-                  ]
+                  ],
+                  "additionalProperties": false
                 }
               },
               "stepTarget": {
@@ -479,7 +490,8 @@
                 "required": [
                   "amount",
                   "currency"
-                ]
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -489,7 +501,8 @@
               "noRegretMinutes",
               "timeZone",
               "deposit"
-            ]
+            ],
+            "additionalProperties": false
           },
           "policyVersion": {
             "type": "string",
@@ -499,7 +512,8 @@
         "required": [
           "configuration",
           "policyVersion"
-        ]
+        ],
+        "additionalProperties": false
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -825,6 +839,7 @@
       "path": "/challenges/funding-intents",
       "auth": "session",
       "idempotent": true,
+      "params": null,
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -864,7 +879,8 @@
                   "required": [
                     "weekday",
                     "deadline"
-                  ]
+                  ],
+                  "additionalProperties": false
                 }
               },
               "stepTarget": {
@@ -896,7 +912,8 @@
                 "required": [
                   "amount",
                   "currency"
-                ]
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -906,7 +923,8 @@
               "noRegretMinutes",
               "timeZone",
               "deposit"
-            ]
+            ],
+            "additionalProperties": false
           },
           "policyVersion": {
             "type": "string",
@@ -916,7 +934,8 @@
         "required": [
           "configuration",
           "policyVersion"
-        ]
+        ],
+        "additionalProperties": false
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -949,6 +968,21 @@
       "path": "/challenges/:challengeId/payment-method",
       "auth": "session",
       "idempotent": true,
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "challengeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "challengeId"
+        ],
+        "additionalProperties": false
+      },
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -960,7 +994,8 @@
         },
         "required": [
           "providerPaymentMethodId"
-        ]
+        ],
+        "additionalProperties": false
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1286,6 +1321,7 @@
       "path": "/challenges/current",
       "auth": "session",
       "idempotent": false,
+      "params": null,
       "request": null,
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1618,6 +1654,21 @@
       "path": "/challenges/:challengeId/time-zone",
       "auth": "session",
       "idempotent": true,
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "challengeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "challengeId"
+        ],
+        "additionalProperties": false
+      },
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -1628,7 +1679,8 @@
         },
         "required": [
           "timeZone"
-        ]
+        ],
+        "additionalProperties": false
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2014,10 +2066,26 @@
       "path": "/challenges/:challengeId/pause",
       "auth": "session",
       "idempotent": true,
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "challengeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "challengeId"
+        ],
+        "additionalProperties": false
+      },
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
-        "properties": {}
+        "properties": {},
+        "additionalProperties": false
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2407,10 +2475,26 @@
       "path": "/challenges/:challengeId/pause",
       "auth": "session",
       "idempotent": true,
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "challengeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "challengeId"
+        ],
+        "additionalProperties": false
+      },
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
-        "properties": {}
+        "properties": {},
+        "additionalProperties": false
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2800,6 +2884,21 @@
       "path": "/challenges/:challengeId/recovery",
       "auth": "session",
       "idempotent": true,
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "challengeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "challengeId"
+        ],
+        "additionalProperties": false
+      },
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -2812,7 +2911,8 @@
         },
         "required": [
           "taskId"
-        ]
+        ],
+        "additionalProperties": false
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3252,6 +3352,21 @@
       "path": "/tasks/:taskId/completions",
       "auth": "session",
       "idempotent": true,
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "additionalProperties": false
+      },
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -3305,7 +3420,8 @@
               "steps",
               "provenance",
               "source"
-            ]
+            ],
+            "additionalProperties": false
           },
           "appVersion": {
             "type": "string",
@@ -3324,7 +3440,8 @@
           "observation",
           "appVersion",
           "verificationPolicyVersion"
-        ]
+        ],
+        "additionalProperties": false
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3410,6 +3527,22 @@
       "path": "/payments/webhooks/:provider",
       "auth": "signature",
       "idempotent": false,
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "fake"
+            ]
+          }
+        },
+        "required": [
+          "provider"
+        ],
+        "additionalProperties": false
+      },
       "request": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",

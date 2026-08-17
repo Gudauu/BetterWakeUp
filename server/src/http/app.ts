@@ -1,16 +1,17 @@
 /**
  * The Hono application.
  *
- * It carries two things at this stage and nothing else: one request log line
- * per invocation, and one error model on the way out. Routes arrive in issue
- * 11, mounted from the contract's endpoint registry, and every one of them
- * inherits both because they are registered here rather than per route.
+ * It carries three things and nothing else: one request log line per
+ * invocation, one error model on the way out, and the routes mounted from the
+ * contract's endpoint registry. Every route inherits the first two because
+ * they are registered here rather than per route.
  */
 
 import { IDEMPOTENCY_HEADER } from "@betterwakeup/contract";
 import { type Context, Hono } from "hono";
 import { AppError, toAppError } from "../errors/app-error.ts";
 import { createLogger, type Logger } from "../observability/logger.ts";
+import { type EndpointHandlers, registerRoutes } from "./routes.ts";
 
 export interface AppEnv {
   Bindings: {
@@ -29,6 +30,13 @@ export interface CreateAppOptions {
   readonly logger?: Logger;
   /** A clock, so a test can assert a duration rather than tolerate one. */
   readonly now?: () => number;
+  /**
+   * The endpoint handlers to mount, keyed by contract endpoint name. An
+   * endpoint with no handler is not mounted and answers `not_found`, which is
+   * how the surface grows one issue at a time without a half-built route
+   * pretending to work.
+   */
+  readonly handlers?: EndpointHandlers;
 }
 
 export function createApp(options: CreateAppOptions = {}) {
@@ -59,6 +67,8 @@ export function createApp(options: CreateAppOptions = {}) {
       durationMs: now() - startedAt,
     });
   });
+
+  registerRoutes(app, options.handlers ?? {});
 
   // Rendered rather than thrown: a throw here would escape the logging
   // middleware's `next()`, and an unmatched route would be the one request

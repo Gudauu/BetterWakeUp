@@ -8,7 +8,7 @@
  * endpoint uses cannot drift into the app unnoticed.
  */
 
-import type { z } from "zod";
+import { z } from "zod";
 import {
   acceptRecoveryRequest,
   acceptRecoveryResponse,
@@ -29,8 +29,20 @@ import {
   resumeChallengeResponse,
 } from "./challenges.ts";
 import { createSessionRequest, createSessionResponse, emptyResponse } from "./identity.ts";
-import { paymentWebhookRequest, paymentWebhookResponse } from "./payments.ts";
+import { paymentProvider, paymentWebhookRequest, paymentWebhookResponse } from "./payments.ts";
+import { resourceId } from "./primitives.ts";
+import { deepStrict } from "./strict.ts";
 import { createCompletionRequest, createCompletionResponse } from "./tasks.ts";
+
+/**
+ * Path parameters, which are as much part of a request as its body.
+ *
+ * They are named here so the server has something to validate them against
+ * rather than trusting a segment of the URL because the router matched it.
+ */
+const challengeParams = z.strictObject({ challengeId: resourceId });
+const taskParams = z.strictObject({ taskId: resourceId });
+const webhookParams = z.strictObject({ provider: paymentProvider });
 
 export type HttpMethod = "GET" | "POST" | "DELETE";
 
@@ -54,6 +66,15 @@ export interface EndpointDefinition {
    * projection, which persists nothing.
    */
   readonly idempotent: boolean;
+  /**
+   * The path parameters, or `null` for a route that takes none. Always an
+   * object schema, keyed by the `:name` parameters in `path`.
+   */
+  readonly params: z.ZodType | null;
+  /**
+   * The request body, or `null` for a route that takes none. Every one of
+   * these rejects unknown fields at every level: see `deepStrict`.
+   */
   readonly request: z.ZodType | null;
   readonly response: z.ZodType;
 }
@@ -64,7 +85,8 @@ export const ENDPOINTS = {
     path: "/sessions",
     auth: "none",
     idempotent: false,
-    request: createSessionRequest,
+    params: null,
+    request: deepStrict(createSessionRequest),
     response: createSessionResponse,
   },
   deleteSession: {
@@ -72,6 +94,7 @@ export const ENDPOINTS = {
     path: "/sessions",
     auth: "session",
     idempotent: false,
+    params: null,
     request: null,
     response: emptyResponse,
   },
@@ -80,6 +103,7 @@ export const ENDPOINTS = {
     path: "/accounts",
     auth: "session",
     idempotent: true,
+    params: null,
     request: null,
     response: emptyResponse,
   },
@@ -88,7 +112,8 @@ export const ENDPOINTS = {
     path: "/challenges/projections",
     auth: "session",
     idempotent: false,
-    request: createProjectionRequest,
+    params: null,
+    request: deepStrict(createProjectionRequest),
     response: createProjectionResponse,
   },
   createChallenge: {
@@ -96,7 +121,8 @@ export const ENDPOINTS = {
     path: "/challenges",
     auth: "session",
     idempotent: true,
-    request: createChallengeRequest,
+    params: null,
+    request: deepStrict(createChallengeRequest),
     response: createChallengeResponse,
   },
   createFundingIntent: {
@@ -104,7 +130,8 @@ export const ENDPOINTS = {
     path: "/challenges/funding-intents",
     auth: "session",
     idempotent: true,
-    request: createFundingIntentRequest,
+    params: null,
+    request: deepStrict(createFundingIntentRequest),
     response: createFundingIntentResponse,
   },
   replacePaymentMethod: {
@@ -112,7 +139,8 @@ export const ENDPOINTS = {
     path: "/challenges/:challengeId/payment-method",
     auth: "session",
     idempotent: true,
-    request: replacePaymentMethodRequest,
+    params: challengeParams,
+    request: deepStrict(replacePaymentMethodRequest),
     response: replacePaymentMethodResponse,
   },
   getCurrentChallenge: {
@@ -120,6 +148,7 @@ export const ENDPOINTS = {
     path: "/challenges/current",
     auth: "session",
     idempotent: false,
+    params: null,
     request: null,
     response: getCurrentChallengeResponse,
   },
@@ -128,7 +157,8 @@ export const ENDPOINTS = {
     path: "/challenges/:challengeId/time-zone",
     auth: "session",
     idempotent: true,
-    request: changeTimeZoneRequest,
+    params: challengeParams,
+    request: deepStrict(changeTimeZoneRequest),
     response: changeTimeZoneResponse,
   },
   pauseChallenge: {
@@ -136,7 +166,8 @@ export const ENDPOINTS = {
     path: "/challenges/:challengeId/pause",
     auth: "session",
     idempotent: true,
-    request: pauseChallengeRequest,
+    params: challengeParams,
+    request: deepStrict(pauseChallengeRequest),
     response: pauseChallengeResponse,
   },
   resumeChallenge: {
@@ -144,7 +175,8 @@ export const ENDPOINTS = {
     path: "/challenges/:challengeId/pause",
     auth: "session",
     idempotent: true,
-    request: resumeChallengeRequest,
+    params: challengeParams,
+    request: deepStrict(resumeChallengeRequest),
     response: resumeChallengeResponse,
   },
   acceptRecovery: {
@@ -152,7 +184,8 @@ export const ENDPOINTS = {
     path: "/challenges/:challengeId/recovery",
     auth: "session",
     idempotent: true,
-    request: acceptRecoveryRequest,
+    params: challengeParams,
+    request: deepStrict(acceptRecoveryRequest),
     response: acceptRecoveryResponse,
   },
   createCompletion: {
@@ -160,7 +193,8 @@ export const ENDPOINTS = {
     path: "/tasks/:taskId/completions",
     auth: "session",
     idempotent: true,
-    request: createCompletionRequest,
+    params: taskParams,
+    request: deepStrict(createCompletionRequest),
     response: createCompletionResponse,
   },
   receivePaymentWebhook: {
@@ -168,7 +202,8 @@ export const ENDPOINTS = {
     path: "/payments/webhooks/:provider",
     auth: "signature",
     idempotent: false,
-    request: paymentWebhookRequest,
+    params: webhookParams,
+    request: deepStrict(paymentWebhookRequest),
     response: paymentWebhookResponse,
   },
 } as const satisfies Record<string, EndpointDefinition>;
@@ -181,6 +216,12 @@ export const ENDPOINT_NAMES = Object.keys(ENDPOINTS) as EndpointName[];
 export type RequestOf<Name extends EndpointName> =
   (typeof ENDPOINTS)[Name]["request"] extends z.ZodType
     ? z.infer<(typeof ENDPOINTS)[Name]["request"] & z.ZodType>
+    : null;
+
+/** The path parameter type of one endpoint, or `null` where it takes none. */
+export type ParamsOf<Name extends EndpointName> =
+  (typeof ENDPOINTS)[Name]["params"] extends z.ZodType
+    ? z.infer<(typeof ENDPOINTS)[Name]["params"] & z.ZodType>
     : null;
 
 /** The success response body type of one endpoint. */
