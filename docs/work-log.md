@@ -725,6 +725,77 @@ Two neuter checks: dropping the pending-command condition failed exactly one
 test, and dropping the `for update` failed exactly the concurrency test, which
 is what separates a lock that serializes from one that decorates.
 
+### Issue 17: time and schedule engine
+
+The engine is `server/src/schedule`, split in two because the hard part is not
+the schedule.
+
+`zoned-time.ts` turns a wall-clock time in an IANA zone into an instant. That
+conversion is a function on 363 days a year and a relation on the other two, so
+rather than asking Luxon for an answer and trusting it, it enumerates the
+offsets in effect near the local time, inverts each one, and keeps the instants
+that read back as the local time asked for. A nonexistent local time yields
+none, an ambiguous one yields two, and that distinction is the thing no single
+conversion can report.
+
+The two DST cases were decided in the user's favor, in the same direction both
+times. An ambiguous deadline, in the repeated hour of a backward transition,
+resolves to the later occurrence, so a user whose deadline sits inside that hour
+keeps the whole of it rather than losing an hour they can see on their own
+clock. A nonexistent deadline, in the skipped hour of a forward transition,
+moves forward by the length of the gap, which is Luxon's own behavior. Neither
+case can move a deadline earlier, because a DST rule the user never agreed to
+must not shorten the window they are judged against.
+
+`engine.ts` places dates and derives instants. It reads no clock: every function
+takes the instant it reasons from, which is what makes the boundary cases
+statements rather than arrangements.
+
+Three rules the documents do not state had to be decided here.
+
+Where a schedule starts. The first task is the earliest scheduled date whose
+pause cutoff is strictly after the starting instant. Binding on the cutoff
+rather than the deadline is the boundary pause and resume already bind on: a
+task the user could not have paused is one they were never given a chance to
+plan around, so a challenge created inside that window starts on the following
+task. With a 09:00 deadline and eight hours of No Regret Time, a challenge
+created at 01:00 local starts tomorrow.
+
+How the cutoff is measured. The cutoff is the deadline instant less the No
+Regret duration in real time, not in wall-clock time. Eight hours of notice is
+eight real hours on the day the clocks change too, which is why the cutoff on a
+spring-forward Sunday reads an hour earlier on the wall clock than on any other
+Sunday.
+
+Where a replacement task lands. `appendTask` places it on the next scheduled
+date strictly after the challenge's last task, with no eligibility test against
+an instant. Holding a replacement to the cutoff rule as well would let a pause
+silently shorten a challenge, which is the opposite of what the materialization
+rule exists to guarantee.
+
+Calendar arithmetic is done in UTC on purpose. A date has no zone, and walking
+one in a zone would make the answer depend on whether that day had 23, 24, or 25
+hours in it. The zone enters only where a date and a wall-clock time become an
+instant. One test asserts the 25-hour Sunday does not produce the same date
+twice, which is the failure that arithmetic would have.
+
+`windowStart` is returned but not stored: the task row keeps the date, and the
+window is that date's beginning in the challenge's zone. It is here because it
+is the third instant from the same conversion and the completion path judges a
+device-reported timestamp against it.
+
+38 table-driven tests over inactive weekdays, both DST directions, ambiguous and
+nonexistent local times, half-hour and three-quarter-hour zones, a zone whose
+DST shift is 30 minutes, a day with no midnight, the cutoff boundary on both
+sides, and the projection agreeing with the schedule it comes from. Every
+expected instant is written as a UTC literal, because one written in the zone
+under test would be produced by the conversion the test is checking.
+
+Three neuter checks, each landing on a disjoint set: taking the earlier
+occurrence of an ambiguous time failed exactly the two backward-transition
+tests, moving the start boundary from strict to inclusive failed exactly the two
+cutoff-boundary tests, and dropping the No Regret subtraction failed seven.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

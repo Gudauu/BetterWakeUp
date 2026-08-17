@@ -16,12 +16,14 @@
     "drizzle-orm": "0.45.2",
     "hono": "4.13.2",
     "jose": "6.2.9",
+    "luxon": "3.7.2",
     "pg": "8.23.0",
     "ws": "8.21.3",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "12.1.0",
+    "@types/luxon": "3.7.1",
     "@types/node": "22.18.9",
     "@types/pg": "8.21.0",
     "@types/ws": "8.18.1",

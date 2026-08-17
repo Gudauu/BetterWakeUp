@@ -288,6 +288,30 @@ Any command that commits money to a challenge must lock the account row `for
 update` before it inserts, the way `deleteAccount` does. Without that lock the
 refusal is a read a concurrent funding can invalidate.
 
+### Time and schedules
+
+All IANA arithmetic happens on the server, in `server/src/schedule`, and nowhere
+else. The app renders instants the server computed and never derives one.
+
+`zoned-time.ts` is the only place a wall-clock time becomes an instant. Use it
+rather than calling Luxon directly, because it decides the two cases a plain
+conversion gets to decide silently: an ambiguous local time (the repeated hour
+of a backward transition) resolves to the later occurrence, and a nonexistent
+one (the skipped hour of a forward transition) moves forward by the gap. Both
+choices move a deadline later, never earlier, so a DST rule the user never
+agreed to cannot shorten the window they are judged against.
+
+`engine.ts` is pure and reads no clock: every function takes the instant it
+reasons from. Keep it that way, so a test states a moment rather than arranging
+for one.
+
+Two rules there are easy to get backwards. Calendar arithmetic walks dates in
+UTC, because a date has no zone and walking one in a zone makes the answer
+depend on whether that day had 23, 24, or 25 hours. Durations, including the No
+Regret Time the pause cutoff is derived from, are subtracted from the instant,
+because eight hours of notice must be eight real hours on the day the clocks
+change too.
+
 ## Commits
 
 Use Conventional Commits.
