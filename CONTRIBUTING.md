@@ -854,6 +854,19 @@ Parameter Store SecureString entries the role is granted a read of, and a test
 asserts every Lambda environment variable is neither named nor shaped like a
 credential.
 
+The sweep is scheduled from `infra/src/schedules.ts`: a daily correctness pass
+and a separate warm-tick schedule, both invoking the same function. Keep them
+separate. Correctness must not be able to stop because somebody narrowed or
+disabled the warm window. The warm hours are derived from a local deadline
+window and a set of market offsets rather than listed, so changing a market
+changes the schedule instead of leaving a stale list beside a stale comment.
+
+A schedule's target input is the whole contract with `server/src/lambda/events.ts`,
+which discriminates a scheduled invocation on `source` alone. Changing either
+side alone turns every scheduled invocation into a refused one, so the infra
+tests run the synthesized payload through the real `createHandler` and assert it
+reaches the sweep and produces nothing an HTTP response carries.
+
 Every stack change needs a template assertion. `Template.fromStack` synthesizes
 in process, so an assertion costs a millisecond and is the only thing standing
 between a review and a deploy.

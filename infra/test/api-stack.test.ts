@@ -112,16 +112,30 @@ describe("the API stack", () => {
 
   it("grants the function nothing beyond writing its own logs", () => {
     const template = synthesize();
-    const policies = template.findResources("AWS::IAM::Policy");
-    const actions = Object.values(policies).flatMap((resource) =>
-      (resource.Properties?.PolicyDocument?.Statement ?? []).flatMap(
-        (statement: { Action?: string | string[] }) =>
-          typeof statement.Action === "string" ? [statement.Action] : (statement.Action ?? []),
+    // The function's own policy, told apart from the schedulers' invoke
+    // policies by the role it is attached to.
+    const functionRoleId = Object.entries(template.findResources("AWS::IAM::Role")).find(
+      ([, resource]) =>
+        JSON.stringify(resource.Properties?.AssumeRolePolicyDocument).includes(
+          "lambda.amazonaws.com",
+        ),
+    )?.[0];
+    expect(functionRoleId).toBeDefined();
+    const policies = Object.fromEntries(
+      Object.entries(template.findResources("AWS::IAM::Policy")).filter(([, resource]) =>
+        JSON.stringify(resource.Properties?.Roles).includes(String(functionRoleId)),
       ),
     );
-    for (const action of actions) {
-      expect(action).toMatch(/^logs:/);
-    }
+    // Its whole grant is the basic execution role, which is log writing and
+    // nothing else. Any capability added later would arrive either as a second
+    // managed policy or as an inline one, and both are asserted away here.
+    const functionRole = template.findResources("AWS::IAM::Role")[String(functionRoleId)];
+    expect(JSON.stringify(functionRole?.Properties?.ManagedPolicyArns)).toContain(
+      "AWSLambdaBasicExecutionRole",
+    );
+    expect(functionRole?.Properties?.ManagedPolicyArns).toHaveLength(1);
+    expect(functionRole?.Properties?.Policies).toBeUndefined();
+    expect(Object.keys(policies)).toHaveLength(0);
   });
 });
 

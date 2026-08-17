@@ -111,6 +111,9 @@ importers:
 
   infra:
     devDependencies:
+      '@betterwakeup/server':
+        specifier: workspace:*
+        version: link:../server
       '@types/node':
         specifier: 22.18.9
         version: 22.18.9

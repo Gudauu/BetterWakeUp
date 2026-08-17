@@ -2071,6 +2071,64 @@ Four neuter checks on disjoint sets, one test each: accepting any region,
 dropping the reserved concurrency, dropping the log retention, and switching the
 Function URL to IAM authentication.
 
+### Issue 36: scheduler rules
+
+Two EventBridge Scheduler schedules in `infra/src/schedules.ts`, both invoking
+the one Lambda the Function URL also fronts: a daily correctness pass and the
+warm ticks the architecture asks for across the hours containing common
+deadlines.
+
+Five open decisions:
+
+- Two schedules rather than one expression. Correctness is satisfied by the
+  daily pass alone, and warmth is an optimization. Keeping them separate means
+  narrowing, widening, or disabling the warm window cannot disable correctness,
+  and it is what lets a test assert the daily pass exists on its own.
+- The warm hours are derived, not listed. `warmUtcHours` crosses a local
+  deadline window (04:00 to 10:00, wider than the hours users pick, because a
+  tick has to be warm before the deadline it is warm for) with the UTC offsets
+  of the markets warmth is scoped to. Listing the answer would make both
+  constants decorative; deriving it means a market change changes the schedule
+  and a test asserts the relationship.
+- Warmth is scoped to North America and western Europe in standard time.
+  Crossing all 26 offsets on earth with a seven hour window covers all 24 UTC
+  hours, which would silently turn "extra ticks" into "hourly forever". Standard
+  rather than daylight time because shifting the set twice a year would need a
+  redeploy to stay correct, and the local window is already wider than that hour.
+- The daily pass runs at 20:00 UTC, outside every hour the warm window covers,
+  so it is observable on its own rather than hidden inside a tick that would
+  have run anyway. A test holds that separation, because the warm hours are
+  derived and a market change could otherwise swallow it silently.
+- The target input is fixed and written here rather than inherited. The handler
+  discriminates a scheduled invocation on `source` alone, so this payload is the
+  whole contract between the stack and `server/src/lambda/events.ts`. `time`
+  comes from the scheduler's context attribute, so the sweep reads the instant
+  it was scheduled for rather than the one a cold start or a retry produced.
+
+Retries are bounded at two attempts inside thirty minutes. The sweep is
+idempotent, so a retry is always safe; it is bounded anyway because an
+invocation delivered hours late does nothing the next tick would not do.
+
+Issue 36's acceptance boundary is asserted end to end without a deploy: `infra`
+takes `@betterwakeup/server` as a dev dependency, and the test parses the
+synthesized target input, substitutes the scheduled-time context attribute, and
+runs it through the real `createHandler`. It reaches the injected sweep once and
+returns no status code and no body, so nothing about it went through Hono.
+
+17 new infra tests (39 total): 5 over the hour derivation, 7 over the
+synthesized schedules, and 5 over what a schedule delivers.
+
+Five neuter checks on disjoint sets: sending a `source` the handler does not
+recognize failed four, dropping the day wrap in the derivation failed one,
+giving the daily pass the warm expression failed one, dropping the retry policy
+failed one, and dropping the scheduled-time attribute failed one.
+
+Issue 35's "grants the function nothing beyond writing its own logs" was passing
+vacuously: the function's role carries no inline policy at all, so the assertion
+looped over an empty list, and the first real `AWS::IAM::Policy` in the stack
+(the scheduler's) broke it. It now asserts the role's whole grant is one managed
+policy, the basic execution role, with no inline policy attached.
+
 ## Handed back
 
 ### Issue 35: the deployed function

@@ -9,6 +9,7 @@
     "cdk": "cdk"
   },
   "devDependencies": {
+    "@betterwakeup/server": "workspace:*",
     "@types/node": "22.18.9",
     "aws-cdk": "2.1137.0",
     "aws-cdk-lib": "2.265.0",

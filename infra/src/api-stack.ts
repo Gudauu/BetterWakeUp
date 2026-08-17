@@ -13,6 +13,7 @@ import * as logs from "aws-cdk-lib/aws-logs";
 import type { Construct } from "constructs";
 import type { StackConfiguration } from "./config.ts";
 import { LAMBDA_RESERVED_CONCURRENCY } from "./index.ts";
+import { SweepSchedules } from "./schedules.ts";
 
 /**
  * How long CloudWatch keeps this application's logs.
@@ -46,6 +47,7 @@ export class ApiStack extends Stack {
   readonly function: lambda.Function;
   readonly functionUrl: lambda.FunctionUrl;
   readonly logGroup: logs.LogGroup;
+  readonly schedules: SweepSchedules;
 
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
@@ -84,6 +86,14 @@ export class ApiStack extends Stack {
       // its deliveries, so the application authenticates every caller itself.
       // IAM authentication here would lock out both.
       authType: lambda.FunctionUrlAuthType.NONE,
+    });
+
+    // The sweep reaches this same function, and reaches it by invocation rather
+    // than over the URL above: a schedule that called an HTTP route would need
+    // the sweep to have one, and the architecture's rule is that it has none.
+    this.schedules = new SweepSchedules(this, "SweepSchedules", {
+      configuration,
+      target: this.function,
     });
 
     new CfnOutput(this, FUNCTION_URL_OUTPUT, {
