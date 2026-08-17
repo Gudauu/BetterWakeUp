@@ -52,6 +52,7 @@ import { challenges, scheduledTasks, taskCompletions } from "../db/schema/challe
 import { AppError } from "../errors/app-error.ts";
 import { runIdempotent, type Transaction } from "../idempotency/service.ts";
 import { startOfLocalDay } from "../schedule/zoned-time.ts";
+import { createSettlementCommand } from "../sweep/payment-commands.ts";
 
 export interface CreateCompletionDependencies {
   readonly db: Database;
@@ -143,6 +144,7 @@ interface TaskAndChallenge {
   readonly deadline: Date;
   readonly challengeId: string;
   readonly challengeStatus: (typeof challenges.$inferSelect)["status"];
+  readonly depositMinorUnits: number;
   readonly requiredTaskCount: number;
   readonly stepTarget: number;
   readonly timeZone: string;
@@ -225,6 +227,7 @@ async function lockTask(
       deadline: scheduledTasks.deadline,
       challengeId: challenges.id,
       challengeStatus: challenges.status,
+      depositMinorUnits: challenges.depositMinorUnits,
       requiredTaskCount: challenges.requiredTaskCount,
       stepTarget: challenges.stepTarget,
       timeZone: challenges.timeZone,
@@ -305,5 +308,19 @@ async function succeedIfComplete(
     .update(challenges)
     .set({ status: "succeeded", terminalAt: receivedAt, updatedAt: receivedAt })
     .where(and(eq(challenges.id, task.challengeId), eq(challenges.status, "active")));
+
+  // The success has to give the deposit back, and it does so the same way every
+  // other settlement happens: a command the sweep executes, never a provider
+  // call inside the request that succeeded the challenge. Releasing a hold
+  // charges nothing and attracts no processing fee, which is the whole point of
+  // authorizing rather than capturing on funding. A zero deposit challenge has
+  // no hold, so it has no command at all rather than a command for nothing.
+  if (task.depositMinorUnits > 0) {
+    await createSettlementCommand(tx, {
+      challengeId: task.challengeId,
+      kind: "release_authorization",
+      executeAfter: receivedAt,
+    });
+  }
   return "succeeded";
 }

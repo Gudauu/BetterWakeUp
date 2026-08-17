@@ -506,16 +506,46 @@ later than that same instant. A command whose retry is still entitled to succeed
 must not have its task resolved underneath it, so a new command that acts on one
 resource records that resource as its key's subject.
 
-The sweep creates settlement commands and executes none. Give each a
-deterministic dedupe key derived from the kind and the challenge, so a second
-pass writes nothing, and put the delay in `execute_after` rather than in when
-the command is created. No capture may happen in the transaction that fails a
-challenge: that separation is what leaves a user who opens the app later in the
-day an intact authorization to recover against.
+Steps 0 to 5 create settlement commands and execute none; step 6
+(`server/src/payments/settlement.ts`) is the only place one is executed. Give
+each command a deterministic dedupe key derived from the kind and the challenge,
+so a second pass writes nothing, and put the delay in `execute_after` rather
+than in when the command is created. No capture may happen in the transaction
+that fails a challenge: that separation is what leaves a user who opens the app
+later in the day an intact authorization to recover against.
 
 Marking a task missed and moving its challenge out of `active` belong in one
 transaction. The deferred task count trigger rejects any commit that does one
 without the other.
+
+## Settlement and the ledger
+
+`recordLedgerMovement` in `server/src/payments/ledger.ts` is the only writer of
+`ledger_transactions` and `ledger_entries`. Its module comment states the sign
+convention for every account; read it before adding a movement, and add the new
+movement there rather than writing the two tables directly. A positive amount is
+a debit, a negative one a credit, and the entries of one transaction sum to
+zero.
+
+Every outcome of a challenge closes `user_commitment`. A release returns the
+deposit to `payment_processor`, a collection moves it to `platform_revenue`, and
+a collection that failed for good moves it to `uncollected_forfeit`. Nothing
+writes a `processor_fees` entry, because the provider interface reports no fee:
+a fee entry would be an invented number in the one record whose value is that it
+contains none.
+
+A settlement command is executed once, by the settlement pass, inside the
+transaction holding that command's row lock. Collection is a retried command
+with a terminal state that alarms: count the attempt, record the reason, leave
+the command `pending`, and only after `MAX_COLLECTION_ATTEMPTS` record the
+forfeit as uncollected and settle the command `failed`. A collection that simply
+throws, or one that gives up silently, is money the product forgot it was owed.
+
+Capture the live hold when there is one and charge the saved instrument
+off-session when there is not. A hold another writer has locked is a hold that
+exists: pass the command over for the next invocation rather than reading it as
+absent, or a renewal in flight becomes a card charged while a capturable
+authorization sat there.
 
 ## Commits
 

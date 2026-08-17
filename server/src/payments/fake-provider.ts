@@ -178,7 +178,19 @@ export class FakePaymentProvider implements PaymentProviderClient {
     return { reference: `cap_${authorizationId}`, amount };
   }
 
+  /**
+   * A charge against a saved card, with no hold behind it.
+   *
+   * A declined instrument declines here too, and for the same reason it does at
+   * authorization: a card that an issuer refuses is refused for every operation
+   * the product attempts on it. That is what makes a settlement's retries, and
+   * the uncollected forfeit they end in, testable against one staged condition
+   * rather than against a provider that fails in one place and not the other.
+   */
   async chargeOffSession(paymentMethodId: string, amount: Money): Promise<Settlement> {
+    if (this.declinedInstruments.has(paymentMethodId)) {
+      throw new AppError("payment_declined", "This instrument was declined.");
+    }
     return { reference: `chg_${paymentMethodId}`, amount };
   }
 

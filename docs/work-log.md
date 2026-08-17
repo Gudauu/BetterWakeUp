@@ -1391,6 +1391,71 @@ inside its holding transaction and slept for the handoff, so under full-suite
 load the second invocation could run before the first writer's commit. It now
 hands off through promises and awaits the transaction itself, with no sleeps.
 
+### Issue 25: settlement execution
+
+Step 6 of the sweep, in `server/src/payments/settlement.ts`: the commands steps
+0 to 5 created, executed. A command is due when it is still `pending` and its
+`execute_after` has passed, which is what makes the recovery window a column
+rather than a scheduler entry: Emergency Recovery cancels the command, and a
+cancelled command is never selected.
+
+`recordLedgerMovement` (`server/src/payments/ledger.ts`) became the one writer of
+the ledger, and the webhook's authorization movement now goes through it. Having
+one writer is what makes the sign convention checkable by reading a file: the
+deferred balance trigger catches an unbalanced set at commit, but nothing
+catches a caller that balances a transaction the wrong way round.
+
+The success path is the point of the whole design. A challenge that succeeds now
+creates a `release_authorization` command in the same transaction that succeeds
+it, the pass releases the hold, and the movement it writes is the mirror image
+of the one the deposit opened. Every account ends at zero and no
+`platform_revenue` or `processor_fees` entry exists anywhere on that path, which
+is the acceptance boundary "a successful challenge incurs no processing fee at
+all" stated as ledger rows rather than as an absence of code.
+
+Four decisions the architecture leaves open:
+
+- **A collection is attempted five times before it is recorded as uncollected.**
+  The architecture asks for a retried command with a terminal state that alarms
+  and does not say how many. Five roughly-daily sweeps is long enough for an
+  issuer's temporary hold or a balance that arrives with a paycheck, and short
+  enough that the uncollected forfeit is recorded while anybody still remembers
+  the challenge. The terminal state is a `forfeit_uncollected` movement, a
+  `failed` command, and an error line.
+- **The capture that ends a recovery window is what fails the challenge.** The
+  architecture says an expired offer moves the challenge to `failed` and
+  settlement executes, without saying which does which. Nothing else in the
+  system had a clock for that expiry, and the command's `execute_after` already
+  is that instant, so the settlement performs the transition rather than a
+  second pass with a second clock that could disagree with it.
+- **A command that is no longer the right thing to do is cancelled, not
+  executed.** A capture whose challenge is not `failed` or `recovery_pending`,
+  and a release with no live hold, both settle `cancelled` with the reason. The
+  alternative, leaving them pending, is a row that is due forever.
+- **A refused capture asks the provider what it believes.** The one call to
+  `getTransactionStatus` in the product is here: an attempt that captured and
+  crashed before its commit leaves the command pending and the money moved, so
+  the next attempt's refusal is checked against the provider's own record and a
+  hold reported as already captured is recorded rather than retried. That is why
+  a double capture is not reachable, and it is the reason the interface carries
+  a reconciliation call at all.
+
+Nothing new was needed for webhook deduplication: issue 19 already applies a
+delivery at most once through the unique index on the provider's event ID, and
+`funding.test.ts` already covers a redelivered event applying once.
+
+16 integration tests, and one addition to the fake provider: `chargeOffSession`
+now declines a declined instrument, which is what makes the retry ladder and the
+uncollected forfeit testable from one staged condition.
+
+Five neuter checks on disjoint sets: dropping the attempted set failed only the
+uncollected-forfeit test (the pass then burned every attempt in one invocation),
+always rethrowing a refused capture failed only the already-captured test,
+skipping the `recovery_pending` transition failed only the window-closing test,
+reading a locked hold as absent failed only the test that holds one (the pass
+charged the card off-session instead), and dropping the release command from the
+completion path failed only the acceptance test.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

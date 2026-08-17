@@ -368,7 +368,8 @@ describe("when a hold becomes due", () => {
     const { db } = testDatabase();
     const app = harness();
     const first = await arrange(db, app);
-    const second = await arrange(db, app);
+    // A second funded challenge, whose hold is due at the same instant.
+    await arrange(db, app);
     app.provider.declineRenewalsOf(first.authorizationId);
 
     const result = await renewAt(db, app, HALFWAY, 10);

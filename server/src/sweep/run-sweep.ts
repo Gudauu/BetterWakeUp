@@ -13,10 +13,11 @@
  * 3. Mark them `missed`.
  * 4. Move each affected challenge to `recovery_pending` or `failed`.
  * 5. Create settlement commands with an `execute_after` instant.
- * 6. Execute due settlement commands. **Not here.** Issue 25 owns execution,
- *    and the separation is the architecture's: no capture happens in the
- *    transaction that fails a challenge, so a user who opens the app later
- *    still has an intact authorization to recover against.
+ * 6. Execute due settlement commands: release a hold whose challenge succeeded
+ *    or expired, capture or charge one whose challenge failed. The separation
+ *    from step 5 is the architecture's: no capture happens in the transaction
+ *    that fails a challenge, so a user who opens the app later still has an
+ *    intact authorization to recover against.
  * 7. Renew authorizations approaching `capture_before`, which is where a
  *    challenge outliving several holds stays secured.
  * 8. Repeat until no due batch remains.
@@ -43,8 +44,19 @@ import type { ScheduledEvent } from "../lambda/events.ts";
 import type { Logger } from "../observability/logger.ts";
 import type { PaymentProviderClient } from "../payments/provider.ts";
 import { runRenewalPass } from "../payments/renewal.ts";
+import { runSettlementPass, type SettlementPassResult } from "../payments/settlement.ts";
 import { runOverduePass } from "./overdue-pass.ts";
 import { runPausePass } from "./pause-pass.ts";
+
+/** What step 6 reports when no provider is configured to execute anything. */
+const EMPTY_SETTLEMENT: SettlementPassResult = {
+  authorizationsReleased: 0,
+  forfeitsCollected: 0,
+  forfeitsUncollected: 0,
+  settlementsCancelled: 0,
+  collectionsRetrying: 0,
+  moreWorkPending: false,
+};
 
 /**
  * How much one pass takes before looking again.
@@ -75,8 +87,14 @@ export interface SweepResult {
   readonly challengesInRecovery: number;
   /** Challenges expired after a year of pause. */
   readonly challengesExpired: number;
-  /** Settlement commands written. None of them executed. */
+  /** Settlement commands written by steps 0 to 5. */
   readonly settlementsCreated: number;
+  /** Holds released by step 6: a success or an expiry, charging nothing. */
+  readonly authorizationsReleased: number;
+  /** Forfeits collected by step 6, by capturing a hold or charging a card. */
+  readonly forfeitsCollected: number;
+  /** Forfeits step 6 recorded as uncollected after every attempt was refused. */
+  readonly forfeitsUncollected: number;
   /** Deposit holds replaced by a fresh one before their window ran out. */
   readonly authorizationsRenewed: number;
   /** Holds the provider refused to renew, leaving those deposits unsecured. */
@@ -90,10 +108,10 @@ export interface SweepDependencies {
   /**
    * The payment provider, when one is configured.
    *
-   * Optional because everything except renewal is provider-free: a deployment
-   * with no provider still misses tasks, fails challenges, and writes the
-   * settlement commands it will execute once one exists. Renewal is the one
-   * step that reaches a network, so it is the one step that is skipped.
+   * Optional because everything except settlement and renewal is provider-free:
+   * a deployment with no provider still misses tasks, fails challenges, and
+   * writes the settlement commands it will execute once one exists. Steps 6 and
+   * 7 are the ones that reach a network, so they are the ones that are skipped.
    */
   readonly provider?: PaymentProviderClient | undefined;
   /** The instant the whole invocation reasons from. A test states the moment. */
@@ -123,6 +141,10 @@ export function createSweep(deps: SweepDependencies): SweepRunner {
     // Holds this invocation already tried to renew. A decline leaves the row
     // due, so without this the pass would spend its ceiling on one card.
     const attemptedRenewals = new Set<string>();
+    // Settlement commands this invocation already executed or was refused on. A
+    // refused collection stays due, so this is what stops one declining card
+    // from consuming the whole ceiling.
+    const attemptedSettlements = new Set<string>();
     const totals = {
       tasksMissed: 0,
       tasksSkipped: 0,
@@ -130,6 +152,9 @@ export function createSweep(deps: SweepDependencies): SweepRunner {
       challengesInRecovery: 0,
       challengesExpired: 0,
       settlementsCreated: 0,
+      authorizationsReleased: 0,
+      forfeitsCollected: 0,
+      forfeitsUncollected: 0,
       authorizationsRenewed: 0,
       renewalsFailed: 0,
     };
@@ -145,6 +170,26 @@ export function createSweep(deps: SweepDependencies): SweepRunner {
       totals.challengesFailed += overdue.challengesFailed;
       totals.challengesInRecovery += overdue.challengesInRecovery;
       totals.settlementsCreated += pause.settlementsCreated + overdue.settlementsCreated;
+
+      // Step 6. After the overdue pass in the same invocation, so a challenge
+      // that fails outright here has its capture created and, being due
+      // immediately, executed without waiting for the next tick. A challenge
+      // that entered `recovery_pending` is untouched: its command's
+      // `execute_after` is a day away, which is the recovery window.
+      const settlement =
+        deps.provider === undefined
+          ? EMPTY_SETTLEMENT
+          : await runSettlementPass({
+              db: deps.db,
+              provider: deps.provider,
+              now,
+              batchSize,
+              logger,
+              attempted: attemptedSettlements,
+            });
+      totals.authorizationsReleased += settlement.authorizationsReleased;
+      totals.forfeitsCollected += settlement.forfeitsCollected;
+      totals.forfeitsUncollected += settlement.forfeitsUncollected;
 
       // Step 7. After the overdue pass rather than before it, because a
       // challenge that has just failed no longer needs its hold renewed, and
@@ -164,7 +209,11 @@ export function createSweep(deps: SweepDependencies): SweepRunner {
       totals.authorizationsRenewed += renewal.authorizationsRenewed;
       totals.renewalsFailed += renewal.renewalsFailed;
 
-      moreWorkPending = pause.moreWorkPending || overdue.moreWorkPending || renewal.moreWorkPending;
+      moreWorkPending =
+        pause.moreWorkPending ||
+        overdue.moreWorkPending ||
+        settlement.moreWorkPending ||
+        renewal.moreWorkPending;
       if (!moreWorkPending) break;
     }
 
@@ -205,6 +254,9 @@ export const unconfiguredSweep: SweepRunner = async (_event, logger) => {
     challengesInRecovery: 0,
     challengesExpired: 0,
     settlementsCreated: 0,
+    authorizationsReleased: 0,
+    forfeitsCollected: 0,
+    forfeitsUncollected: 0,
     authorizationsRenewed: 0,
     renewalsFailed: 0,
     moreWorkPending: false,

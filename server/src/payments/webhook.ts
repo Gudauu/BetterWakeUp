@@ -25,8 +25,8 @@
  * mangled payload cannot change the terms even if it verified.
  *
  * **Nothing is captured.** The only ledger movement is `deposit_authorized`,
- * which records a hold. Capture happens in settlement, in issue 25, and no path
- * from here reaches it.
+ * which records a hold. Capture happens in the settlement pass, and no path from
+ * here reaches it.
  */
 
 import { challengeConfiguration, type PaymentWebhookResponse } from "@betterwakeup/contract";
@@ -37,11 +37,12 @@ import { planChallenge } from "../challenges/plan.ts";
 import type { Database } from "../db/client.ts";
 import { challengeAuthorizations } from "../db/schema/authorizations.ts";
 import { fundingIntents } from "../db/schema/funding.ts";
-import { ledgerEntries, ledgerTransactions, paymentProviderEvents } from "../db/schema/payments.ts";
+import { paymentProviderEvents } from "../db/schema/payments.ts";
 import { AppError } from "../errors/app-error.ts";
 import type { Transaction } from "../idempotency/service.ts";
 import type { Logger } from "../observability/logger.ts";
 import { FAKE_AUTHORIZATION_FAILED, FAKE_AUTHORIZATION_SUCCEEDED } from "./fake-provider.ts";
+import { recordLedgerMovement } from "./ledger.ts";
 import type { PaymentProviderClient, ProviderWebhookEvent } from "./provider.ts";
 
 export interface WebhookDependencies {
@@ -270,34 +271,18 @@ async function recordAuthorizedDeposit(
   challengeId: string,
   at: Date,
 ): Promise<void> {
-  const [transaction] = await tx
-    .insert(ledgerTransactions)
-    .values({
-      challengeId,
-      accountId: intent.accountId,
-      kind: "deposit_authorized",
-      occurredAt: at,
-      providerReference: intent.providerAuthorizationId,
-    })
-    .returning({ id: ledgerTransactions.id });
-  if (transaction === undefined) {
-    throw new AppError("internal_error", "the ledger transaction insert returned no row");
-  }
-
-  await tx.insert(ledgerEntries).values([
-    {
-      transactionId: transaction.id,
-      ledgerAccount: "user_commitment",
-      amountMinorUnits: intent.depositMinorUnits,
-      currency: intent.depositCurrency,
-    },
-    {
-      transactionId: transaction.id,
-      ledgerAccount: "payment_processor",
-      amountMinorUnits: -intent.depositMinorUnits,
-      currency: intent.depositCurrency,
-    },
-  ]);
+  await recordLedgerMovement(tx, {
+    challengeId,
+    accountId: intent.accountId,
+    kind: "deposit_authorized",
+    occurredAt: at,
+    providerReference: intent.providerAuthorizationId,
+    currency: intent.depositCurrency,
+    entries: [
+      { ledgerAccount: "user_commitment", amountMinorUnits: intent.depositMinorUnits },
+      { ledgerAccount: "payment_processor", amountMinorUnits: -intent.depositMinorUnits },
+    ],
+  });
 }
 
 /**
