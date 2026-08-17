@@ -45,16 +45,31 @@ container, so `createDatabase` picks a driver from the connection string's host
 and hands back one `Database` type either way. Callers do not learn which driver
 they hold.
 
+Tables live in `server/src/db/schema/`, one module per area, all re-exported
+from `server/src/db/schema.ts` so `drizzle-kit` sees a single entry point.
+
 `server/drizzle` is the migration folder and the description of the database.
-After changing `server/src/db/schema.ts`:
+After adding or changing a table:
 
 ```sh
-pnpm --filter @betterwakeup/server run db:generate
+pnpm --filter @betterwakeup/server run db:generate --name <what-changed>
 ```
 
-`db:migrate` applies pending migrations to `DATABASE_URL`, and `db:check` looks
-for conflicting migrations. Nothing else applies SQL to a real database, so
-development, tests, and deployment reach the same shape.
+Pass `--name`, otherwise the kit invents one. `db:migrate` applies pending
+migrations to `DATABASE_URL`, and `db:check` looks for conflicting migrations.
+Nothing else applies SQL to a real database, so development, tests, and
+deployment reach the same shape.
+
+Forgetting `db:generate` is caught by
+`server/test/integration/schema-drift.test.ts`, which compares the migrated
+database's columns against the ones the Drizzle schema declares.
+
+Invariants belong in the schema, not in application code. A rule expressed as a
+unique index, check constraint, or trigger holds against every writer,
+including a future migration script and a hand-typed `psql` session; the same
+rule in a service function holds only for callers that remember it. Each such
+constraint should have a negative test that attempts the violation directly
+through Drizzle and asserts the SQLSTATE.
 
 Integration tests need a running Docker daemon. They live in
 `server/test/integration` and run as the `server-integration` Vitest project,

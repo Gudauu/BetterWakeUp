@@ -102,6 +102,45 @@ The integration tests are their own Vitest project, `server-integration`, so the
 unit tests still run with no Docker daemon present. Both projects run under
 `pnpm run test`, and the GitHub Actions runner has Docker, so CI covers them.
 
+### Issue 6: identity schema
+
+Three tables in `server/src/db/schema/identity.ts`, applied by the first
+migration, `server/drizzle/0000_identity.sql`.
+
+`accounts` is keyed on nothing external, so the sign-in method can change
+without rewriting challenge or ledger history. It carries the display name and
+`emergency_recovery_consumed_at`. That column is the lifetime Emergency
+Recovery flag: null means unspent, and an instant means spent. A nullable
+instant was chosen over a boolean because it keeps the audit trail, and over a
+counter because a counter makes a second consumption representable, which the
+architecture's "consumed at most once per account" says it never is.
+
+`provider_identities` is keyed on `(issuer, subject)` by unique index. Issuer is
+part of the key because a provider's `sub` is only unique within the issuer that
+minted it, which the acceptance test exercises by giving Apple and Google the
+same subject string. A second unique index on `(account_id, provider)` says an
+account holds at most one identity per provider: version 1 has no
+account-linking flow, and it also serves lookups by account, so no separate
+index on `account_id` exists. Email is a plain nullable column on this table
+and is never a key, since Apple's private relay addresses would otherwise split
+one person into two accounts or merge two people into one.
+
+`sessions` stores a hash of the session token rather than the token, so a
+database dump is not enough to impersonate anyone, with a unique index on the
+hash, a check that expiry follows creation, and `revoked_at` for sign-out and
+deletion. Both child tables cascade on account delete, which issue 16 needs.
+
+The acceptance test is `server/test/integration/identity-schema.test.ts`. Every
+write goes through Drizzle with no service layer, and each negative case
+asserts the PostgreSQL SQLSTATE, so a passing test says the constraint exists
+rather than that some function remembered to check. Drizzle wraps driver errors
+in a `DrizzleQueryError`, so the test walks the `cause` chain for the code.
+
+Also added `server/test/integration/schema-drift.test.ts`, which compares the
+migrated database's columns against the ones the Drizzle schema declares. It
+was verified to fail by adding a column to the schema without regenerating,
+which is the exact mistake it exists to catch.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike
