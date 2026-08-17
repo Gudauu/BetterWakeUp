@@ -10,13 +10,17 @@
   "scripts": {
     "check": "pnpm run lint && pnpm run typecheck && pnpm run test",
     "lint": "biome ci .",
+    "lint:commits": "commitlint --from origin/main --to HEAD",
     "format": "biome format --write .",
     "lint:fix": "biome check --write .",
-    "typecheck": "pnpm -r --no-bail run typecheck",
+    "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r --no-bail run typecheck",
     "test": "vitest run"
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.11",
+    "@commitlint/cli": "21.2.2",
+    "@commitlint/config-conventional": "21.2.2",
+    "@commitlint/types": "21.2.0",
     "typescript": "5.9.3",
     "vitest": "3.2.4"
   }

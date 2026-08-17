@@ -1,0 +1,17 @@
+{
+  "name": "@betterwakeup/tools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@commitlint/lint": "21.2.2",
+    "@commitlint/load": "21.2.2",
+    "@commitlint/types": "21.2.0",
+    "@types/node": "22.18.9",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}

@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint, typecheck, and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm run lint
+
+      - run: pnpm run typecheck
+
+      - run: pnpm run test
+
+  commits:
+    name: Commit messages
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      # Both endpoints of the pull request range must be present, and the
+      # merge commit GitHub synthesizes is not one of the commits under review.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint commit subjects and bodies
+        run: >
+          pnpm exec commitlint
+          --from ${{ github.event.pull_request.base.sha }}
+          --to ${{ github.event.pull_request.head.sha }}
+          --verbose

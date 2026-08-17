@@ -2,3 +2,4 @@ packages:
   - "server"
   - "infra"
   - "packages/*"
+  - "tools"
