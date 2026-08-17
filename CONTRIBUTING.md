@@ -87,6 +87,12 @@ generates nor tracks triggers, so the migration file is their only description;
 they will not appear in a snapshot and a regenerated migration will not drop
 them.
 
+A rule about a statement rather than about a row belongs in an immediate
+trigger instead. The ledger's append-only guarantee is one: no `UPDATE` or
+`DELETE` reaches a ledger entry, and a ledger transaction accepts an update only
+when it nulls a foreign key back to a person. Those raise SQLSTATE `23001`, so a
+test can tell an immutability refusal apart from a `23000` aggregate violation.
+
 Integration tests need a running Docker daemon. They live in
 `server/test/integration` and run as the `server-integration` Vitest project,
 separately from the unit tests, which need no container. One container is

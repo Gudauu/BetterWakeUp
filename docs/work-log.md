@@ -208,6 +208,74 @@ set of tasks have to arrive in one transaction; issue 9's assault suite starts
 from the same fixtures. The SQLSTATE helpers moved out of the identity test into
 `server/test/support/sql-errors.ts`.
 
+### Issue 8: ledger, payment command, and idempotency schema
+
+Five tables in `server/src/db/schema/payments.ts`, applied by
+`server/drizzle/0003_payments.sql`, with the ledger's two trigger-carried
+guarantees in the hand-authored
+`server/drizzle/0004_ledger_balance_and_append_only_triggers.sql`.
+
+The ledger is double entry across two tables. `ledger_transactions` is one
+movement of value and `ledger_entries` are the sides that balance against each
+other, with a positive amount a debit and a negative amount a credit. The
+architecture states the balance invariant per challenge; the trigger enforces it
+per transaction, grouped by currency. That is strictly stronger, since a
+transaction that balances always implies a challenge that balances, and it is
+also continuously true rather than only true once a challenge settles. It names
+the transaction that broke the rule instead of leaving a challenge history that
+no longer adds up with no indication of where. Grouping by currency is what
+rejects a transaction whose two sides are in different currencies but whose
+numbers happen to cancel.
+
+The trigger fires from both sides. The entry-side trigger catches an unbalanced
+set; the transaction-side trigger catches a transaction row written with no
+entries under it at all, which no trigger on the entry table can ever see. Both
+are deferred, for the same reason the task count trigger is: a transaction and
+its entries arrive as separate statements and are legitimately unbalanced
+between them.
+
+The ledger is append only, enforced by immediate triggers rather than by
+convention. An entry can never be updated or deleted, so the answer to a wrong
+entry is another entry. A transaction is immutable in everything except the two
+foreign keys back to a person, which may be set to NULL and to nothing else.
+That single exception is what `ON DELETE SET NULL` on `account_id` and
+`challenge_id` performs: deleting an account leaves the amounts, currencies, and
+provider references intact with nothing pointing back at whose they were. It is
+the anonymization issue 16 owes the retention rule for financial records, and it
+is why the ledger does not cascade with the account the way sessions and
+idempotency keys do.
+
+`payment_commands` makes a payment an instruction recorded in one transaction
+and executed in a later one. `execute_after` is what separates the two, so the
+recovery window is a column rather than a scheduler entry, and no capture
+happens in the transaction that fails a challenge. The status column is the
+architecture's `pending`, `cancelled`, `confirmed`, and `failed`, paired with
+one `settled_at` instant so a command cannot be both cancelled and confirmed. A
+confirmed command must carry a provider reference, since a capture recorded as
+done with no trace of what was captured cannot be reconciled. Idempotency is a
+unique `dedupe_key` the creator derives from what the command is for, so a sweep
+that runs twice writes the command once, plus a partial unique index allowing at
+most one `pending` command of a kind per challenge. A retry after a failure is a
+new row with its own key rather than a mutation of the attempt that did not
+work, which keeps the failed attempt readable.
+
+`payment_provider_events` and `idempotency_keys` are the same shape applied to
+the two sources of duplicates. Both are unique indexes over an
+externally-supplied identifier, so a redelivered webhook and a retried client
+command are each a database error rather than a second effect. The client key is
+scoped to the account rather than global, so one account's key space cannot be
+probed from another. The lease default is `now() + interval '180 seconds'`,
+matching the architecture, and a check constraint ties `completed` to both its
+instant and its stored result in each direction, since a result on a key that
+never completed would be replayed by a reader that trusts the status.
+
+The acceptance test is `server/test/integration/payments-schema.test.ts`: 22
+tests writing through Drizzle with no service layer. Both trigger sets were
+verified to fail, the balance trigger by making its function return early
+(exactly the three balance tests failed) and the append-only triggers by
+attaching them with `WHEN (false)` (exactly the three immutability tests
+failed).
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

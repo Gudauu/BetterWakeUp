@@ -22,6 +22,20 @@
       "when": 1786941614996,
       "tag": "0002_challenge_task_count_trigger",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786942054387,
+      "tag": "0003_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786942077908,
+      "tag": "0004_ledger_balance_and_append_only_triggers",
+      "breakpoints": true
     }
   ]
 }
