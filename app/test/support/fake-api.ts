@@ -11,6 +11,7 @@ import type {
   ChallengeView,
   CreateFundingIntentResponse,
   CreateProjectionResponse,
+  TaskView,
 } from "@betterwakeup/contract";
 import type { ApiClient, ApiRequest, ClientEndpointName } from "../../src/api/client.ts";
 
@@ -93,9 +94,36 @@ export function challengeView(overrides: Partial<ChallengeView> = {}): Challenge
   };
 }
 
+export function taskView(overrides: Partial<TaskView> = {}): TaskView {
+  return {
+    id: "44444444-4444-4444-8444-444444444444",
+    date: "2026-09-01",
+    deadline: "2026-09-01T14:00:00.000Z",
+    pauseCutoff: "2026-09-01T06:00:00.000Z",
+    status: "scheduled",
+    acknowledgedAt: null,
+    ...overrides,
+  };
+}
+
+/** A pause that started well inside the year, for the running-to-paused tests. */
+export const PAUSED_AT = "2026-09-02T00:00:00.000Z";
+export const PAUSE_EXPIRES_AT = "2027-09-02T00:00:00.000Z";
+
 const DEFAULTS: Partial<Record<ClientEndpointName, unknown>> = {
   createChallengeProjection: PROJECTION,
   createChallenge: { challenge: challengeView() },
   createFundingIntent: FUNDING_INTENT,
   deleteSession: {},
+  deleteAccount: {},
+  pauseChallenge: {
+    challenge: challengeView({ pause: { pausedAt: PAUSED_AT, expiresAt: PAUSE_EXPIRES_AT } }),
+    nextSkippedTask: taskView(),
+  },
+  resumeChallenge: { challenge: challengeView(), nextLiveTask: taskView() },
+  acceptRecovery: {
+    challenge: challengeView(),
+    forgivenTask: taskView({ status: "forgiven" }),
+    appendedTask: taskView({ id: "55555555-5555-4555-8555-555555555555", date: "2026-10-13" }),
+  },
 };

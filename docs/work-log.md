@@ -1906,6 +1906,66 @@ precedence failed three, fixing the deadline warning to false failed three, and
 removing the step-target guard from the screen failed the one test that names
 it.
 
+### Issue 33: pause, recovery, and deletion screens
+
+Three flows whose common problem is the same: an action that cannot be taken
+back must be understood before it is taken, and a challenge that is not running
+must never look like one that is.
+
+`app/src/challenges/pause.ts` answers the two questions the pause flow has,
+and only those. While the challenge runs it names the task pausing would skip,
+taken from the server's own `pauseCutoff` rather than computed. While it is
+paused it reports the age of the pause, the days left before the year closes
+the challenge, and whether that is close enough to say so.
+
+`app/src/challenges/lifecycle-commands.ts` holds pause, resume, recovery, and
+account deletion. Each irreversible one takes an explicit `confirmed` flag and
+refuses before it builds a request, so the gate is a property of the command
+rather than of a button, and the test for it asserts the API client was never
+asked for anything.
+
+`app/src/screens/confirm-action.tsx` is the two-step control the three screens
+share, and `pause-screen.tsx`, `recovery-screen.tsx`, and
+`delete-account-screen.tsx` are the screens themselves.
+
+Decisions the plan left open:
+
+- **Resume is not gated.** Pausing gives up the tasks it skips, spending the
+  recovery consumes an allowance that never replenishes, and deletion removes
+  the account, so all three are confirmed. Resuming gives up nothing, and a
+  confirmation on a reversible action teaches people to dismiss the ones that
+  matter.
+- **A paused challenge offers no task and no pause control.** The presentation
+  returns `nextSkippedTask: null` while paused even though the challenge view
+  still carries an open task, because naming one would suggest a pause is about
+  a single day, which it is not. The screen draws a banner saying no task is due
+  and nothing can be failed, and offers only resume.
+- **The year is stated, not urged.** The warning window is thirty days and the
+  sentence says what will happen: the challenge closes as neither a success nor
+  a failure, nothing is charged, the hold is released, and the Emergency
+  Recovery is untouched. The outcome costs the user nothing, so pressing them to
+  act would be dishonest.
+- **An expired recovery offer is refused in the app.** The command compares the
+  offer's own `expiresAt` to the clock before sending, so a screen left open
+  past the window cannot spend a once-in-a-lifetime allowance on a request the
+  server was going to refuse anyway. The offer's `taskId` is what is sent, so a
+  stale offer cannot be accepted against whatever task is current by then.
+- **Deletion says why it cannot happen yet.** `deletionBlocker` reports an
+  unsettled funded challenge as the reason, and the screen renders that sentence
+  instead of a control, which is what the App Store requirement asks of the
+  flow. `expired` counts as settled: a pause that reached its year released the
+  hold and charged nothing, so there is nothing left to wait on.
+
+41 new app tests (214 in `app` now): 15 over the pause derivation, 12 over the
+four commands, and 14 over the three screens.
+
+Nine neuter checks on disjoint sets: letting a paused challenge name a skippable
+task failed one, fixing `cutoffPassed` to false failed three, fixing the expiry
+warning to false failed three, removing each of the three confirmation gates
+failed one apiece, removing the expired-offer refusal failed one, removing the
+deletion blocker failed one, and collapsing the two-step control into a single
+press failed seven.
+
 ## Handed back
 
 ### Issue 31: the payment sheet behind a funding intent

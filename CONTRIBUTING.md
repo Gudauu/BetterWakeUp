@@ -764,6 +764,30 @@ the deposit path. Re-ask for a projection when the configuration changes and
 only then, and clear the old one immediately, so no stale end date is on screen
 while its replacement is in flight.
 
+### Pause, recovery, and deletion
+
+An action that cannot be taken back is confirmed in the command, not on the
+screen. `src/challenges/lifecycle-commands.ts` takes a `confirmed` flag and
+returns `blocked` before it builds a request, so the guarantee survives a new
+screen, a deep link, or a test harness. Assert it by checking that the API
+client recorded no call at all.
+
+Resume takes no confirmation on purpose. Gate what is irreversible and nothing
+else; a confirmation in front of a reversible action trains people to press
+through the ones that matter.
+
+`src/challenges/pause.ts` is where anything about how a pause looks belongs. It
+compares the server's instants to the clock and derives nothing else: the task a
+pause would skip comes from `pauseCutoff`, and the year's approach from
+`pause.expiresAt`. Never compute a cutoff or an expiry in the app.
+
+While paused, offer no task and no pause control. The challenge view still
+carries an open task, and rendering it as something about to be skipped reads as
+a challenge that is still running.
+
+State the outcome of a pause reaching its year rather than urging the user to
+act. It costs them nothing, so a prompt would misrepresent it.
+
 ### The daily completion screen
 
 The two checks a day needs are separate facts and stay separate in the code.

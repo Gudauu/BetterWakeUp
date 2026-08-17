@@ -20,8 +20,9 @@ expects Jest. See "Toolchain" in `docs/architecture.md`.
 - `src/auth/` the two native sign-in providers behind one interface, and the
   sign-in flow that exchanges a credential for a session.
 - `src/challenges/` the in-memory draft a challenge is configured in, the
-  disclosures the user acknowledges, and the command that creates a challenge or
-  authorizes a deposit.
+  disclosures the user acknowledges, the command that creates a challenge or
+  authorizes a deposit, how a pause is presented, and the pause, resume,
+  recovery, and deletion commands with their confirmation gates.
 - `src/completions/` the SQLite store holding completions until the server
   acknowledges them, the pass that sends them, and the four-state view of
   today's task the screen renders.
@@ -30,7 +31,8 @@ expects Jest. See "Toolchain" in `docs/architecture.md`.
 - `src/session/` secure storage for session material, and the React context the
   screens read it from.
 - `src/screens/` screen components, kept out of `app/` so a test renders one
-  without the router.
+  without the router, including the two-step control every irreversible action
+  is taken through.
 
 ## Development builds
 
