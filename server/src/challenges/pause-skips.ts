@@ -25,12 +25,13 @@
  *   user may still resume before it does.
  */
 
-import { and, asc, desc, eq, gt, isNotNull, lte } from "drizzle-orm";
+import { and, asc, eq, gt, isNotNull, lte } from "drizzle-orm";
 
 import { challenges, scheduledTasks } from "../db/schema/challenges.ts";
 import { AppError } from "../errors/app-error.ts";
 import type { Transaction } from "../idempotency/service.ts";
-import { appendTask, type ScheduleConfiguration } from "../schedule/engine.ts";
+import type { ScheduleConfiguration } from "../schedule/engine.ts";
+import { appendReplacementTask } from "./replacement-task.ts";
 import { loadWeeklySchedule } from "./weekly-schedule.ts";
 
 type TaskRow = typeof scheduledTasks.$inferSelect;
@@ -160,11 +161,9 @@ async function nextDueTask(
 /**
  * One task consumed and its replacement appended, in the caller's transaction.
  *
- * The replacement lands on the next scheduled date after the last date the
- * challenge holds a task on, which is what pushes the projected end date later
- * and what keeps the one-task-per-date index satisfiable. The challenge's
- * stored projection moves with it: an unpaused reader would otherwise be told
- * the challenge ends on a date it now has a task past.
+ * The append is `replacement-task.ts`, shared with Emergency Recovery: both
+ * consume a task without ending the challenge, so both owe it the same
+ * replacement and the same moved projection.
  */
 async function consume(
   tx: Transaction,
@@ -184,45 +183,6 @@ async function consume(
     throw new AppError("internal_error", "the pause skip matched no open task");
   }
 
-  const last = await lastTask(tx, challenge.id);
-  const replacement = appendTask(challenge.configuration, last.taskDate, last.sequence + 1);
-
-  const [appended] = await tx
-    .insert(scheduledTasks)
-    .values({
-      challengeId: challenge.id,
-      sequence: replacement.sequence,
-      taskDate: replacement.date,
-      deadline: replacement.deadline,
-      pauseCutoff: replacement.pauseCutoff,
-      status: "scheduled",
-    })
-    .returning();
-  if (appended === undefined) {
-    throw new AppError("internal_error", "the replacement task insert returned no row");
-  }
-
-  await tx
-    .update(challenges)
-    .set({ projectedEndDate: replacement.date, updatedAt: now })
-    .where(eq(challenges.id, challenge.id));
-
+  const appended = await appendReplacementTask(tx, challenge.id, challenge.configuration, now);
   return { skipped, appended };
-}
-
-/** The last task the challenge holds, by sequence, which is also by date. */
-async function lastTask(
-  tx: Transaction,
-  challengeId: string,
-): Promise<Pick<TaskRow, "sequence" | "taskDate">> {
-  const [last] = await tx
-    .select({ sequence: scheduledTasks.sequence, taskDate: scheduledTasks.taskDate })
-    .from(scheduledTasks)
-    .where(eq(scheduledTasks.challengeId, challengeId))
-    .orderBy(desc(scheduledTasks.sequence))
-    .limit(1);
-  if (last === undefined) {
-    throw new AppError("internal_error", `challenge ${challengeId} holds no task to append past`);
-  }
-  return last;
 }

@@ -364,7 +364,9 @@ cutoff passes.
 One skip is one transaction that moves a task to `skipped` and appends its
 replacement. Never write the skip without the append: the active challenge's task
 count is a deferred constraint trigger, so the commit fails, and it fails at the
-end of the transaction rather than at the statement that caused it.
+end of the transaction rather than at the statement that caused it. The append
+itself is `appendReplacementTask`, shared with Emergency Recovery; a second
+implementation is a second idea of where a replacement lands.
 
 The window a pause consumes is `(pausedAt, now]`, and both bounds are rules a
 user feels. A pause set at or after a task's cutoff leaves that task live; a
@@ -378,6 +380,30 @@ sweep. A second way to skip a task is a second idea of what a pause is.
 Nothing may clear `paused_at` except the resume command. A pause has no limit and
 no expiry, and the year that ends a paused challenge ends it as `expired` rather
 than resuming it. `server/test/pause-mode.test.ts` is the test that says so.
+
+## Emergency Recovery
+
+The offer is derived and never stored. A challenge in `recovery_pending` has one
+standing for its latest missed task, expiring at that task's `missed_at` plus the
+recovery window, and `challenge-view.ts` renders it from those rows. Do not add a
+column: an offer that can be stored is an offer that can disagree with the task
+it is for.
+
+Accepting it is one transaction with five effects, in
+`server/src/challenges/accept-recovery.ts`: the allowance is consumed, the task
+is forgiven, a replacement is appended, the pending capture is cancelled, and the
+challenge returns to `active`. Anything added to the recovery goes in that
+transaction too. A recovery that leaves a capture pending gets the user charged
+for a miss that no longer exists.
+
+The account row is locked before the challenge row, matching challenge creation
+and the funding intent. Any command that reads the lifetime allowance and then
+spends it must take that lock: the `accounts_recovery_consumed_once` trigger is
+the backstop, and a backstop reached is a 500 rather than a refusal.
+
+The window closes inclusively, at the same instant the app was shown and the same
+instant the capture's `execute_after` holds. A capture that is no longer pending
+is a closed window, not an internal error.
 
 ## Time zone changes
 

@@ -1251,6 +1251,69 @@ and all three expiry tests, dropping the recovery check failed only the
 spent-recovery test, and dropping skip locked on the challenge failed only the
 held-lock test.
 
+### Issue 24: Emergency Recovery
+
+`server/src/challenges/accept-recovery.ts` is the whole of the offer's
+acceptance: one command, one transaction, five effects. It consumes the
+account's lifetime allowance, forgives the missed task, appends a replacement
+`scheduled` task, cancels the pending capture, and returns the challenge to
+`active`. None of those can be split out. The task count is a deferred
+constraint trigger, so an `active` challenge without its replacement fails at
+commit; and a challenge returned to `active` with its capture still pending
+would be captured by issue 25's settlement pass for a miss that no longer
+exists.
+
+The append is now `replacement-task.ts`, extracted from the pause skip. Both
+paths consume a task without ending the challenge, so both owe the challenge the
+same replacement on the same next date and the same moved projection. Sharing
+one implementation is what keeps "a consumed task never shortens a challenge"
+one rule rather than two that agree today. `pause-skips.ts` lost its own copy
+and its 14 tests passed unchanged.
+
+Three decisions the architecture leaves open:
+
+- **The window closes inclusively, at the missed instant plus the recovery
+  window.** That is the same instant the challenge view shows the app as
+  `recoveryOffer.expiresAt` and the same instant the sweep set the capture's
+  `execute_after` to, so a request arriving exactly then is in time and the
+  settlement it races is not yet eligible. Every other deadline in the product
+  is on that side of its boundary.
+- **The settlement's own status is a second reading of the same instant.** A
+  funded challenge in `recovery_pending` always has a pending capture, because
+  the sweep creates it in the transaction that misses the task. So a capture
+  that is no longer pending means the money has already moved, and the recovery
+  is refused as a closed window rather than reported as our bug: from the user's
+  side that is exactly what a late request is.
+- **The allowance is checked before the challenge's status.** A user who spent
+  their recovery on an earlier challenge is told that, rather than being told
+  this challenge has no offer standing when the reason is the allowance. It also
+  gives the correct answer to a second attempt on the challenge that was just
+  recovered.
+
+The account row is locked before the challenge row, which is the order challenge
+creation and the funding intent already take. The account lock is what makes the
+lifetime allowance real under concurrency: without it two recoveries both read
+an unspent flag and the loser surfaces as a 500 from the
+`accounts_recovery_consumed_once` trigger rather than as the refusal the user is
+owed.
+
+A zero deposit challenge is never recoverable and needs no rule here. The
+database refuses `recovery_pending` without a deposit, so the sweep fails such a
+challenge outright and the status check answers `recovery_not_offered`.
+
+12 integration tests through the mounted route. The state they act on is built
+by running the real sweep rather than by inserting a `recovery_pending`
+challenge: the offer, the instant it is measured from, and the capture it
+cancels are all issue 23's output, and a fixture that invented them would let
+the suite pass against a shape the sweep does not produce.
+
+Five neuter checks on disjoint sets: dropping the window bound failed only the
+one-millisecond-late test, dropping the allowance check failed exactly the three
+tests about spending it twice, dropping the task match failed only the stale
+offer test, dropping the settled-capture refusal failed only the
+already-executed test, and dropping the status check failed only the zero
+deposit test.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike
