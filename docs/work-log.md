@@ -1590,7 +1590,101 @@ bundle, which proves Metro resolves the workspace contract package from source
 and that the entry point and router load. See "Handed back" for the half of this
 issue's acceptance boundary that needs a device.
 
+### Issue 28: sign-in
+
+Sign in with Apple and Google Sign-In are now real, and `DELETE /sessions` exists
+on the server so signing out means something.
+
+A native provider is reached only through `ProviderSignIn`: is this provider
+usable here, and give me a credential. `src/auth/apple.ts` and
+`src/auth/google.ts` are the only two implementations and `native-providers.ts`
+the only module that imports either SDK, which `app/_layout.tsx` calls once. That
+boundary was forced rather than chosen: both SDKs register a native module at
+import time, so a session provider that named them directly failed every screen
+test with `TurboModuleRegistry.getEnforcing('RNGoogleSignin')`. Passing the pair
+in from the root layout is what leaves everything above the interface testable
+without a device.
+
+Four decisions the architecture leaves open:
+
+- **Cancellation is a third outcome, not a failure.** `authenticate()` resolves
+  to `null` when the user dismissed the sheet, and `SignInOutcome` carries
+  `cancelled` alongside `signedIn` and `failed` all the way to the screen, which
+  shows nothing at all for it. Reporting a dismissed sheet as an error would tell
+  the user the app is broken on every stray tap.
+- **An unusable provider is absent, not disabled.** Availability is asked of both
+  providers on mount: Apple is unavailable off iOS, and Google is unavailable in
+  a build with no client ID. A greyed-out Apple button on Android is a mystery,
+  and a Google button in a build that cannot mint a token is a promise the app
+  cannot keep. When neither is available the screen says so plainly.
+- **The provider's own error message is never shown.** An SDK message names a
+  native module, and `internal_error` names a server problem; neither is
+  something a user can act on. `src/auth/sign-in.ts` holds one sentence per
+  contract error code, and a request that never reached the server is told apart
+  from a rejected credential by `status === null`.
+- **A refused session moves the whole app, not just the request.** The client
+  already discarded a session the server refused; it now also calls
+  `onSessionInvalid`, and `SessionProvider` goes to `signedOut`. Without that
+  wiring the app keeps rendering as signed in while every request fails, which is
+  the worst of the three states. The callback is part of the injected seam (the
+  provider takes a client factory rather than a client) so a test can exercise
+  it.
+
+Two rules the client had to be corrected on. A `401` only says something about
+the stored session when the request carried it: `POST /sessions` answers
+`unauthenticated` for a provider token it could not verify, and clearing storage
+on that would sign a user out because somebody else's tap failed. And an expiry
+the app can read for itself needs no round trip, so a stored session already past
+`expiresAt` is discarded at launch rather than presented on a screen whose first
+request is certain to fail.
+
+On the server, `signOut` sets `revoked_at` on the caller's own session and only
+when it is still null, so a repeat keeps the instant the session actually ended.
+It does not touch the account's other sessions. Sign-out has nothing to refuse,
+and it is idempotent by nature: a revoked session cannot pass the gate a second
+time. The app calls it before clearing the device but treats the call as best
+effort, because a user with no network must still be able to sign out of their
+own phone.
+
+`app.config.ts` now sits beside `app.json` and adds the Google config plugin only
+when `EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME` names a reversed client ID. The plugin
+validates the scheme and throws otherwise, so a placeholder would break the
+build; leaving it out matches what the app does at runtime with no client ID.
+`expo-apple-authentication` is unconditional and `usesAppleSignIn` was already
+set.
+
+25 new app tests (52 in `app` now): 5 over the flow's three outcomes, 9 over the
+provider's transitions including the double-tap guard and both expiry branches, 8
+over the screen's buttons and messages, and 3 over the Google client IDs. 5 new
+server tests over sign-out through the mounted route.
+
+Five neuter checks on disjoint sets: clearing the session on any `401` failed
+only the sign-in refusal test, dropping the launch expiry check failed only the
+expired-session test, removing the in-flight guard failed only the double-tap
+test, treating a cancelled sheet as a failure failed exactly the three
+cancellation tests, and letting a failed `DELETE /sessions` abort the local clear
+failed only the offline sign-out test. On the server, revoking without the
+`revoked_at is null` guard failed only the repeated-command test.
+
+Both bundles still export. See "Handed back" for the part of this issue's
+acceptance boundary that needs hardware and provider accounts.
+
 ## Handed back
+
+### Issue 28: sign-in on a device
+
+"Sign-in, sign-out, and session expiry are exercised on a device" cannot be met
+here. Apple's sheet and Google's activity need a development build on hardware,
+and that needs the accounts issue 27 already handed back, plus two more things:
+an Apple Sign In capability on the App ID for `com.betterwakeup.app`, and a
+Google Cloud OAuth client giving a web client ID, an iOS client ID, and the
+reversed iOS client ID for `EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME`.
+
+Until the Google client IDs exist, the app hides the Google button and
+`app.config.ts` leaves out its config plugin, so a build without them is coherent
+rather than broken. Everything above `ProviderSignIn` is covered by tests; the
+two SDK wrappers are the only code a device build would exercise for the first
+time.
 
 ### Issue 27: the app on real hardware
 

@@ -12,8 +12,10 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { createAuthHandlers } from "../../src/auth/handlers.ts";
 import { createProviderTokenVerifier } from "../../src/auth/provider-tokens.ts";
+import { createSessionGate } from "../../src/auth/session-gate.ts";
 import { hashSessionToken, verifySessionToken } from "../../src/auth/session-token.ts";
 import { type SignInDependencies, signIn } from "../../src/auth/sign-in.ts";
+import type { SignOutDependencies } from "../../src/auth/sign-out.ts";
 import { type Database, executeRows } from "../../src/db/index.ts";
 import { accounts, providerIdentities, sessions } from "../../src/db/schema.ts";
 import { createApp } from "../../src/http/app.ts";
@@ -30,7 +32,7 @@ beforeAll(async () => {
   keys = await createProviderKeys();
 });
 
-function dependencies(db: Database, now?: () => Date): SignInDependencies {
+function dependencies(db: Database, now?: () => Date): SignInDependencies & SignOutDependencies {
   return {
     db,
     verifier: createProviderTokenVerifier({
@@ -214,6 +216,9 @@ describe("POST /sessions", () => {
     return createApp({
       logger: createLogger({ sink: () => {} }),
       rateLimiter: fakeRateLimiter(),
+      // The handler set now also carries `deleteSession`, which the contract
+      // marks `auth: "session"`, so mounting it requires a gate.
+      sessionGate: createSessionGate({ db, sessionSecret: keys.config.sessionSecret }),
       handlers: createAuthHandlers(dependencies(db)),
     });
   }

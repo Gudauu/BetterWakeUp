@@ -29,9 +29,11 @@ function harness(
 ) {
   const calls: Call[] = [];
   const store = createMemorySessionStore(options.session === undefined ? SESSION : options.session);
+  const invalidated: true[] = [];
   const client: ApiClient = createApiClient({
     baseUrl: "https://api.example.test/",
     sessionStore: store,
+    onSessionInvalid: () => invalidated.push(true),
     fetch: (async (url: string, init: RequestInit) => {
       const call = { url, init };
       calls.push(call);
@@ -39,7 +41,7 @@ function harness(
     }) as unknown as typeof globalThis.fetch,
     newIdempotencyKey: () => "generated-key",
   });
-  return { calls, client, store };
+  return { calls, client, store, invalidated };
 }
 
 function headerOf(call: Call | undefined, name: string): string | undefined {
@@ -213,6 +215,32 @@ describe("the API client reacts to a session the server refuses", () => {
       code: "session_expired",
     });
     await expect(store.read()).resolves.toBeNull();
+  });
+
+  it("tells the caller so, which is what moves the app to signed out", async () => {
+    const { client, invalidated } = harness(() =>
+      jsonResponse(401, { code: "unauthenticated", message: "No." }),
+    );
+
+    await expect(client.request("deleteSession", {})).rejects.toMatchObject({
+      code: "unauthenticated",
+    });
+    expect(invalidated).toHaveLength(1);
+  });
+
+  it("keeps the stored session when it was sign-in that was refused", async () => {
+    // `POST /sessions` answers `unauthenticated` for a provider token it could
+    // not verify. That says nothing about whatever is in secure storage, and
+    // discarding it would sign the user out for somebody else's failed tap.
+    const { client, store, invalidated } = harness(() =>
+      jsonResponse(401, { code: "unauthenticated", message: "Bad provider token." }),
+    );
+
+    await expect(
+      client.request("createSession", { body: { provider: "apple", idToken: "nope" } }),
+    ).rejects.toMatchObject({ code: "unauthenticated" });
+    await expect(store.read()).resolves.not.toBeNull();
+    expect(invalidated).toHaveLength(0);
   });
 
   it("keeps stored session material on an unrelated refusal", async () => {

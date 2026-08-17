@@ -8,10 +8,21 @@
 
 import Constants from "expo-constants";
 
+/**
+ * What Google needs to mint an ID token for us. Both are absent in a build
+ * that has not been given a Google project, which makes Google Sign-In
+ * unavailable rather than broken.
+ */
+export interface GoogleClientIds {
+  readonly webClientId: string | undefined;
+  readonly iosClientId: string | undefined;
+}
+
 export interface AppConfig {
   readonly apiBaseUrl: string;
   /** Sent with every completion, so a bad client build can be identified. */
   readonly appVersion: string;
+  readonly google: GoogleClientIds;
 }
 
 function readApiBaseUrl(): string {
@@ -34,9 +45,33 @@ function readApiBaseUrl(): string {
   );
 }
 
+/**
+ * A client ID is a public identifier and not a secret, so it travels in the
+ * same two places the base URL does. Blank and absent are the same answer,
+ * because an EAS profile that declares the variable without a value would
+ * otherwise configure the SDK with an empty audience.
+ */
+function readOptional(
+  fromEnvironment: string | undefined,
+  manifestKey: string,
+): string | undefined {
+  if (typeof fromEnvironment === "string" && fromEnvironment.length > 0) {
+    return fromEnvironment;
+  }
+  const fromManifest = Constants.expoConfig?.extra?.[manifestKey];
+  if (typeof fromManifest === "string" && fromManifest.length > 0) {
+    return fromManifest;
+  }
+  return undefined;
+}
+
 export function loadAppConfig(): AppConfig {
   return {
     apiBaseUrl: readApiBaseUrl(),
     appVersion: Constants.expoConfig?.version ?? "0.0.0",
+    google: {
+      webClientId: readOptional(process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID, "googleWebClientId"),
+      iosClientId: readOptional(process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID, "googleIosClientId"),
+    },
   };
 }

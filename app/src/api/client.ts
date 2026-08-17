@@ -61,6 +61,13 @@ export interface ApiClientOptions {
   /** Injectable so a test drives the client without a network. */
   readonly fetch?: typeof globalThis.fetch;
   readonly newIdempotencyKey?: () => string;
+  /**
+   * Called after a stored session has been discarded because the server
+   * refused it. The session provider uses it to move the whole app to the
+   * signed-out state, so an expired session is noticed on the first request
+   * that used it rather than left on screen as if it still worked.
+   */
+  readonly onSessionInvalid?: () => void;
 }
 
 interface LooseRequest {
@@ -166,10 +173,17 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
           });
         }
         const error = ApiError.fromResponse(response.status, parsed.data);
-        if (error.code === "unauthenticated" || error.code === "session_expired") {
+        if (
+          definition.auth === "session" &&
+          (error.code === "unauthenticated" || error.code === "session_expired")
+        ) {
           // The stored session is provably useless, so it goes now rather than
-          // being presented on every later request.
+          // being presented on every later request. Only a request that carried
+          // the session says anything about it: sign-in answers `unauthenticated`
+          // for a provider token it could not verify, which is no evidence
+          // about whatever is in storage.
           await options.sessionStore.clear();
+          options.onSessionInvalid?.();
         }
         throw error;
       }

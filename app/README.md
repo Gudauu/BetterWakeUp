@@ -17,6 +17,8 @@ expects Jest. See "Toolchain" in `docs/architecture.md`.
 - `app/` file-based routes. `index.tsx` is the welcome screen.
 - `src/api/` the client built from the contract's endpoint registry, and the
   one error type it raises.
+- `src/auth/` the two native sign-in providers behind one interface, and the
+  sign-in flow that exchanges a credential for a session.
 - `src/session/` secure storage for session material, and the React context the
   screens read it from.
 - `src/screens/` screen components, kept out of `app/` so a test renders one
@@ -29,6 +31,19 @@ own bundle identifier, which the API's audience check rejects. `eas.json` holds
 the `development` profile that produces the build to run against instead. It
 needs an Expo account and platform credentials, which is recorded under "Handed
 back" in `docs/work-log.md`.
+
+## Build configuration
+
+`app.json` holds everything static. `app.config.ts` adds what depends on the
+build, which today is Google's config plugin, included only when
+`EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME` names a reversed iOS client ID.
+
+| Variable | Effect when absent |
+| --- | --- |
+| `EXPO_PUBLIC_API_BASE_URL` | falls back to `extra.apiBaseUrl` in `app.json` |
+| `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` | Google Sign-In reports itself unavailable and its button is not shown |
+| `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` | Google Sign-In falls back to the web client ID on iOS |
+| `EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME` | Google's config plugin is left out of the build |
 
 Working rules for this package are under "The mobile app" in
 `CONTRIBUTING.md`.

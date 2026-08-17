@@ -19,7 +19,7 @@
       "package": "com.betterwakeup.app",
       "permissions": ["android.permission.ACTIVITY_RECOGNITION"]
     },
-    "plugins": ["expo-router", "expo-status-bar", "expo-secure-store"],
+    "plugins": ["expo-router", "expo-status-bar", "expo-secure-store", "expo-apple-authentication"],
     "extra": {
       "apiBaseUrl": "http://localhost:3000"
     }

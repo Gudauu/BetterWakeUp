@@ -199,6 +199,12 @@ Look a presented token up by `hashSessionToken`; never store or log the token
 itself. The row is the authority on revocation and expiry, so a signature check
 alone is not a session check.
 
+Sign-out (`signOut`) sets `revoked_at` on the caller's own session and only when
+it is still null, so a repeat does not rewrite the instant the session actually
+ended. It never widens to the account's other sessions: signing out on one
+device leaves the others signed in, which is what a user expects. The command has
+nothing to refuse, because a revoked session cannot reach the handler twice.
+
 `loadAuthConfig` reads `SESSION_SECRET`, `APPLE_AUDIENCES`, and
 `GOOGLE_AUDIENCES` and throws when any is missing or empty. Keep it that way: an
 empty audience list means every audience is accepted.
@@ -619,6 +625,42 @@ clears it, so a session the server has refused is never presented twice.
 Screens read session state from `useSession()`. `loading` is one of its three
 states because secure storage is asynchronous: rendering the signed-out screen
 while the read is in flight would flash it at a signed-in user.
+
+### Sign-in and sign-out
+
+A native provider is reached only through `ProviderSignIn`
+(`src/auth/provider-sign-in.ts`), which has exactly two operations: is this
+provider usable here, and give me a credential. Nothing above that interface
+imports Apple's or Google's SDK, and `src/auth/native-providers.ts` is the only
+module that does. That is not a style rule: both SDKs register a native module
+at import time, so a module that named them directly would make every test that
+renders a screen need a device. `app/_layout.tsx` builds the real pair once and
+passes them to `SessionProvider`.
+
+`authenticate()` resolves to `null` when the user backed out. Cancellation is a
+third outcome alongside success and failure everywhere it travels
+(`SignInOutcome`), and it must never be shown as an error: a user who dismissed
+Apple's sheet has not failed at anything. A provider's own error message is
+never shown either, because it names a native module; the user gets one sentence
+per contract error code from `src/auth/sign-in.ts`.
+
+A provider that reports itself unavailable is not offered at all. Apple is
+absent off iOS, and Google is absent in a build with no client ID, which is the
+same condition under which `app.config.ts` leaves Google's config plugin out.
+Add a build-dependent plugin there rather than in `app.json`, and gate it on the
+configuration it needs: a plugin configured with a placeholder fails the build
+instead of hiding a feature.
+
+`SessionProvider` owns every transition, so a screen never writes the session
+store. The server refusing a session is one of those transitions: the client
+calls `onSessionInvalid` after it discards the stored session, and the provider
+moves the app to signed out. The client only does this for a request that
+carried the session; `POST /sessions` answers `unauthenticated` for a provider
+token it could not verify, which says nothing about what is in storage.
+
+Sign-out calls `DELETE /sessions` so the row is revoked and a copy of the token
+is useless, then clears the device whatever the call did. A user with no network
+must still be able to sign out of their own phone.
 
 ## Commits
 

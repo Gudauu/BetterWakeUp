@@ -3,9 +3,15 @@
  *
  * React context and hooks, as the architecture directs: a client state library
  * arrives only when an observed state-sharing problem requires one.
+ *
+ * This module owns the three transitions there are: a session restored from
+ * secure storage at launch, a session obtained by signing in, and a session
+ * gone because the user signed out or because the server refused it. Nothing
+ * else writes the store, so there is one answer to "am I signed in" rather
+ * than one per screen.
  */
 
-import type { SessionView } from "@betterwakeup/contract";
+import type { IdentityProvider, SessionView } from "@betterwakeup/contract";
 import {
   createContext,
   type ReactNode,
@@ -13,9 +19,12 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { type ApiClient, createApiClient } from "../api/client.ts";
+import type { ProviderSignIns } from "../auth/provider-sign-in.ts";
+import { type SignInOutcome, signInWithProvider } from "../auth/sign-in.ts";
 import { loadAppConfig } from "../config.ts";
 import { createSecureSessionStore, type SessionStore } from "./session-store.ts";
 
@@ -29,39 +38,105 @@ export type SessionState =
   | { status: "signedOut" }
   | { status: "signedIn"; session: SessionView };
 
+/**
+ * Which providers this device and build can actually offer, or `null` while
+ * the native modules are still being asked.
+ */
+export type ProviderAvailability = Readonly<Record<IdentityProvider, boolean>>;
+
 export interface SessionContextValue {
   readonly state: SessionState;
   readonly api: ApiClient;
-  signIn(session: SessionView): Promise<void>;
+  readonly availability: ProviderAvailability | null;
+  /** Runs the native flow, exchanges the credential, and persists the result. */
+  signIn(provider: IdentityProvider): Promise<SignInOutcome>;
   signOut(): Promise<void>;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
+/**
+ * What the provider hands whatever builds the client. It is a factory rather
+ * than a client so the invalidation callback is part of the injected seam: a
+ * test that was handed a finished client could not exercise the wiring that
+ * turns a refused session into a signed-out app.
+ */
+export interface ApiClientHooks {
+  readonly sessionStore: SessionStore;
+  readonly onSessionInvalid: () => void;
+}
+
 export interface SessionProviderProps {
   children: ReactNode;
   /** Substituted in tests; the app builds the secure one from configuration. */
   store?: SessionStore;
-  api?: ApiClient;
+  createClient?: (hooks: ApiClientHooks) => ApiClient;
+  /**
+   * The native flows, passed in by the root layout. Required rather than
+   * defaulted here: both SDKs register a native module the moment they are
+   * imported, so a default would make every screen test need a device.
+   */
+  providers: ProviderSignIns;
+  /** Injected so a test asserts the expiry boundary rather than tolerating it. */
+  now?: () => Date;
 }
 
-export function SessionProvider({ children, store, api }: SessionProviderProps) {
+export function SessionProvider({
+  children,
+  store,
+  createClient,
+  providers,
+  now,
+}: SessionProviderProps) {
   const sessionStore = useMemo(() => store ?? createSecureSessionStore(), [store]);
-  const client = useMemo(
-    () =>
-      api ?? createApiClient({ baseUrl: loadAppConfig().apiBaseUrl, sessionStore: sessionStore }),
-    [api, sessionStore],
-  );
   const [state, setState] = useState<SessionState>({ status: "loading" });
+  // Held in a ref rather than depended on: a caller passing a new function
+  // identity per render would otherwise restart the launch read.
+  const clock = useRef(now);
+  clock.current = now;
+
+  // The client is built once and told what to do when the server refuses the
+  // session it sent, which is how an expiry that happens between requests
+  // becomes a signed-out app rather than a screen that keeps failing.
+  const client = useMemo(() => {
+    const hooks: ApiClientHooks = {
+      sessionStore,
+      onSessionInvalid: () => setState({ status: "signedOut" }),
+    };
+    return createClient === undefined
+      ? createApiClient({ baseUrl: loadAppConfig().apiBaseUrl, ...hooks })
+      : createClient(hooks);
+  }, [createClient, sessionStore]);
+
+  const [availability, setAvailability] = useState<ProviderAvailability | null>(null);
+
+  // A sign-in in flight must not be overtaken by the launch read resolving, and
+  // a second tap must not start a second native flow.
+  const signingIn = useRef(false);
 
   useEffect(() => {
     let active = true;
     void sessionStore.read().then(
-      (session) => {
+      async (session) => {
         if (!active) {
           return;
         }
-        setState(session === null ? { status: "signedOut" } : { status: "signedIn", session });
+        if (session === null) {
+          setState({ status: "signedOut" });
+          return;
+        }
+        // An expiry the app can read for itself is not worth a round trip:
+        // presenting an expired session would put the user on a signed-in
+        // screen whose first request is guaranteed to fail.
+        const nowMs = (clock.current ?? (() => new Date()))().getTime();
+        if (Date.parse(session.expiresAt) <= nowMs) {
+          await sessionStore.clear();
+          if (active) {
+            setState({ status: "signedOut" });
+          }
+          return;
+        }
+        setState({ status: "signedIn", session });
       },
       () => {
         // Unreadable secure storage is signed out, not a crash on launch.
@@ -75,22 +150,62 @@ export function SessionProvider({ children, store, api }: SessionProviderProps) 
     };
   }, [sessionStore]);
 
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      providers.apple.isAvailable().catch(() => false),
+      providers.google.isAvailable().catch(() => false),
+    ]).then(([apple, google]) => {
+      if (active) {
+        setAvailability({ apple, google });
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [providers]);
+
   const signIn = useCallback(
-    async (session: SessionView) => {
-      await sessionStore.write(session);
-      setState({ status: "signedIn", session });
+    async (provider: IdentityProvider): Promise<SignInOutcome> => {
+      if (signingIn.current) {
+        return { status: "cancelled" };
+      }
+      signingIn.current = true;
+      try {
+        const outcome = await signInWithProvider({
+          api: client,
+          provider: providers[provider],
+        });
+        if (outcome.status === "signedIn") {
+          // Persisted before the state changes, so a screen that renders as
+          // signed in can never be the only place the session exists.
+          await sessionStore.write(outcome.session);
+          setState({ status: "signedIn", session: outcome.session });
+        }
+        return outcome;
+      } finally {
+        signingIn.current = false;
+      }
     },
-    [sessionStore],
+    [client, providers, sessionStore],
   );
 
   const signOut = useCallback(async () => {
+    try {
+      // Best effort: the point of the call is to revoke the session on the
+      // server so a copy of the token is useless, but a user with no network
+      // must still be able to sign out of their own device.
+      await client.request("deleteSession", {});
+    } catch {
+      // The session is being discarded either way.
+    }
     await sessionStore.clear();
     setState({ status: "signedOut" });
-  }, [sessionStore]);
+  }, [client, sessionStore]);
 
   const value = useMemo<SessionContextValue>(
-    () => ({ state, api: client, signIn, signOut }),
-    [state, client, signIn, signOut],
+    () => ({ state, api: client, availability, signIn, signOut }),
+    [state, client, availability, signIn, signOut],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
