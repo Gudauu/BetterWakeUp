@@ -355,6 +355,30 @@ duplicate-key failure instead of as a conflict the caller is told about.
 Decide anything that does not need the database before claiming an idempotency
 key. A request that can never succeed should not spend the caller's key.
 
+## Pause mode
+
+Pause is a mode on the challenge and never an action on a task. Entering it
+writes `paused_at` and consumes nothing; a task is consumed only as its own pause
+cutoff passes.
+
+One skip is one transaction that moves a task to `skipped` and appends its
+replacement. Never write the skip without the append: the active challenge's task
+count is a deferred constraint trigger, so the commit fails, and it fails at the
+end of the transaction rather than at the statement that caused it.
+
+The window a pause consumes is `(pausedAt, now]`, and both bounds are rules a
+user feels. A pause set at or after a task's cutoff leaves that task live; a
+resume consumes everything whose cutoff passed while the mode was set, so it
+takes effect on the following task rather than dropping the user into a window
+they can no longer plan around.
+
+Both ends of the mode go through `skipTasksConsumedByPause`, and so will the
+sweep. A second way to skip a task is a second idea of what a pause is.
+
+Nothing may clear `paused_at` except the resume command. A pause has no limit and
+no expiry, and the year that ends a paused challenge ends it as `expired` rather
+than resuming it. `server/test/pause-mode.test.ts` is the test that says so.
+
 ## Payments
 
 The provider is reached only through `PaymentProviderClient` in

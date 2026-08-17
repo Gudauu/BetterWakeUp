@@ -30,6 +30,7 @@ import {
 import { createApp } from "../../src/http/app.ts";
 import { createLogger } from "../../src/observability/logger.ts";
 import { insertAccount, insertChallengeForAccount } from "../support/challenge-fixtures.ts";
+import { fakeRateLimiter } from "../support/fake-rate-limiter.ts";
 import { useTestDatabase } from "../support/postgres.ts";
 
 const testDatabase = useTestDatabase();
@@ -64,6 +65,7 @@ function app(db: Database) {
   return createApp({
     logger: createLogger({ sink: () => {} }),
     sessionGate: createSessionGate({ db, sessionSecret: SESSION_SECRET }),
+    rateLimiter: fakeRateLimiter(),
     handlers: createChallengeHandlers({ db, now: () => STARTING_AT }),
   });
 }

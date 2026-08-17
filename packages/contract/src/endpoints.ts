@@ -25,7 +25,6 @@ import {
   pauseChallengeResponse,
   replacePaymentMethodRequest,
   replacePaymentMethodResponse,
-  resumeChallengeRequest,
   resumeChallengeResponse,
 } from "./challenges.ts";
 import { createSessionRequest, createSessionResponse, emptyResponse } from "./identity.ts";
@@ -176,7 +175,9 @@ export const ENDPOINTS = {
     auth: "session",
     idempotent: true,
     params: challengeParams,
-    request: deepStrict(resumeChallengeRequest),
+    // No body, like the other two `DELETE` commands: what is being deleted is
+    // named by the path, and a body on a `DELETE` is not carried reliably.
+    request: null,
     response: resumeChallengeResponse,
   },
   acceptRecovery: {

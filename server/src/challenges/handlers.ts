@@ -16,6 +16,7 @@ import type { PaymentProviderClient } from "../payments/provider.ts";
 import { type CreateChallengeDependencies, createChallenge } from "./create-challenge.ts";
 import { getCurrentChallenge } from "./current-challenge.ts";
 import { createFundingIntent } from "./funding-intent.ts";
+import { pauseChallenge, resumeChallenge } from "./pause.ts";
 import { planChallenge } from "./plan.ts";
 
 export interface ChallengeHandlerDependencies extends CreateChallengeDependencies {
@@ -26,6 +27,18 @@ export interface ChallengeHandlerDependencies extends CreateChallengeDependencie
    * not mount the funded door.
    */
   readonly provider?: PaymentProviderClient | undefined;
+}
+
+/**
+ * The idempotency key of a command the contract marks idempotent.
+ *
+ * The validation boundary refuses such a request without a key, so reaching a
+ * handler with none means the registry and the boundary disagree, which is ours
+ * to fix and not the caller's.
+ */
+function requireKey(command: string, key: string | undefined): string {
+  if (key !== undefined) return key;
+  throw new AppError("internal_error", `${command} reached its handler with no idempotency key`);
 }
 
 export function createChallengeHandlers(deps: ChallengeHandlerDependencies): EndpointHandlers {
@@ -45,16 +58,9 @@ export function createChallengeHandlers(deps: ChallengeHandlerDependencies): End
     },
 
     createChallenge: async ({ body, session, idempotencyKey, logger }) => {
-      if (idempotencyKey === undefined) {
-        // The contract marks this endpoint idempotent and the validation
-        // boundary refuses a request without a key, so reaching here means the
-        // two disagree, which is ours to fix and not the caller's.
-        throw new AppError("internal_error", "createChallenge reached its handler with no key");
-      }
-
       const { response, replayed } = await createChallenge(deps, {
         accountId: session.accountId,
-        idempotencyKey,
+        idempotencyKey: requireKey("createChallenge", idempotencyKey),
         configuration: body.configuration,
         policyVersion: body.policyVersion,
       });
@@ -68,22 +74,48 @@ export function createChallengeHandlers(deps: ChallengeHandlerDependencies): End
 
     getCurrentChallenge: async ({ session }) => await getCurrentChallenge(deps, session.accountId),
 
+    pauseChallenge: async ({ params, session, idempotencyKey, logger }) => {
+      const { response, replayed } = await pauseChallenge(deps, {
+        accountId: session.accountId,
+        challengeId: params.challengeId,
+        idempotencyKey: requireKey("pauseChallenge", idempotencyKey),
+      });
+      logger.info("challenge paused", {
+        command: "pauseChallenge",
+        result: replayed ? "replayed" : "paused",
+        challengeId: response.challenge.id,
+        // Which task the pause takes first is the one thing about a pause that
+        // support is ever asked to explain, and it is the boundary the rule
+        // turns on.
+        ...(response.nextSkippedTask === null ? {} : { taskId: response.nextSkippedTask.id }),
+      });
+      return response;
+    },
+
+    resumeChallenge: async ({ params, session, idempotencyKey, logger }) => {
+      const { response, replayed } = await resumeChallenge(deps, {
+        accountId: session.accountId,
+        challengeId: params.challengeId,
+        idempotencyKey: requireKey("resumeChallenge", idempotencyKey),
+      });
+      logger.info("challenge resumed", {
+        command: "resumeChallenge",
+        result: replayed ? "replayed" : "resumed",
+        challengeId: response.challenge.id,
+        ...(response.nextLiveTask === null ? {} : { taskId: response.nextLiveTask.id }),
+      });
+      return response;
+    },
+
     ...(provider === undefined
       ? {}
       : {
           createFundingIntent: async ({ body, session, idempotencyKey, logger }) => {
-            if (idempotencyKey === undefined) {
-              throw new AppError(
-                "internal_error",
-                "createFundingIntent reached its handler with no key",
-              );
-            }
-
             const { response, replayed } = await createFundingIntent(
               { ...deps, provider },
               {
                 accountId: session.accountId,
-                idempotencyKey,
+                idempotencyKey: requireKey("createFundingIntent", idempotencyKey),
                 configuration: body.configuration,
                 policyVersion: body.policyVersion,
               },

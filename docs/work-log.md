@@ -1040,6 +1040,79 @@ Six neuter checks on disjoint tests: the grace, the step target, the record
 identifier, the provenance, and the row lock each failed exactly one test, and
 the window check failed exactly two.
 
+### Issue 21: pause mode
+
+`POST` and `DELETE /challenges/:challengeId/pause`, in
+`server/src/challenges/pause.ts`, with the skip they imply in
+`server/src/challenges/pause-skips.ts`.
+
+Pausing acts on the challenge and never on a task. Setting the mode writes
+`paused_at` and consumes nothing; each task is consumed as its own pause cutoff
+passes, and each consumption is one transaction moving the task to `skipped` and
+appending one replacement `scheduled` task. Splitting those two statements is not
+available: the active challenge's task count is a deferred constraint trigger, so
+a skip with no replacement fails at commit. The invariant forces the shape rather
+than merely describing it.
+
+The window a pause consumes is `(pausedAt, now]`. Strictly after the pause
+instant, because a pause set at or after a task's cutoff leaves that task live:
+the user never got the No Regret notice, so the task they are inside of stays
+theirs. At or before the current instant, because a cutoff still ahead has not
+passed and the user may yet resume before it does.
+
+Resume runs the same consumption, in its own transaction, before it clears the
+mode. That is what makes leaving the pause bind at the cutoff boundary rather
+than at whenever the sweep next runs: the tasks whose cutoffs passed while the
+mode was set were spent, and a resume arriving before the sweep did must not hand
+them back. It also means the sweep and the resume share one implementation, so
+there is no second idea of what a pause skip is.
+
+A replacement lands on the next scheduled date past the last date the challenge
+holds a task on, and the challenge's stored `projected_end_date` moves with it. A
+pause spanning several windows therefore carries the challenge past the date it
+was created against, which is the intended cost and is why the maximum duration
+rule is checked at creation and not maintained afterwards.
+
+The catch-up loop runs until no task is due rather than once per due task,
+because a replacement appended during a long pause can itself have a cutoff in
+the past. It is bounded at 400 skips: a year of pause expires the challenge and
+the densest schedule is daily, so anything past that is a bug, and the bound
+exists so a bug does not present as a hung Lambda.
+
+Both commands take the challenge row `for update` before deciding anything, which
+is the same discipline the completion path applies to a task row. Removing it
+fails exactly the two-writer test and nothing else.
+
+`recovery_pending` is refused along with the terminal statuses. That challenge is
+waiting on one decision with a window of its own, and letting a pause suspend
+that clock would make the recovery window unbounded.
+
+The contract changed in one place: `DELETE /challenges/:challengeId/pause` now
+takes no request body, matching the other two `DELETE` commands. A body on a
+`DELETE` is dropped by enough intermediaries that requiring one would make the
+command's success depend on the network rather than on the request.
+
+`pause_cutoff_passed` remains an unused error code. It belongs to the per-task
+pause the architecture replaced with a mode: entering a pause inside a task's
+cutoff is not a refusal, it is a pause that leaves that task live and names the
+next one it takes. The code is left in the contract because the time zone change
+in issue 22 binds on the same boundary and may need it.
+
+14 integration tests through the mounted routes and 2 unit tests. The acceptance
+boundary is both ends of the cutoff, to the millisecond, in both directions; the
+invariant is a pause spanning three windows, whose skips and replacements are
+checked against committed rows, so the deferred trigger accepting the commit is
+part of the assertion. The unit tests are a source scan: exactly one module in
+the server clears `paused_at`, and it is the resume command, which is the only
+way to state "no code path resumes a challenge without an explicit request" over
+paths that do not send requests.
+
+Four neuter checks, each landing where it should: dropping the `pausedAt` bound
+failed only the test asserting a pre-pause task stays live, dropping the `now`
+bound failed the six tests that depend on a resume not consuming the future,
+dropping the row lock failed only the two-writer test, and dropping the
+consumption from resume failed the five tests that assert what a resume spends.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

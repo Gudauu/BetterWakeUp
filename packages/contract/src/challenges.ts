@@ -170,7 +170,12 @@ export const changeTimeZoneResponse = z.object({
   rematerializedTasks: z.array(taskView),
 });
 
-/** Pause and resume take no body beyond the idempotency key in the header. */
+/**
+ * Pause takes no body beyond the idempotency key in the header, and resume
+ * takes no body at all: it is a `DELETE`, and a body on a `DELETE` is dropped
+ * by enough intermediaries that requiring one would make the command's success
+ * depend on the network rather than on the request.
+ */
 export const pauseChallengeRequest = z.object({});
 
 export const pauseChallengeResponse = z.object({
@@ -181,8 +186,6 @@ export const pauseChallengeResponse = z.object({
    */
   nextSkippedTask: taskView.nullable(),
 });
-
-export const resumeChallengeRequest = z.object({});
 
 export const resumeChallengeResponse = z.object({
   challenge: challengeView,
@@ -229,7 +232,6 @@ export type ChangeTimeZoneRequest = z.infer<typeof changeTimeZoneRequest>;
 export type ChangeTimeZoneResponse = z.infer<typeof changeTimeZoneResponse>;
 export type PauseChallengeRequest = z.infer<typeof pauseChallengeRequest>;
 export type PauseChallengeResponse = z.infer<typeof pauseChallengeResponse>;
-export type ResumeChallengeRequest = z.infer<typeof resumeChallengeRequest>;
 export type ResumeChallengeResponse = z.infer<typeof resumeChallengeResponse>;
 export type AcceptRecoveryRequest = z.infer<typeof acceptRecoveryRequest>;
 export type AcceptRecoveryResponse = z.infer<typeof acceptRecoveryResponse>;
