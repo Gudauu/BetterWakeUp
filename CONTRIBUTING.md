@@ -453,6 +453,31 @@ path. A second writer would be a second chance to get the task count invariant
 wrong. Take the account lock first, through `lockAccount`, as every path that
 decides whether a challenge may start does.
 
+## Authorizations and renewal
+
+The hold securing a funded challenge is a `challenge_authorizations` row, not a
+column on the challenge and not the funding intent. A renewal supersedes that
+row and inserts a new one, so the table is also the history a reconciliation
+reads. A partial unique index keeps one `live` hold per challenge; anything
+asking "which authorization would this act on" reads that row.
+
+Renewal is driven by each hold's own window, never by a cadence: a hold is due
+once `now` has passed the midpoint of its `authorized_at` to `expires_at`
+window. Do not add a renewal interval constant.
+
+Take the replacement hold before releasing the one it replaces, and release only
+after the replacement is committed. A stray hold expires having charged nothing;
+an unsecured challenge does not fix itself.
+
+A failed renewal must never fail a challenge. `deposit_secured` is the only
+column of `challenges` the renewal path may write. If a new failure mode needs a
+challenge to end, it does not belong on this path.
+
+Nothing on the renewal path may capture, charge, forfeit, or write a ledger row:
+replacing a hold moves no value. `server/test/authorization-renewal.test.ts`
+asserts this over the whole module, so a new import there is a test failure
+rather than a review comment.
+
 ## The scheduled sweep
 
 The sweep is in `server/src/sweep`, and `run-sweep.ts` owns the order. Step 0

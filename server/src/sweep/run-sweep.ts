@@ -17,8 +17,8 @@
  *    and the separation is the architecture's: no capture happens in the
  *    transaction that fails a challenge, so a user who opens the app later
  *    still has an intact authorization to recover against.
- * 7. Renew authorizations approaching `capture_before`. **Not here.** Issue 24a
- *    owns renewal.
+ * 7. Renew authorizations approaching `capture_before`, which is where a
+ *    challenge outliving several holds stays secured.
  * 8. Repeat until no due batch remains.
  *
  * Step 0 before step 1 is the ordering that matters, and it is enforced by this
@@ -41,6 +41,8 @@
 import type { Database } from "../db/client.ts";
 import type { ScheduledEvent } from "../lambda/events.ts";
 import type { Logger } from "../observability/logger.ts";
+import type { PaymentProviderClient } from "../payments/provider.ts";
+import { runRenewalPass } from "../payments/renewal.ts";
 import { runOverduePass } from "./overdue-pass.ts";
 import { runPausePass } from "./pause-pass.ts";
 
@@ -75,12 +77,25 @@ export interface SweepResult {
   readonly challengesExpired: number;
   /** Settlement commands written. None of them executed. */
   readonly settlementsCreated: number;
+  /** Deposit holds replaced by a fresh one before their window ran out. */
+  readonly authorizationsRenewed: number;
+  /** Holds the provider refused to renew, leaving those deposits unsecured. */
+  readonly renewalsFailed: number;
   /** Whether work remained when the pass stopped. */
   readonly moreWorkPending: boolean;
 }
 
 export interface SweepDependencies {
   readonly db: Database;
+  /**
+   * The payment provider, when one is configured.
+   *
+   * Optional because everything except renewal is provider-free: a deployment
+   * with no provider still misses tasks, fails challenges, and writes the
+   * settlement commands it will execute once one exists. Renewal is the one
+   * step that reaches a network, so it is the one step that is skipped.
+   */
+  readonly provider?: PaymentProviderClient | undefined;
   /** The instant the whole invocation reasons from. A test states the moment. */
   readonly now?: (() => Date) | undefined;
   readonly batchSize?: number | undefined;
@@ -105,6 +120,9 @@ export function createSweep(deps: SweepDependencies): SweepRunner {
     // across passes so a repeat does not choose the same held row again and
     // spend the whole invocation on it.
     const passedOver = new Set<string>();
+    // Holds this invocation already tried to renew. A decline leaves the row
+    // due, so without this the pass would spend its ceiling on one card.
+    const attemptedRenewals = new Set<string>();
     const totals = {
       tasksMissed: 0,
       tasksSkipped: 0,
@@ -112,6 +130,8 @@ export function createSweep(deps: SweepDependencies): SweepRunner {
       challengesInRecovery: 0,
       challengesExpired: 0,
       settlementsCreated: 0,
+      authorizationsRenewed: 0,
+      renewalsFailed: 0,
     };
     let moreWorkPending = false;
 
@@ -126,7 +146,25 @@ export function createSweep(deps: SweepDependencies): SweepRunner {
       totals.challengesInRecovery += overdue.challengesInRecovery;
       totals.settlementsCreated += pause.settlementsCreated + overdue.settlementsCreated;
 
-      moreWorkPending = pause.moreWorkPending || overdue.moreWorkPending;
+      // Step 7. After the overdue pass rather than before it, because a
+      // challenge that has just failed no longer needs its hold renewed, and
+      // renewing one the same invocation is about to stop relying on is a
+      // provider call for nothing.
+      const renewal =
+        deps.provider === undefined
+          ? { authorizationsRenewed: 0, renewalsFailed: 0, moreWorkPending: false }
+          : await runRenewalPass({
+              db: deps.db,
+              provider: deps.provider,
+              now,
+              batchSize,
+              logger,
+              attempted: attemptedRenewals,
+            });
+      totals.authorizationsRenewed += renewal.authorizationsRenewed;
+      totals.renewalsFailed += renewal.renewalsFailed;
+
+      moreWorkPending = pause.moreWorkPending || overdue.moreWorkPending || renewal.moreWorkPending;
       if (!moreWorkPending) break;
     }
 
@@ -167,6 +205,8 @@ export const unconfiguredSweep: SweepRunner = async (_event, logger) => {
     challengesInRecovery: 0,
     challengesExpired: 0,
     settlementsCreated: 0,
+    authorizationsRenewed: 0,
+    renewalsFailed: 0,
     moreWorkPending: false,
   });
 };

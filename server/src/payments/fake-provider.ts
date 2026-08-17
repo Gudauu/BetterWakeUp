@@ -88,24 +88,40 @@ export class FakePaymentProvider implements PaymentProviderClient {
   private readonly authorizations = new Map<string, FakeAuthorization>();
   /** Event bodies by event ID, so a redelivery is byte-identical to the first. */
   private readonly deliveries = new Map<string, string>();
+  /** Holds whose renewal the issuer refuses, so a decline can be staged. */
+  private readonly declinedRenewals = new Set<string>();
+  /** Instruments the issuer refuses off-session. */
+  private readonly declinedInstruments = new Set<string>();
 
   constructor(options: FakeProviderOptions) {
     this.secret = options.webhookSecret;
     this.now = options.now ?? (() => new Date());
   }
 
+  /**
+   * A hold.
+   *
+   * With no instrument named this is the funding path: the hold starts
+   * `pending` and the device confirms it through a delivery. With one it is
+   * off-session, which needs no device, so the hold is live when the call
+   * returns and no delivery follows.
+   */
   async authorizeDeposit(command: AuthorizeDepositCommand): Promise<Authorization> {
+    const offSession = command.paymentMethodId !== undefined;
+    if (offSession && this.declinedInstruments.has(command.paymentMethodId ?? "")) {
+      throw new AppError("payment_declined", "This instrument was declined.");
+    }
     const id = `auth_${randomUUID()}`;
     const authorization: FakeAuthorization = {
       id,
       reference: command.reference,
       customerReference: command.customerReference,
       amount: command.amount,
-      paymentMethodId: `pm_${randomUUID()}`,
+      paymentMethodId: command.paymentMethodId ?? `pm_${randomUUID()}`,
       // A real fingerprint is a property of the card rather than of the
       // instrument record, so two intents from one test card share one.
       fingerprint: `fp_${command.customerReference}`,
-      state: "pending",
+      state: offSession ? "authorized" : "pending",
       expiresAt: new Date(this.now().getTime() + AUTHORIZATION_DAYS * DAY_MS),
     };
     this.authorizations.set(id, authorization);
@@ -116,16 +132,35 @@ export class FakePaymentProvider implements PaymentProviderClient {
     };
   }
 
+  /**
+   * A replacement hold on the same instrument.
+   *
+   * The fake mints a new identifier rather than extending the old hold,
+   * because that is the harder of the two behaviors a real processor can have
+   * and the one the caller has to be written for: for as long as it takes to
+   * record the replacement, the challenge is secured twice. The old hold stays
+   * live until it is released, so a caller that forgets to release it leaves a
+   * stray hold rather than an unsecured challenge.
+   */
   async renewAuthorization(authorizationId: string): Promise<Authorization> {
     const authorization = this.require(authorizationId);
     if (authorization.state !== "authorized") {
       throw new AppError("payment_declined", "Only a live authorization can be renewed.");
     }
-    authorization.expiresAt = new Date(this.now().getTime() + AUTHORIZATION_DAYS * DAY_MS);
+    if (this.declinedRenewals.has(authorizationId)) {
+      throw new AppError("payment_declined", "The card was declined on renewal.");
+    }
+    const replacement: FakeAuthorization = {
+      ...authorization,
+      id: `auth_${randomUUID()}`,
+      state: "authorized",
+      expiresAt: new Date(this.now().getTime() + AUTHORIZATION_DAYS * DAY_MS),
+    };
+    this.authorizations.set(replacement.id, replacement);
     return {
-      authorizationId,
-      clientSecret: `${authorizationId}_secret_renewed`,
-      expiresAt: authorization.expiresAt,
+      authorizationId: replacement.id,
+      clientSecret: `${replacement.id}_secret_renewed`,
+      expiresAt: replacement.expiresAt,
     };
   }
 
@@ -182,6 +217,22 @@ export class FakePaymentProvider implements PaymentProviderClient {
       paymentMethodId: authorization.paymentMethodId,
       fingerprint: authorization.fingerprint,
     };
+  }
+
+  /**
+   * The issuer refuses to renew this hold, from now on.
+   *
+   * A decline is a standing condition rather than a single failure: an expired
+   * card declines every attempt, which is what makes "the renewal is retried
+   * and the challenge keeps running" testable rather than a one-shot fluke.
+   */
+  declineRenewalsOf(authorizationId: string): void {
+    this.declinedRenewals.add(authorizationId);
+  }
+
+  /** The issuer refuses off-session charges on this instrument. */
+  declineInstrument(paymentMethodId: string): void {
+    this.declinedInstruments.add(paymentMethodId);
   }
 
   /** The signature the provider would send for these exact bytes. */

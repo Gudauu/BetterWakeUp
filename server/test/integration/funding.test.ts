@@ -25,6 +25,7 @@ import { hashSessionToken, mintSessionToken } from "../../src/auth/session-token
 import { createChallengeHandlers } from "../../src/challenges/handlers.ts";
 import type { Database } from "../../src/db/index.ts";
 import {
+  challengeAuthorizations,
   challenges,
   fundingIntents,
   ledgerEntries,
@@ -380,6 +381,31 @@ describe("what the provider's answer does", () => {
     const [stored] = await db.select().from(fundingIntents);
     expect(stored?.status).toBe("failed");
     expect(await challengeCount(db, accountId)).toBe(1);
+  });
+
+  it("records the confirmed hold as the challenge's live authorization", async () => {
+    const { db } = testDatabase();
+    const { token } = await signIn(db);
+    const app = harness(db);
+
+    const intent = await fund(app, token, "6b4bcd10-0000-4000-8000-00000000000e");
+    const delivery = app.provider.deliver(intent.authorizationId ?? "", "succeeded");
+    await app.server.request(...deliver(delivery.body, delivery.signature));
+
+    // The window is the provider's own, which is what issue 24a's renewal is
+    // driven by, and the instrument is the one the delivery named.
+    const [hold] = await db.select().from(challengeAuthorizations);
+    const [challenge] = await db.select().from(challenges);
+    expect(hold).toMatchObject({
+      challengeId: challenge?.id,
+      providerAuthorizationId: intent.authorizationId,
+      status: "live",
+      amountMinorUnits: DEPOSIT.amount,
+      renewalAttempts: 0,
+    });
+    expect(hold?.authorizedAt.toISOString()).toBe(STARTING_AT.toISOString());
+    expect(hold?.expiresAt.getTime()).toBeGreaterThan(STARTING_AT.getTime());
+    expect(hold?.providerPaymentMethodId).toBeTruthy();
   });
 
   it("records and ignores a delivery naming no funding intent", async () => {

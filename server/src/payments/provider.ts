@@ -39,6 +39,17 @@ export interface AuthorizeDepositCommand {
   /** Our account identifier, so the provider's customer maps back to a person. */
   readonly customerReference: string;
   readonly amount: Money;
+  /**
+   * An instrument the provider has already saved, when there is one.
+   *
+   * Absent on the funding path: the user is at a payment sheet, the instrument
+   * does not exist yet, and the hold is confirmed by a webhook after the
+   * device completes it. Present when the product takes a hold off-session
+   * against a card the user has already given us, which is what replacing a
+   * payment method on a running challenge does. An off-session hold needs no
+   * device and no delivery, so the returned authorization is already live.
+   */
+  readonly paymentMethodId?: string | undefined;
 }
 
 export interface Authorization {
@@ -50,8 +61,8 @@ export interface Authorization {
    */
   readonly clientSecret: string;
   /**
-   * When the hold lapses if it is not renewed. The renewal path in issue 24a
-   * reads this; the funding path only records it.
+   * When the hold lapses if it is not renewed. The renewal pass reads this off
+   * the recorded authorization; the funding path only records it.
    */
   readonly expiresAt: Date;
 }
@@ -105,7 +116,15 @@ export interface PaymentProviderClient {
   /** Authorize the deposit and save the instrument for later off-session use. */
   authorizeDeposit(command: AuthorizeDepositCommand): Promise<Authorization>;
 
-  /** Extend a hold, reporting when the new one expires. */
+  /**
+   * Secure the same deposit for a further window.
+   *
+   * The answer may name a different authorization: a processor that cannot
+   * extend a hold takes a replacement one instead, and the caller is then
+   * holding two until it releases the old one. Callers must therefore read the
+   * returned identifier rather than assume the one they passed in, and must
+   * release the old hold only after the replacement is recorded.
+   */
   renewAuthorization(authorizationId: string): Promise<Authorization>;
 
   /** Release a hold. Nothing is charged and no fee attaches. */

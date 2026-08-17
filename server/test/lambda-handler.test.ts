@@ -23,6 +23,8 @@ const EMPTY_SWEEP: SweepResult = {
   challengesInRecovery: 0,
   challengesExpired: 0,
   settlementsCreated: 0,
+  authorizationsRenewed: 0,
+  renewalsFailed: 0,
   moreWorkPending: false,
 };
 

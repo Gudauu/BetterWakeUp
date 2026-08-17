@@ -35,6 +35,7 @@ import { and, eq } from "drizzle-orm";
 import { hasOpenChallenge, lockAccount, materializeChallenge } from "../challenges/materialize.ts";
 import { planChallenge } from "../challenges/plan.ts";
 import type { Database } from "../db/client.ts";
+import { challengeAuthorizations } from "../db/schema/authorizations.ts";
 import { fundingIntents } from "../db/schema/funding.ts";
 import { ledgerEntries, ledgerTransactions, paymentProviderEvents } from "../db/schema/payments.ts";
 import { AppError } from "../errors/app-error.ts";
@@ -138,7 +139,38 @@ async function apply(
     return;
   }
 
-  await activate(tx, intent, at, logger);
+  await activate(tx, intent, confirmedHoldOf(event), at, logger);
+}
+
+/**
+ * What the delivery says about the hold it confirms.
+ *
+ * The identifier, the instrument, and the expiry are the three facts the
+ * product needs to keep the deposit secured, and they are the provider's to
+ * state: asking the provider again over the network inside the transaction
+ * that activates a challenge would make activation depend on a second call
+ * that can time out. A delivery that names no expiry is reported as internal
+ * and rolls back unrecorded, so a redelivery after a fix still applies.
+ */
+function confirmedHoldOf(event: ProviderWebhookEvent): ConfirmedHold {
+  const data = (
+    typeof event.payload.data === "object" && event.payload.data !== null ? event.payload.data : {}
+  ) as Record<string, unknown>;
+  const expiresAt = typeof data.expiresAt === "string" ? new Date(data.expiresAt) : null;
+  if (expiresAt === null || Number.isNaN(expiresAt.getTime())) {
+    throw new AppError("internal_error", "a confirmed authorization names no expiry");
+  }
+  return {
+    authorizationId: authorizationIdOf(event),
+    paymentMethodId: typeof data.paymentMethodId === "string" ? data.paymentMethodId : null,
+    expiresAt,
+  };
+}
+
+interface ConfirmedHold {
+  readonly authorizationId: string;
+  readonly paymentMethodId: string | null;
+  readonly expiresAt: Date;
 }
 
 type FundingIntentRow = typeof fundingIntents.$inferSelect;
@@ -153,6 +185,7 @@ type FundingIntentRow = typeof fundingIntents.$inferSelect;
 async function activate(
   tx: Transaction,
   intent: FundingIntentRow,
+  hold: ConfirmedHold,
   at: Date,
   logger: Logger,
 ): Promise<void> {
@@ -197,6 +230,21 @@ async function activate(
     .update(fundingIntents)
     .set({ status: "authorized", challengeId, settledAt: at })
     .where(eq(fundingIntents.id, intent.id));
+
+  // The hold securing the challenge, as a row of its own: renewal replaces it,
+  // settlement acts on it, and both need a window and an instrument that the
+  // funding intent (a settled question) is the wrong place to keep.
+  await tx.insert(challengeAuthorizations).values({
+    challengeId,
+    provider: intent.provider,
+    providerAuthorizationId: hold.authorizationId,
+    providerPaymentMethodId: hold.paymentMethodId,
+    amountMinorUnits: intent.depositMinorUnits,
+    currency: intent.depositCurrency,
+    status: "live",
+    authorizedAt: at,
+    expiresAt: hold.expiresAt,
+  });
 
   await recordAuthorizedDeposit(tx, intent, challengeId, at);
 

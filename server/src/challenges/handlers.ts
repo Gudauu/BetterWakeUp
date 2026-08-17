@@ -22,6 +22,7 @@ import { getCurrentChallenge } from "./current-challenge.ts";
 import { createFundingIntent } from "./funding-intent.ts";
 import { pauseChallenge, resumeChallenge } from "./pause.ts";
 import { planChallenge } from "./plan.ts";
+import { replacePaymentMethod } from "./replace-payment-method.ts";
 
 export interface ChallengeHandlerDependencies extends CreateChallengeDependencies {
   /**
@@ -169,6 +170,29 @@ export function createChallengeHandlers(deps: ChallengeHandlerDependencies): End
             logger.info("deposit authorization requested", {
               command: "createFundingIntent",
               result: replayed ? "replayed" : "requested",
+              paymentProvider: provider.name,
+            });
+            return response;
+          },
+
+          replacePaymentMethod: async ({ params, body, session, idempotencyKey, logger }) => {
+            const { response, replayed } = await replacePaymentMethod(
+              { ...deps, provider },
+              {
+                accountId: session.accountId,
+                challengeId: params.challengeId,
+                idempotencyKey: requireKey("replacePaymentMethod", idempotencyKey),
+                providerPaymentMethodId: body.providerPaymentMethodId,
+              },
+            );
+            // The instrument identifier is not logged: it is a payment
+            // credential's handle, and the closed field set has no home for
+            // one. That the challenge is secured again is the fact support is
+            // asked about.
+            logger.info("challenge payment method replaced", {
+              command: "replacePaymentMethod",
+              result: replayed ? "replayed" : "secured",
+              challengeId: response.challenge.id,
               paymentProvider: provider.name,
             });
             return response;

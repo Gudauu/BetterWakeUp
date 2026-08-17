@@ -1314,6 +1314,83 @@ offer test, dropping the settled-capture refusal failed only the
 already-executed test, and dropping the status check failed only the zero
 deposit test.
 
+### Issue 24a: authorization renewal
+
+A hold lasts a month and a challenge can run for a year, so the deposit behind a
+long challenge is secured by a succession of authorizations. Nothing recorded
+that succession: `funding_intents` records the question the provider was asked
+and is settled once, which is the wrong lifetime for a row that is replaced
+every renewal. `challenge_authorizations` (migration 0010) is the record of the
+hold itself, with the window it runs for, the instrument behind it, and what
+became of it, and the payment webhook now writes the first one as part of
+activating a funded challenge.
+
+Three decisions the architecture leaves open:
+
+- **Renewal is due at the midpoint of the hold's own window**, computed in SQL
+  from `authorized_at` and `expires_at` rather than from a fixed number of days.
+  The plan says "roughly half the remaining window" and names each
+  authorization's own `capture_before` as the driver, so the row carries both
+  ends of its window and nothing schedules anything. A provider whose holds last
+  a week is then renewed weekly with no code change.
+- **A renewal is a new row.** The provider may answer with a different
+  identifier, which is the harder of the two behaviors and the one the fake now
+  models, so the old row is superseded and a new one inserted in the same
+  transaction. A partial unique index keeps exactly one `live` hold per
+  challenge, so "what would a capture act on" has one answer at every instant.
+- **The provider call happens inside the transaction holding the row's lock.**
+  That is what makes two invocations take disjoint holds, and it is safe for the
+  same reason it is safe on the funding path: a rolled back renewal leaves a
+  replacement hold nobody recorded, which lapses having charged nothing.
+  Recording first and calling after would leave a row claiming a hold that may
+  not exist, which a settlement would later try to capture.
+
+The replacement is authorized before the old hold is released, and the release
+happens after the commit. The other order has a window in which the deposit is
+secured by nothing; this order's failure mode is a stray hold the provider
+expires by itself.
+
+**A failed renewal never fails a challenge.** The only column of `challenges`
+either module writes is `deposit_secured`. A decline counts the attempt, records
+the reason, marks the deposit unsecured, and leaves the hold live and due so the
+next sweep retries it. The user is told through `depositSecured` on the
+challenge the app already polls; a push notification belongs to the mobile
+phase, and the warn line is what a deployment alarms on until then. The rule is
+asserted directly rather than derived: `server/test/authorization-renewal.test.ts`
+establishes over the whole module that no capture, no ledger write, no task, no
+settlement command, and no terminal status is reachable from the renewal path.
+
+`POST /challenges/:challengeId/payment-method` is the way back. It authorizes
+off-session against an instrument the provider already holds, which needed one
+addition to the provider interface (`paymentMethodId` on
+`AuthorizeDepositCommand`, meaning "no device, so the hold is live when the call
+returns"), supersedes the hold it replaces, and sets `deposit_secured`. It
+refuses a challenge that has ended and one with no deposit, and it answers a
+declined instrument with the provider's own `payment_declined`.
+
+Renewal continues through `recovery_pending`, because that challenge is still
+running and may return to `active`. It stops at every terminal status, and the
+sweep runs it after the overdue pass so a challenge that has just failed is not
+renewed on the way out.
+
+15 tests: 14 integration tests over real holds taken from the fake provider, and
+4 source-level assertions of the two rules no request can demonstrate. The
+windows are four days long so that a hold's midpoint lands before the fixture's
+first deadline, which is what lets one test run the whole sweep and still be
+about renewal.
+
+Five neuter checks on disjoint sets: dropping the halfway predicate failed five
+tests including both sides of the boundary, dropping the challenge status filter
+failed only the terminal-challenge test, dropping the attempted set failed the
+two tests about a declining card being retried rather than looped on, dropping
+the release failed only the multi-renewal test, and dropping the unsecured flag
+failed only the two tests that read it.
+
+One unrelated fix along the way: the sweep suite's held-lock test signalled from
+inside its holding transaction and slept for the handoff, so under full-suite
+load the second invocation could run before the first writer's commit. It now
+hands off through promises and awaits the transaction itself, with no sleeps.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

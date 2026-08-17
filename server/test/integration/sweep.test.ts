@@ -436,24 +436,34 @@ describe("two invocations take disjoint work", () => {
     const other = testDatabase().connect();
 
     // A second session holds the first challenge's row, as a pause or a
-    // recovery arriving at the same instant would.
-    const blocked = new Promise<void>((resolve) => {
-      void other.db.transaction(async (tx) => {
-        await tx
-          .select({ id: challenges.id })
-          .from(challenges)
-          .where(eq(challenges.id, held.challengeId))
-          .for("update");
-        // Held across the sweep below, then released.
-        await new Promise((done) => setTimeout(done, 300));
-        resolve();
-      });
+    // recovery arriving at the same instant would. The two sides hand off
+    // through promises rather than through sleeps: a sleep long enough to be
+    // reliable under load is a sleep this suite pays on every run, and one
+    // short enough not to be makes the test a load meter.
+    let lockTaken = (): void => {};
+    let releaseLock = (): void => {};
+    const taken = new Promise<void>((resolve) => {
+      lockTaken = resolve;
     });
-    // Give the other session time to take the lock before the sweep starts.
-    await new Promise((done) => setTimeout(done, 100));
+    const released = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const holder = other.db.transaction(async (tx) => {
+      await tx
+        .select({ id: challenges.id })
+        .from(challenges)
+        .where(eq(challenges.id, held.challengeId))
+        .for("update");
+      lockTaken();
+      await released;
+    });
+    await taken;
 
     const result = await sweep(db, at);
-    await blocked;
+    releaseLock();
+    // Awaiting the transaction rather than a signal inside it, so the lock is
+    // gone by the time the second invocation runs.
+    await holder;
 
     // The sweep did not wait for the lock, and it did not skip the work it
     // could reach.

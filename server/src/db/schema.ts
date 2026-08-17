@@ -6,6 +6,7 @@
  * stays the single description of the database.
  */
 
+export * from "./schema/authorizations.ts";
 export * from "./schema/challenges.ts";
 export * from "./schema/funding.ts";
 export * from "./schema/identity.ts";
