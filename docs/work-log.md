@@ -665,6 +665,66 @@ allowance of 20. A rate limiter that is correct one caller at a time and wrong
 under concurrency looks exactly like a working one until two connections fire at
 once.
 
+### Issue 16: account deletion
+
+The App Store requires deletion to be available in the app, and the architecture
+says an account with an active funded challenge cannot be deleted until that
+challenge settles, with the flow saying so.
+`deleteAccount` is the two branches and the retention rule between them.
+
+The refusal has two conditions rather than one.
+An open funded challenge (`active` or `recovery_pending` with a deposit above
+zero) is money the user could still forfeit.
+A `pending` payment command is money already on its way somewhere, and it
+outlives its challenge's status: the capture created when a challenge fails is
+pending against a challenge that is already terminal, so a check reading
+challenge status alone would let a user delete the account a capture belongs to
+before the provider had acted on it.
+Both answer `account_has_active_funded_challenge` with a message naming which
+condition holds, because refusing without saying why is what the review
+guideline exists to prevent.
+
+The retention rule, stated so it can be tested.
+Deleted: the account row, the provider identities behind it, every session,
+every challenge with its schedule, tasks, completions and payment commands, the
+idempotency keys scoped to the account, and the rate limit counters keyed on it.
+The counters are the one piece no cascade reaches, since the subject is a bare
+string with no foreign key, so they are deleted explicitly in the same
+transaction.
+Retained and unlinked: the ledger. `ledger_transactions.account_id` and
+`challenge_id` are `ON DELETE SET NULL`, so amounts, currencies, occurrence
+instants and provider references survive with nothing pointing back at a person.
+That is what a financial record has to be for tax and dispute purposes, and it
+is why issue 8's append-only trigger permits exactly one mutation: a foreign key
+going to NULL.
+
+The check and the delete run in one transaction that opens by locking the
+account row `for update`.
+That lock is the serialization point, and it is what makes a second simultaneous
+deletion wait and then find nothing rather than both proceeding.
+It is also the lock issue 18's funding path must take before it inserts, so a
+deposit cannot be authorized against an account between this check and this
+delete; without that, the refusal is a read that a concurrent funding can
+invalidate.
+
+Deletion deliberately does not run under `runIdempotent`, even though the
+contract marks the endpoint idempotent and the key is still required at the
+edge.
+`idempotency_keys.account_id` cascades from the account, so a key claimed for
+this command is deleted by the command's own effect and the completion step
+would find no row, throw, and roll the deletion back.
+Deletion is idempotent by nature instead: the session that authorized it went
+with the account, so a retry is answered by the session gate.
+The end-to-end test asserts exactly that, a 200 followed by a 401 on the same
+token.
+
+13 integration tests: four over the refusal branch including the pending-command
+case and the proof that nothing was deleted, seven over what deletion removes
+and what it keeps, and two over the mounted route.
+Two neuter checks: dropping the pending-command condition failed exactly one
+test, and dropping the `for update` failed exactly the concurrency test, which
+is what separates a lock that serializes from one that decorates.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

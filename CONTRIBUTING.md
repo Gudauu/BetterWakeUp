@@ -267,6 +267,27 @@ concurrency control, the lease expiry is compared in SQL, and ownership of a
 lease is a token on the row. Do not add a check-then-act around it, and do not
 compare a lease against the process clock.
 
+Account deletion is the one exception, and it is documented where it lives: the
+key row cascades from the account, so a command that deletes the account cannot
+also record itself under a key scoped to it.
+
+### Account deletion and retention
+
+Deletion refuses while any of the account's money is unsettled: an open funded
+challenge, or a `pending` payment command under any of its challenges, whatever
+that challenge's status. The refusal names which condition holds.
+
+Everything identifying a user is deleted, and the ledger is retained with its
+links to the account and the challenge set to NULL. When you add a table, decide
+which side it is on: a table carrying anything about a person cascades from
+`accounts`, and a table that must outlive them unlinks instead. A table keyed on
+an account identifier with no foreign key, as `rate_limit_counters` is, is
+reached by neither and has to be deleted explicitly in `deleteAccount`.
+
+Any command that commits money to a challenge must lock the account row `for
+update` before it inserts, the way `deleteAccount` does. Without that lock the
+refusal is a read a concurrent funding can invalidate.
+
 ## Commits
 
 Use Conventional Commits.
