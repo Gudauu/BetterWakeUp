@@ -1456,6 +1456,78 @@ reading a locked hold as absent failed only the test that holds one (the pass
 charged the card off-session instead), and dropping the release command from the
 completion path failed only the acceptance test.
 
+### Issue 26: concurrency suite
+
+Two files, and one product change the suite found.
+
+`server/test/support/invariants.ts` reads every invariant the architecture lists
+back out of a whole database, with no knowledge of how the state was produced.
+Each check is a query returning the offending rows, so a failure names the
+challenge, task, or account rather than reporting a count. Two of the eight are
+checked in the only form a snapshot can see them: "one terminal outcome per
+task" becomes a task carrying the instants of two outcomes, and "Emergency
+Recovery at most once per account" becomes an account with two forgiven tasks,
+or with one and an unspent allowance. The ledger balance is checked both per
+transaction (the continuously true form the deferred trigger enforces) and per
+challenge (the architecture's own wording).
+
+`server/test/integration/invariant-checker.test.ts` breaks each rule on purpose
+and asks the checker whether it noticed. Getting past the schema means
+suspending it: `set local session_replication_role = replica` disables every
+trigger and foreign key, and the four rules carried by a unique index or a check
+constraint have that object dropped. Both happen inside a transaction that is
+rolled back, so nothing outlives the test. Without this file the concurrency
+suite's assertion would be indistinguishable from a query that can never return
+a row.
+
+`server/test/integration/concurrency.test.ts` runs the three races the issue
+names, each ending in `assertInvariantsHold`. It asserts that exactly one side
+won and that the loser was told so by name; it does not assert which side, since
+that would be testing which connection warmed up first. Each caller gets its own
+connection, because a test database handle holds a pool of one.
+
+Three decisions the suite forced:
+
+- **Half of each race starts before the other side and half after.** Started
+  together, the completions won all six tasks and the recoveries all four
+  challenges on every run, which left the losing branch of both tests as
+  assertions nothing ever reached. A 25 millisecond head start shapes the race
+  without deciding it: the assertions still accept either winner for every
+  challenge, and both branches are now reached on every run.
+- **A losing caller is refused by one of two names, and both are true.** A
+  completion that lost to the sweep gets `task_already_resolved` or
+  `challenge_not_active`, because the miss and the challenge's move out of
+  `active` commit together; a recovery that lost to the settlement gets
+  `recovery_window_closed` or `recovery_not_offered`. Naming one of them would
+  be asserting which side of a race got there first.
+- **The forbidden outcome is asserted directly.** Beyond the invariants, each
+  recovery-versus-settlement challenge asserts that a forgiven task and a
+  captured deposit are mutually exclusive, since that is the pair the race
+  exists to make impossible and no database invariant expresses it.
+
+**The defect the suite found.** The settlement pass deadlocked with Emergency
+Recovery on its first run. Recovery takes the account, then the challenge, then
+cancels the capture; the settlement took the command, then reached the challenge
+(to fail it) and the account (as the foreign keys of a ledger movement). Those
+are opposite orders, so PostgreSQL killed one of them, and killing the
+settlement is a money bug rather than a retry: the provider call happens inside
+that transaction, so a forfeit could be captured for a challenge Emergency
+Recovery then forgave. `settleOne` now claims the account and the challenge with
+`for update skip locked` before anything is written or charged, which is the
+never-wait rule the rest of the sweep already followed, and it re-reads the
+challenge status under that lock. A pass that never waits cannot be half of a
+deadlock cycle.
+
+Two tests were added to `settlement.test.ts` for the two new claims, in the same
+promise-handoff shape as the existing held-lock tests.
+
+Five neuter checks on disjoint sets: removing the account claim reproduced the
+deadlock in the concurrency suite and hung only the account half of the new
+settlement test, removing the challenge claim hung only the challenge half,
+starting both sides of each race together left both losing branches unreached
+(the counts were 6/0 and 4/0), and each of the nine invariant checks is shown to
+fire by a state built to break the rule it names.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

@@ -679,6 +679,59 @@ describe("concurrency", () => {
     // And the next invocation, with the lock gone, collects what was left.
     expect((await settleAt(db, app, OVERDUE_AT)).forfeitsCollected).toBe(1);
   });
+
+  /**
+   * The rows a settlement reaches through its own writes, rather than through a
+   * lock it asks for by name: it fails the challenge and it names both the
+   * challenge and the account in a ledger movement, which takes a lock on each
+   * through the foreign keys.
+   *
+   * Waiting for either is what put this pass on one side of a deadlock with
+   * Emergency Recovery, which takes them in the opposite order. So both are
+   * claimed without waiting before the provider is called, and a settlement
+   * that cannot have them takes nothing at all.
+   */
+  it.each([
+    { name: "challenge", table: challenges, column: challenges.id },
+    { name: "account", table: accounts, column: accounts.id },
+  ])("passes over a command whose $name another writer holds", async ({ table, column }) => {
+    const { db } = testDatabase();
+    const app = harness();
+    const arranged = await arrange(db, app, { status: "failed" });
+    await createCommand(db, arranged.challengeId, "capture", OVERDUE_AT);
+    const rowId = table === accounts ? arranged.accountId : arranged.challengeId;
+
+    const other = testDatabase().connect();
+    let held: () => void = () => {};
+    const holding = new Promise<void>((resolve) => {
+      held = resolve;
+    });
+    let release: () => void = () => {};
+    const releasing = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holder = other.db.transaction(async (tx) => {
+      await tx.select().from(table).where(eq(column, rowId)).for("update");
+      held();
+      await releasing;
+    });
+
+    await holding;
+    const result = await settleAt(db, app, OVERDUE_AT);
+    release();
+    await holder;
+
+    expect(result).toMatchObject({ forfeitsCollected: 0, settlementsCancelled: 0 });
+    expect((await commandRow(db, arranged.challengeId, "capture"))?.status).toBe("pending");
+    // Nothing was charged while the other writer held the row, and nothing was
+    // written: the deposit movement is still the only one.
+    expect(await app.provider.getTransactionStatus(arranged.authorizationId)).toMatchObject({
+      state: "authorized",
+    });
+    expect(await ledger(db, arranged.challengeId)).toHaveLength(2);
+
+    expect((await settleAt(db, app, OVERDUE_AT)).forfeitsCollected).toBe(1);
+  });
 });
 
 function observation(): MovementObservation {

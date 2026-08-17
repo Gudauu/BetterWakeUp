@@ -547,6 +547,43 @@ exists: pass the command over for the next invocation rather than reading it as
 absent, or a renewal in flight becomes a card charged while a capturable
 authorization sat there.
 
+## Concurrency
+
+Two writers that take the same rows in opposite orders deadlock, and PostgreSQL
+resolves a deadlock by killing one of them. For a pass that calls a payment
+provider inside its transaction that is not a retry, it is money moved by a
+transaction that then rolled back. So a background pass never waits: every row a
+settlement, a renewal, or an overdue evaluation will touch is claimed with `for
+update skip locked` before anything is written or charged, and a pass that
+cannot have them all takes nothing and leaves the work for the next invocation.
+
+Count the rows a command reaches through its writes, not only the ones it locks
+by name. A ledger movement names a challenge and an account, so writing one
+takes a lock on both rows through the foreign keys, and those were the two rows
+the settlement pass had not claimed.
+
+A row claimed after it was selected must have anything the command decides on
+read again under the lock. The status a moment earlier is a status another
+writer may have committed since.
+
+New concurrent behavior belongs in
+`server/test/integration/concurrency.test.ts`, which ends every race in
+`assertInvariantsHold` from `server/test/support/invariants.ts`: the whole
+database, checked against every invariant the architecture lists. Two rules for
+writing one of those tests:
+
+- Do not assert which side won. Assert that exactly one did, that the loser was
+  refused by name, and that the forbidden combination did not happen. A refusal
+  may be reachable under more than one code, and accepting the set is honest
+  where naming one is a bet on scheduling.
+- Give one side a head start when the race is otherwise decided by warm-up. A
+  race where the same side wins every run leaves the other branch's assertions
+  unreached, which is a test that passes without testing.
+
+An invariant added to the architecture needs a check added to
+`invariants.ts` and a case in `invariant-checker.test.ts` that breaks it on
+purpose. A check nothing has ever seen fire is not an assertion.
+
 ## Commits
 
 Use Conventional Commits.

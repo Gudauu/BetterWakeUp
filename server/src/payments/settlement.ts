@@ -45,6 +45,7 @@ import { and, asc, desc, eq, inArray, isNotNull, lte, ne, not } from "drizzle-or
 import type { Database } from "../db/client.ts";
 import { challengeAuthorizations } from "../db/schema/authorizations.ts";
 import { challenges } from "../db/schema/challenges.ts";
+import { accounts } from "../db/schema/identity.ts";
 import { paymentCommands } from "../db/schema/payments.ts";
 import { AppError } from "../errors/app-error.ts";
 import type { Transaction } from "../idempotency/service.ts";
@@ -148,14 +149,23 @@ interface DueCommand {
 }
 
 /**
- * One due command.
+ * One due command, with every row the settlement will touch claimed before the
+ * provider is called.
  *
- * Only the command row is locked, and it is locked with `skip locked` like
- * everything else the sweep takes. That one row is enough to make this mutually
- * exclusive with Emergency Recovery, which cancels the capture: recovery takes
- * the challenge first and the command second, so a recovery running against a
- * command this pass holds waits for it and then finds the command settled,
- * which is exactly the closed window its own rules describe.
+ * The command row alone is not enough. Emergency Recovery takes the account and
+ * then the challenge before it cancels the capture, while this pass takes the
+ * command first and then reaches the challenge (to fail it) and the account (as
+ * the foreign keys of a ledger movement). Those are opposite orders, and two
+ * writers taking the same rows in opposite orders is a deadlock: PostgreSQL
+ * kills one of them, and if it kills this one the provider has already been
+ * called, so a forfeit can be captured for a challenge that Emergency Recovery
+ * then forgives.
+ *
+ * The fix is the rule the rest of the sweep already follows: never wait. The
+ * account and the challenge are claimed with `skip locked` up front, so a
+ * settlement either holds everything it needs before it spends money or takes
+ * nothing at all and leaves the command for the next invocation. A pass that
+ * never waits cannot be half of a deadlock cycle.
  */
 async function settleOne(
   tx: Transaction,
@@ -188,8 +198,19 @@ async function settleOne(
   if (command === undefined) return "none";
   attempted.add(command.id);
 
-  if (command.kind === "release_authorization") return await release(tx, options, command);
-  if (command.kind === "capture") return await collect(tx, options, command);
+  // In the order Emergency Recovery takes them, though the order does not
+  // matter while neither lock waits: what matters is that both are held before
+  // anything is written or charged.
+  if (!(await claimAccount(tx, command.accountId))) return "passed_over";
+  const claimed = await claimChallenge(tx, command.challengeId);
+  if (claimed === undefined) return "passed_over";
+  // Read again under the lock: a recovery that committed between the selection
+  // above and this claim would leave the status read a moment ago stale, and
+  // the status is what decides whether a capture is still the right answer.
+  const due: DueCommand = { ...command, challengeStatus: claimed.status };
+
+  if (due.kind === "release_authorization") return await release(tx, options, due);
+  if (due.kind === "capture") return await collect(tx, options, due);
 
   // `authorize`, `renew_authorization`, and `charge_off_session` are not
   // commands anything creates: authorizing and renewing happen in the
@@ -492,6 +513,38 @@ async function failChallengeIfRecovering(
     .update(challenges)
     .set({ status: "failed", terminalAt: options.now, updatedAt: options.now })
     .where(and(eq(challenges.id, command.challengeId), eq(challenges.status, "recovery_pending")));
+}
+
+/**
+ * The account row, claimed without waiting.
+ *
+ * A ledger movement names the account, so writing one takes a lock on that row
+ * through the foreign key. Taking it up front, and only if it is free, is what
+ * keeps this pass out of a deadlock with Emergency Recovery, which holds the
+ * same row for the length of its own transaction.
+ */
+async function claimAccount(tx: Transaction, accountId: string): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: accounts.id })
+    .from(accounts)
+    .where(eq(accounts.id, accountId))
+    .for("update", { skipLocked: true })
+    .limit(1);
+  return row !== undefined;
+}
+
+/** The challenge row, claimed without waiting, with its status read under the lock. */
+async function claimChallenge(
+  tx: Transaction,
+  challengeId: string,
+): Promise<{ status: (typeof challenges.$inferSelect)["status"] } | undefined> {
+  const [row] = await tx
+    .select({ status: challenges.status })
+    .from(challenges)
+    .where(eq(challenges.id, challengeId))
+    .for("update", { skipLocked: true })
+    .limit(1);
+  return row;
 }
 
 interface LiveHold {
