@@ -427,6 +427,45 @@ path. A second writer would be a second chance to get the task count invariant
 wrong. Take the account lock first, through `lockAccount`, as every path that
 decides whether a challenge may start does.
 
+## The scheduled sweep
+
+The sweep is in `server/src/sweep`, and `run-sweep.ts` owns the order. Step 0
+(pause cutoffs and year-long pause expiry) runs before step 1 (overdue tasks) in
+every invocation. A skipped task's deadline passes like any other, so judging
+overdue tasks first fails a challenge the user had already paused.
+
+Every unit of work the sweep adds must be idempotent by construction: selected
+by the state that makes it due, and ending by leaving that state. Do not reach
+for a cursor, a counter, or a "last run" instant. Running the sweep twice has to
+leave the same rows as running it once, which is also what makes a crashed
+invocation safe to repeat.
+
+Nothing the sweep takes may wait. Use `for update skip locked` for every row,
+challenges included, and pass over a row somebody else holds rather than
+blocking for it. The sweep locks a challenge and then its task while the
+completion command locks a task and then updates its challenge, so a blocking
+lock is a deadlock waiting for the two to meet. A candidate chosen before the
+lock is attempted has to be remembered when the lock is missed, or the next
+iteration chooses it again.
+
+A task is overdue strictly after its deadline plus the receipt grace, and it is
+left alone entirely while a completion for it is in flight: an `in_progress`
+idempotency key naming the task in `subject_id`, with a live lease, claimed no
+later than that same instant. A command whose retry is still entitled to succeed
+must not have its task resolved underneath it, so a new command that acts on one
+resource records that resource as its key's subject.
+
+The sweep creates settlement commands and executes none. Give each a
+deterministic dedupe key derived from the kind and the challenge, so a second
+pass writes nothing, and put the delay in `execute_after` rather than in when
+the command is created. No capture may happen in the transaction that fails a
+challenge: that separation is what leaves a user who opens the app later in the
+day an intact authorization to recover against.
+
+Marking a task missed and moving its challenge out of `active` belong in one
+transaction. The deferred task count trigger rejects any commit that does one
+without the other.
+
 ## Commits
 
 Use Conventional Commits.

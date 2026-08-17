@@ -1181,6 +1181,76 @@ resolved-outcome test, dropping the same-zone short circuit failed only the two
 tests that assert a no-op, and dropping the row lock failed only the two-writer
 test.
 
+### Issue 23: overdue sweep
+
+The architecture's eight-step pass, in `server/src/sweep`, with steps 6 and 7
+deliberately absent: execution belongs to issue 25 and renewal to issue 24a, and
+the whole point of separating creation from execution is that no capture happens
+in the transaction that fails a challenge.
+
+`run-sweep.ts` is the order and nothing else. Step 0 runs before step 1 in every
+invocation, which is the one ordering the architecture states a reason for: a
+skipped task's deadline passes like any other, so judging overdue tasks first
+fails a challenge the user had already paused. `createSweep` takes a database
+handle and a clock, and the Lambda handler now takes the runner as an option,
+because the server still has no composition root and the default runner says so
+in a log line rather than opening a connection nobody decided on.
+
+`pause-pass.ts` is step 0. It expires a challenge paused for a year, releasing
+the authorization with a `release_authorization` command and capturing nothing,
+and then consumes the tasks whose cutoffs passed while the mode was set by
+calling issue 21's `skipTasksConsumedByPause`. That module was written for the
+resume command and needed no change, which is what makes "the sweep and a resume
+bind at the same boundary" a property of one implementation rather than of two
+that agree today.
+
+`overdue-pass.ts` is steps 1 to 5. It resolves one task per transaction and
+moves its challenge out of `active` in the same transaction, because the
+deferred task count trigger rejects a commit that marks a task missed and leaves
+its challenge running. That is also why it resolves one task per challenge: past
+the first miss the challenge has an outcome and its remaining tasks are no
+longer evaluated.
+
+Three decisions the architecture leaves open:
+
+- **A task is overdue strictly after the deadline plus the receipt grace.** The
+  completion command accepts a request received at exactly that instant, so the
+  sweep has to refuse to act at it. The first version used `<=` and the boundary
+  test caught it.
+- **In-flight completions are recognised by a stored subject.** The architecture
+  says the sweep skips a task whose completion key is unresolved inside its
+  receipt window, and nothing linked a key to a task: the request hash is not a
+  lookup key. `idempotency_keys.subject_id` (migration 0009) is that link, set
+  by the completion command, and the sweep leaves a task alone while a key naming
+  it is `in_progress`, its lease is live, and it was claimed no later than the
+  deadline plus the grace.
+- **Nothing waits.** Every row is taken with `for update skip locked`, including
+  the challenge. Waiting would deadlock against the completion command, which
+  locks a task and then updates its challenge while the sweep locks a challenge
+  and then its task. A row somebody holds is left for the next invocation, and
+  the tasks passed over are remembered for the rest of the invocation so a repeat
+  does not choose the same held row again.
+
+Settlement commands carry a deterministic dedupe key (`capture:<challengeId>`),
+which is what makes a second pass write nothing, and their `execute_after` is
+what the recovery window is made of: immediate for a failed challenge, the end
+of the window for one that can still be recovered. A zero deposit challenge
+fails outright with no command at all, since the database refuses
+`recovery_pending` without a deposit.
+
+20 integration tests. The four acceptance claims each have a section: running
+the sweep twice leaves the same rows as running it once, two invocations take
+disjoint work (one holding a challenge lock from another connection, one running
+both sweeps at the same instant), a crashed completion attempt survives until
+its retry resolves and is missed once its lease runs out, and a year-long pause
+expires exactly once for a funded and a zero deposit challenge alike.
+
+Four neuter checks on disjoint sets: dropping the in-flight key predicate failed
+only the crashed-attempt test, swapping steps 0 and 1 failed the pause-skip test
+and all three expiry tests, dropping the recovery check failed only the
+spent-recovery test, and dropping skip locked on the challenge failed only the
+held-lock test.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

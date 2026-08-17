@@ -34,4 +34,5 @@ export { createHandler, handler } from "./lambda/handler.ts";
 export type { LogFields, Logger, LogLevel, LogSink } from "./observability/logger.ts";
 export { createLogger } from "./observability/logger.ts";
 export { scrub } from "./observability/redact.ts";
-export { runSweep } from "./sweep/run-sweep.ts";
+export type { SweepDependencies, SweepResult, SweepRunner } from "./sweep/run-sweep.ts";
+export { createSweep, unconfiguredSweep } from "./sweep/run-sweep.ts";

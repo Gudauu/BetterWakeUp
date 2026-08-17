@@ -1,0 +1,2 @@
+ALTER TABLE "idempotency_keys" ADD COLUMN "subject_id" uuid;--> statement-breakpoint
+CREATE INDEX "idempotency_keys_open_subject_idx" ON "idempotency_keys" USING btree ("command_type","subject_id") WHERE "idempotency_keys"."status" = 'in_progress';

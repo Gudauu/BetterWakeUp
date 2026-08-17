@@ -84,6 +84,10 @@ export async function createCompletion(
       // The task is part of the request's identity: the same record replayed
       // against a different task is a different command, not a retry.
       request: { taskId: command.taskId, ...command.body },
+      // And it is recorded as the key's subject, which is how the sweep sees
+      // that a completion for this task is in flight and leaves the task alone
+      // until the attempt resolves or its lease runs out.
+      subject: command.taskId,
     },
     async (tx) => await acknowledge(tx, command, receivedAt),
   );

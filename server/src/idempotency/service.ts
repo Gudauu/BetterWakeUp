@@ -58,6 +58,15 @@ export interface IdempotentCommand {
   readonly commandType: string;
   /** The request the key stands for. Hashed, never stored. */
   readonly request: unknown;
+  /**
+   * The one resource the command acts on, when it has one.
+   *
+   * Recorded rather than derived because the sweep has to recognise a command
+   * that is in flight against a task without having the request that named it.
+   * It is not part of the key's identity: the subject is already inside the
+   * hashed request for every command that has one.
+   */
+  readonly subject?: string | undefined;
 }
 
 export interface IdempotentOutcome<Result> {
@@ -143,6 +152,7 @@ async function claim(
       key: command.key,
       commandType: command.commandType,
       requestHash,
+      subjectId: command.subject ?? null,
     })
     .onConflictDoNothing()
     .returning({ leaseOwner: idempotencyKeys.leaseOwner });

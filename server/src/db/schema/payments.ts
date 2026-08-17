@@ -286,6 +286,19 @@ export const idempotencyKeys = pgTable(
     commandType: text("command_type").notNull(),
     /** Hash of the request body. A key replayed with a different body is rejected. */
     requestHash: text("request_hash").notNull(),
+    /**
+     * The one resource the command acts on, when it has one.
+     *
+     * The hash cannot answer "is a completion for this task in flight?", because
+     * a hash is not a lookup key, and the sweep has to answer exactly that
+     * before it marks a task missed. Storing the subject is what turns the
+     * architecture's "unresolved key inside the receipt window" from a rule
+     * about a request nobody kept into a row the sweep can join against. It is
+     * nullable because most commands address no single resource, and it carries
+     * no foreign key: the key outlives the row it names, and a cascade would
+     * delete the record of a command that did run.
+     */
+    subjectId: uuid("subject_id"),
     status: idempotencyStatus("status").notNull().default("in_progress"),
     /**
      * When the lease on an `in_progress` row runs out. Past this instant a new
@@ -316,6 +329,11 @@ export const idempotencyKeys = pgTable(
     // inside a task's receipt window.
     index("idempotency_keys_open_idx")
       .on(table.leaseExpiresAt)
+      .where(sql`${table.status} = 'in_progress'`),
+    // And reads them by what they act on, which is how it recognises a
+    // completion still in flight for the task it is about to mark missed.
+    index("idempotency_keys_open_subject_idx")
+      .on(table.commandType, table.subjectId)
       .where(sql`${table.status} = 'in_progress'`),
     // A completed key has both an instant and a result. Storing one without
     // the other would make a replay return nothing while claiming success.

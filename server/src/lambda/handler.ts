@@ -10,7 +10,7 @@ import type { LambdaEvent } from "hono/aws-lambda";
 import { handle } from "hono/aws-lambda";
 import { createApp } from "../http/app.ts";
 import { createLogger } from "../observability/logger.ts";
-import { runSweep } from "../sweep/run-sweep.ts";
+import { type SweepRunner, unconfiguredSweep } from "../sweep/run-sweep.ts";
 import { isHttpEvent, isScheduledEvent } from "./events.ts";
 
 interface LambdaContext {
@@ -19,16 +19,26 @@ interface LambdaContext {
 
 export interface CreateHandlerOptions {
   readonly logger?: ReturnType<typeof createLogger>;
+  /**
+   * What a scheduled event is answered by.
+   *
+   * Injected rather than constructed here because the sweep needs a database
+   * handle and this module is evaluated at load time, before anything has
+   * decided where one is opened across invocations. The default says so out
+   * loud instead of connecting on its own.
+   */
+  readonly sweep?: SweepRunner;
 }
 
 export function createHandler(options: CreateHandlerOptions = {}) {
   const logger = options.logger ?? createLogger();
+  const sweep = options.sweep ?? unconfiguredSweep;
   const httpHandler = handle(createApp({ logger }));
 
   return async (event: unknown, context?: LambdaContext): Promise<unknown> => {
     const requestId = context?.awsRequestId;
     if (isScheduledEvent(event)) {
-      return await runSweep(event, logger.child({ invocation: "scheduled", requestId }));
+      return await sweep(event, logger.child({ invocation: "scheduled", requestId }));
     }
     if (isHttpEvent(event)) {
       return await httpHandler(event as LambdaEvent, context as never);
