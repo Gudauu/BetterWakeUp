@@ -179,6 +179,22 @@ Classifications are for operators, not clients. Only `internal` means our fault,
 and only `internal` logs at error level, so an alarm on error level stays a
 signal rather than a count of rejected requests.
 
+### Idempotency
+
+A handler for an endpoint the contract marks idempotent does its work inside
+`runIdempotent`, never beside it. The callback it takes receives the transaction
+the key is completed in, so the domain change and the record of it either both
+commit or neither does; opening a separate transaction inside that callback
+breaks the guarantee the service exists to give.
+
+`runIdempotent` opens its own transactions, so it must not be called from inside
+one.
+
+Everything it decides is decided by the database: the insert of the key is the
+concurrency control, the lease expiry is compared in SQL, and ownership of a
+lease is a token on the row. Do not add a check-then-act around it, and do not
+compare a lease against the process clock.
+
 ## Commits
 
 Use Conventional Commits.

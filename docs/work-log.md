@@ -441,6 +441,46 @@ no-op fails exactly the 18 tests that depend on strictness, including the
 artifact freshness test, and leaves the missing-field and wrong-type tests
 passing, which is the two layers being genuinely separate.
 
+### Issue 12: idempotency service
+
+`runIdempotent` in `server/src/idempotency/service.ts` is the architecture's
+three-step sequence, and every state-changing command will run through it. The
+insert of the `in_progress` key is the concurrency control: nothing reads before
+it writes, so two callers presenting one key at the same instant are ordered by
+the database rather than by a check-then-act that a scheduler can interleave.
+The acceptance boundary is exactly that test, and it asserts one performed
+domain change by counting rows rather than by trusting the service's own report.
+
+The lease needed a column the schema did not have. `idempotency_keys` gains
+`lease_owner`, minted on the claim and re-minted on every takeover, and an
+attempt completes or releases its row only while the owner is still its own.
+`status = 'in_progress'` looks like it would do the same job and does not: a row
+that was taken over, failed, released, and claimed again is `in_progress` once
+more, and a status check alone lets the original attempt complete somebody
+else's claim. Both guards have a test that fails when the guard is removed, and
+removing either fails exactly one test.
+
+Time is the database's, never the process clock. The remaining lease is computed
+in SQL and returned as an integer, so nothing depends on how a driver renders a
+bare `now()`, and a Lambda container with a skewed clock can neither take over a
+live lease nor hold an expired one. An earlier version compared a `now()` column
+against a `Date` in TypeScript and silently fell through every branch.
+
+Two decisions the architecture leaves open. A command that fails releases its
+key rather than holding it for the rest of the lease, so a client whose request
+was rejected can retry at once; a crash releases nothing, which is the case the
+lease exists for. And a takeover inherits the creation instant rather than
+restarting it, because the architecture makes the instant the key was inserted
+the receipt instant the sweep reads.
+
+The request hash is a canonical rendering (object keys sorted, array order
+preserved) hashed with SHA-256, so a client build that serializes its fields in
+a different order is not told its own retry is a key reuse. The command type is
+part of a key's identity, so spending a completion key on a pause is rejected as
+the same mistake as changing the body.
+
+22 tests: 14 integration tests against a real database and 8 over the hash.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

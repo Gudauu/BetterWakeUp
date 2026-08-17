@@ -295,6 +295,16 @@ export const idempotencyKeys = pgTable(
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true, mode: "date" })
       .notNull()
       .default(sql`now() + interval '${sql.raw(String(IDEMPOTENCY_LEASE_SECONDS))} seconds'`),
+    /**
+     * Which attempt currently holds the lease.
+     *
+     * A takeover mints a new owner, so the attempt that was taken over can tell
+     * that it lost: it completes the row only while the owner is still its own,
+     * and otherwise rolls its domain change back. Without this token, two
+     * attempts whose lease instants happened to land on the same microsecond
+     * would both believe they held the row.
+     */
+    leaseOwner: uuid("lease_owner").notNull().defaultRandom(),
     /** The stored response, replayed verbatim to a repeat of a completed key. */
     result: jsonb("result"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),

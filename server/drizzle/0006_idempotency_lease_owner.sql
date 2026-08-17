@@ -1,0 +1,1 @@
+ALTER TABLE "idempotency_keys" ADD COLUMN "lease_owner" uuid DEFAULT gen_random_uuid() NOT NULL;

@@ -43,6 +43,13 @@
       "when": 1786942439611,
       "tag": "0005_state_machine_and_recovery_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786944016529,
+      "tag": "0006_idempotency_lease_owner",
+      "breakpoints": true
     }
   ]
 }
