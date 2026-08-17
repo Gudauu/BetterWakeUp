@@ -1,0 +1,14 @@
+{
+  "name": "@betterwakeup/infra",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.9",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}
