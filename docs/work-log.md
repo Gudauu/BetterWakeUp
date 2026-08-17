@@ -1854,6 +1854,58 @@ intent failed eight, dropping the maximum duration from the screen's gate failed
 only the funded duration test, and keeping a time zone confirmation across a
 zone change failed only the test that names it.
 
+### Issue 32: the daily completion screen
+
+A day counts only when both checks pass, so the screen keeps them apart and
+never lets one stand in for the other.
+
+`app/src/completions/daily-state.ts` derives the architecture's four states from
+two inputs: the server's own `TaskView` and whatever the pending completion
+store holds. It is the only place they meet, and it is pure, so the claim that
+matters is a property of one function rather than of a layout.
+
+`app/src/screens/daily-completion-screen.tsx` renders that state. Two rows, one
+per check, a headline naming the state in words that cannot be misread at a
+glance, and the actions each state allows: start and stop a capture while the
+task is incomplete, try again while a record is waiting, nothing at all once the
+server has refused.
+
+Decisions the plan left open:
+
+- **Only the server can say the second check passed.** `acknowledged` is
+  produced by `task.status === "completed"` with a non-null `acknowledgedAt`,
+  and by nothing else. No arrangement of local records reaches it, which is
+  what makes "a locally complete but unsynced task never renders as complete"
+  structural rather than a rule the screen remembers to follow. A completed task
+  carrying no acknowledgment instant is treated as still waiting.
+- **A refusal outranks a record still waiting.** A task can hold both a rejected
+  record and a later pending one; the user has something to do about the
+  refusal and nothing pending is going to change it, so `rejected` wins and no
+  retry action is offered beside it. Retrying a rejected record silently is
+  exactly what the architecture forbids.
+- **The deadline warning belongs to the pending state only.** Thirty minutes,
+  inclusive at the boundary, and it keeps warning after the deadline passes with
+  nothing acknowledged. An incomplete task gets no warning: the whole screen is
+  already telling the user it is not done, and a second alarm saying the same
+  thing teaches people to ignore alarms. The clock is state on a thirty-second
+  interval, so the warning appears while the screen sits open.
+- **A window short of the target writes nothing.** The capture's observation is
+  compared against the challenge's own `stepTarget` before the store is touched,
+  because storing a completion the device knows is short would make the local
+  check a lie and would spend an idempotency key on a request the server would
+  refuse. The shortfall is reported instead.
+
+20 new app tests (173 in `app` now): 13 over the state derivation and 7 over the
+screen, the latter running the real capture, the real SQLite store, and the real
+sync against a fake API so the acceptance boundary is exercised end to end
+inside the app.
+
+Four neuter checks on disjoint sets: letting a pending record produce
+`acknowledged` failed seven tests across both suites, dropping the refusal's
+precedence failed three, fixing the deadline warning to false failed three, and
+removing the step-target guard from the screen failed the one test that names
+it.
+
 ## Handed back
 
 ### Issue 31: the payment sheet behind a funding intent

@@ -764,6 +764,31 @@ the deposit path. Re-ask for a projection when the configuration changes and
 only then, and clear the old one immediately, so no stale end date is on screen
 while its replacement is in flight.
 
+### The daily completion screen
+
+The two checks a day needs are separate facts and stay separate in the code.
+`src/completions/daily-state.ts` is the only place the server's `TaskView` and
+the local pending records meet, and it is pure. Put a new rule about how today
+looks there rather than in the screen.
+
+`acknowledged` is produced by the server's task view alone. If you find yourself
+reaching for a local record to decide that the day is done, stop: a record on
+this device says nothing about what the server received, and the product makes
+the server's acknowledgment the condition for credit.
+
+A rejected record outranks a pending one, and a rejected record is never given a
+retry action. The architecture says a rejection is surfaced and never retried
+silently, and an action that resends it is a retry with extra steps.
+
+Warn about a near deadline only while synchronization is pending. An incomplete
+task is already saying it is not done, and a second alarm for the same fact
+teaches people to ignore alarms.
+
+Compare a capture against the challenge's `stepTarget` before writing anything
+to the store. A stored completion is what the local check reports, so storing a
+short window would make that check a lie and would spend an idempotency key on a
+request the server would refuse.
+
 ## Commits
 
 Use Conventional Commits.

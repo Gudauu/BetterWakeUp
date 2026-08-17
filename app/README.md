@@ -23,7 +23,8 @@ expects Jest. See "Toolchain" in `docs/architecture.md`.
   disclosures the user acknowledges, and the command that creates a challenge or
   authorizes a deposit.
 - `src/completions/` the SQLite store holding completions until the server
-  acknowledges them, and the pass that sends them.
+  acknowledges them, the pass that sends them, and the four-state view of
+  today's task the screen renders.
 - `src/movement/` the pedometer behind one port, the normalization every
   reading passes through, and the foreground-only capture.
 - `src/session/` secure storage for session material, and the React context the
