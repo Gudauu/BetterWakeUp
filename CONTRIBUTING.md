@@ -379,6 +379,21 @@ Nothing may clear `paused_at` except the resume command. A pause has no limit an
 no expiry, and the year that ends a paused challenge ends it as `expired` rather
 than resuming it. `server/test/pause-mode.test.ts` is the test that says so.
 
+## Time zone changes
+
+A time zone change moves instants and never dates. Every task keeps its calendar
+date and its sequence, and only its deadline and pause cutoff are recomputed,
+through `taskInstants` in the schedule engine.
+
+Which tasks move is decided on the stored pause cutoff alone: strictly later than
+the receipt instant, and open. Do not reach for "the window has not started"
+instead, and do not read the deadline. A task can have a passed cutoff and a
+deadline hours away, and that task keeps the terms it was given, because once its
+cutoff passes the user can no longer pause it.
+
+A change to the zone the challenge already holds writes nothing at all. A no-op
+that touches rows is not a no-op.
+
 ## Payments
 
 The provider is reached only through `PaymentProviderClient` in

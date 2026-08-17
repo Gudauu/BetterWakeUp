@@ -1,6 +1,7 @@
 /**
- * The three challenge endpoints issue 18 mounts, as handlers the route table
- * can pick up.
+ * The challenge endpoints, as handlers the route table can pick up: the
+ * projection, creation, the current challenge, the time zone change, pause and
+ * resume, and the funding intent when a provider is configured.
  *
  * Thin by design, like the account and sign-in handlers: the gate established
  * who is calling, validation established that the body matches the contract,
@@ -13,6 +14,7 @@
 import { AppError } from "../errors/app-error.ts";
 import type { EndpointHandlers } from "../http/routes.ts";
 import type { PaymentProviderClient } from "../payments/provider.ts";
+import { changeChallengeTimeZone } from "./change-time-zone.ts";
 import { type CreateChallengeDependencies, createChallenge } from "./create-challenge.ts";
 import { getCurrentChallenge } from "./current-challenge.ts";
 import { createFundingIntent } from "./funding-intent.ts";
@@ -88,6 +90,27 @@ export function createChallengeHandlers(deps: ChallengeHandlerDependencies): End
         // support is ever asked to explain, and it is the boundary the rule
         // turns on.
         ...(response.nextSkippedTask === null ? {} : { taskId: response.nextSkippedTask.id }),
+      });
+      return response;
+    },
+
+    changeChallengeTimeZone: async ({ params, body, session, idempotencyKey, logger }) => {
+      const { response, replayed } = await changeChallengeTimeZone(deps, {
+        accountId: session.accountId,
+        challengeId: params.challengeId,
+        idempotencyKey: requireKey("changeChallengeTimeZone", idempotencyKey),
+        timeZone: body.timeZone,
+      });
+      // The zone itself is not logged: it is a place, it is on the challenge
+      // row, and the closed field set has no home for it. How many tasks moved
+      // is the part support is asked about, and it is what distinguishes a
+      // change that landed inside a task's cutoff from one that did not.
+      logger.info("challenge time zone changed", {
+        command: "changeChallengeTimeZone",
+        result: replayed
+          ? "replayed"
+          : `rematerialized_${response.rematerializedTasks.length}_tasks`,
+        challengeId: response.challenge.id,
       });
       return response;
     },

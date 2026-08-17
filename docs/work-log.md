@@ -1113,6 +1113,74 @@ bound failed the six tests that depend on a resume not consuming the future,
 dropping the row lock failed only the two-writer test, and dropping the
 consumption from resume failed the five tests that assert what a resume spends.
 
+### Issue 22: time zone change
+
+`POST /challenges/:challengeId/time-zone`, in
+`server/src/challenges/change-time-zone.ts`.
+
+A challenge's schedule is a wall-clock time on a weekday, so the instants a task
+is judged against exist only once a zone is chosen. Changing the zone keeps the
+wall-clock promise: an 08:00 deadline stays 08:00 where the user now is. Every
+task keeps its calendar date and its sequence, and only its deadline and pause
+cutoff move, which is exactly what `taskInstants` in the issue 17 engine was
+written for.
+
+Which tasks move is the whole of the rule, and the architecture states it against
+a stored instant: re-materialize only tasks whose stored pause cutoff is strictly
+later than the instant the command is received. That is deliberately not the same
+boundary as "tasks that have not started". A task can have a passed pause cutoff
+and a deadline still hours ahead, and the two readings disagree about it. The
+cutoff is what the user was promised, so once it passes the terms that task is
+judged on are settled and a later command must not restate them.
+
+Tasks with a resolved outcome are excluded by status as well. The cutoff filter
+would catch most of them, but a skipped or forgiven task can hold a cutoff in the
+future, and a finished task's instants are part of the record of what happened.
+
+Three decisions the architecture leaves open:
+
+- **A change to the same zone writes nothing.** It is not a smaller move, it is
+  not a move: writing identical instants back would leave `updated_at` claiming a
+  change the user did not make and would report tasks as re-materialized that
+  nothing happened to.
+- **`recovery_pending` is refused** along with the terminal statuses, matching the
+  pause command. That challenge is waiting on one decision whose window is
+  measured from a missed task, and moving instants underneath it would change
+  what the decision is about.
+- **A paused challenge is accepted.** The mode suspends tasks, not the
+  challenge's relationship to a clock, and the user who moves is the user most
+  likely to be paused.
+
+One consequence is pinned by a test rather than prevented. Moving eastward moves
+a deadline earlier, so a task whose cutoff was still ahead can come out of the
+change with a deadline already behind the receipt instant, which the sweep will
+treat as missed. Nothing upstream states a policy for that, so the rule is
+applied as written and `moving eastward` in the suite records what that means. If
+the product decides such a change should be refused, or should spare that task,
+that test is the one that changes.
+
+The command runs inside `runIdempotent` and takes the challenge row `for update`
+before deciding anything, which is the same lock the pause path and the funding
+path take, and it is what stops a task from being moved into a new zone after a
+completion or a pause skip decided it under the old one. The status is in the
+predicate of each task update as well as in the read that selected it.
+
+`server/src/challenges/weekly-schedule.ts` is a small extraction: the pause skip
+and this command both rebuild the engine's schedule from stored rows, and both
+would otherwise repeat the one detail that is easy to get wrong, which is that
+the deadline column is a `time` and reads back with seconds.
+
+13 integration tests through the mounted route. The acceptance boundary is a task
+with a passed cutoff and a future deadline being untouched while its two
+successors move, against the same challenge one millisecond earlier where all
+three move.
+
+Four neuter checks, each landing on a disjoint test: dropping the cutoff bound
+failed only the untouched-task test, dropping the status filter failed only the
+resolved-outcome test, dropping the same-zone short circuit failed only the two
+tests that assert a no-op, and dropping the row lock failed only the two-writer
+test.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

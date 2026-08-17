@@ -27,10 +27,11 @@
 
 import { and, asc, desc, eq, gt, isNotNull, lte } from "drizzle-orm";
 
-import { challengeScheduleDays, challenges, scheduledTasks } from "../db/schema/challenges.ts";
+import { challenges, scheduledTasks } from "../db/schema/challenges.ts";
 import { AppError } from "../errors/app-error.ts";
 import type { Transaction } from "../idempotency/service.ts";
 import { appendTask, type ScheduleConfiguration } from "../schedule/engine.ts";
+import { loadWeeklySchedule } from "./weekly-schedule.ts";
 
 type TaskRow = typeof scheduledTasks.$inferSelect;
 
@@ -121,17 +122,6 @@ async function lockPausedChallenge(
 
   if (row?.pausedAt == null || row.status !== "active") return null;
 
-  const days = await tx
-    .select({
-      weekday: challengeScheduleDays.weekday,
-      deadlineLocal: challengeScheduleDays.deadlineLocal,
-    })
-    .from(challengeScheduleDays)
-    .where(eq(challengeScheduleDays.challengeId, challengeId));
-  if (days.length === 0) {
-    throw new AppError("internal_error", `challenge ${challengeId} has no weekly schedule`);
-  }
-
   return {
     id: row.id,
     pausedAt: row.pausedAt,
@@ -139,12 +129,7 @@ async function lockPausedChallenge(
       requiredTaskCount: row.requiredTaskCount,
       noRegretMinutes: row.noRegretMinutes,
       timeZone: row.timeZone,
-      // The stored deadline is a `time`, which reads back with the seconds the
-      // engine's local time format does not carry.
-      schedule: days.map((day) => ({
-        weekday: day.weekday,
-        deadline: day.deadlineLocal.slice(0, 5),
-      })),
+      schedule: await loadWeeklySchedule(tx, challengeId),
     },
   };
 }
