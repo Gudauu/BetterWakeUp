@@ -1789,7 +1789,81 @@ record failed five.
 
 Both bundles still export with `expo-sqlite` and `expo-network` added.
 
+### Issue 31: challenge creation and disclosure
+
+Setting up a challenge is one sitting held entirely in memory, and the action
+that commits is offered only once the user has been told what they are agreeing
+to.
+
+`app/src/challenges/draft.ts` is the configuration being edited: a plain
+reducer over a `ChallengeDraft`, with `configurationOf` handing the draft to the
+contract's own `challengeConfiguration` schema rather than keeping a second copy
+of the rules. "Nothing is saved until the challenge is created" is a property of
+that module rather than a promise on a screen: it imports nothing that could
+persist anything, and a test asserts so by reading its source.
+
+`app/src/challenges/disclosures.ts` holds every disclosure item `product.md`
+requires, as data rather than screen copy, each scoped to `all` or `funded`.
+The five synchronization statements under "Disclosure" apply to every challenge;
+the all-or-nothing forfeit, what a hold is, and the length of the Emergency
+Recovery offer apply only where there is money, because showing them to someone
+staking nothing would be telling them a falsehood. `DISCLOSURE_POLICY_VERSION`
+names that exact list and is the `policyVersion` sent with a challenge, so the
+terms stored beside a challenge forever are the statements the user actually
+read.
+
+Decisions the plan left open:
+
+- **The gate lives in the command, not on the screen.** `startChallenge`
+  computes readiness itself and returns `blocked` with the outstanding
+  statements before it builds any request, so an unacknowledged disclosure is
+  refused by the app rather than merely hidden by a layout. The screen's
+  button is the second gate, and the tests assert both.
+- **The maximum duration is the server's answer.** The screen asks
+  `POST /challenges/projections` for the configuration on screen and reads
+  `withinMaximumDuration` from it. A funded challenge with no projection yet is
+  blocked, so a network failure cannot open the deposit path; the same schedule
+  at zero deposit is created, because the rule exists to bound renewal risk and
+  a challenge with no hold has none.
+- **The projection is re-asked when the configuration changes and only then.**
+  The effect is keyed on the serialized configuration, so acknowledging a
+  statement or confirming a time zone does not re-ask, and an edit clears the
+  old projection immediately rather than leaving a stale end date on screen
+  while its replacement is in flight.
+- **A time zone the user changes is a time zone they have not confirmed.** The
+  device's zone is seeded as a proposal, and `setTimeZone` withdraws the
+  confirmation, because a confirmation is an answer about one specific zone.
+
+The two doors are decided by the deposit alone: zero goes to
+`POST /challenges` and reaches no payment code at all, and anything else goes to
+`POST /challenges/funding-intents`. The test for that asserts on the endpoint
+names the client was asked for, which is what makes "without any payment step" a
+checked claim rather than a description.
+
+The signed-in half of the welcome screen is now this screen: an account with no
+challenge has exactly one thing to do.
+
+34 new app tests (153 in `app` now): 21 over the draft, the disclosures, and the
+command, and 13 over the screen.
+
+Five neuter checks on disjoint sets: making `outstandingDisclosures` always
+return nothing failed seven tests across all three suites, removing the
+outstanding-disclosure branch from `startChallenge` failed only the two that
+assert no request was made, sending a zero deposit challenge through the funding
+intent failed eight, dropping the maximum duration from the screen's gate failed
+only the funded duration test, and keeping a time zone confirmation across a
+zone change failed only the test that names it.
+
 ## Handed back
+
+### Issue 31: the payment sheet behind a funding intent
+
+The funded half of challenge creation stops at the funding intent. The app
+authorizes the hold and shows what happens next, but presenting the provider's
+own sheet against `providerClientSecret` needs a payment processor account and
+its SDK, which is the same blocker as issue 42a. Everything up to and including
+the intent is covered by tests against the fake provider, and the zero deposit
+path, which is the half issue 31's acceptance boundary names, is complete.
 
 ### Issue 29: movement capture on a device
 

@@ -724,6 +724,46 @@ moment worth trying again) is a `SyncTrigger`, which is a plain subscribe
 function, so adding one needs no change here and no native import above the
 ports.
 
+### Challenge setup and disclosure
+
+The configuration being edited lives in `src/challenges/draft.ts` and nowhere
+else. Nothing about a half-finished challenge is persisted, so that module
+imports no storage at all; if you need to keep something across a launch, it
+does not belong in the draft.
+
+Whether a draft describes a legal configuration is answered by handing it to the
+contract's own `challengeConfiguration` schema. Do not restate a rule the
+contract already carries. The one sentence written here rather than derived is
+the deposit gap, because "either nothing or at least a dollar" reads better than
+a schema error.
+
+Disclosures are data (`src/challenges/disclosures.ts`), not screen copy, and
+each is scoped to `all` or `funded`. Every statement `product.md` requires
+before a deposit is one item, and `DISCLOSURE_POLICY_VERSION` names the exact
+list. Editing, adding, or removing an item means a later user accepted something
+different, so move the version with the list. That version is the `policyVersion`
+sent with a challenge, which is what makes the terms stored beside a challenge
+the ones the user actually read.
+
+The gate on the deposit belongs in `startChallenge`, not on a screen.
+`readinessOf` says what is outstanding, and the command returns `blocked` before
+it builds a request, so an unacknowledged disclosure costs no idempotency key
+and no rate limit allowance. A screen hiding the button is the second gate, not
+the first.
+
+Which door a challenge goes through is decided by the deposit alone: zero goes
+to `POST /challenges` and reaches no payment code, and anything else goes to
+`POST /challenges/funding-intents`. Assert on the endpoints a test's client was
+asked for when you touch this, since "no payment step" is a claim about requests
+that were never made.
+
+The maximum duration is the server's answer, read from a projection of the
+configuration currently on screen. A funded challenge with no projection is
+blocked rather than allowed: a projection the app could not fetch must not open
+the deposit path. Re-ask for a projection when the configuration changes and
+only then, and clear the old one immediately, so no stale end date is on screen
+while its replacement is in flight.
+
 ## Commits
 
 Use Conventional Commits.

@@ -13,6 +13,7 @@ import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSession } from "../session/session-context.tsx";
+import { CreateChallengeScreen } from "./create-challenge-screen.tsx";
 
 const LABELS: Readonly<Record<IdentityProvider, string>> = {
   apple: "Sign in with Apple",
@@ -49,13 +50,11 @@ export function WelcomeScreen() {
   }
 
   if (state.status === "signedIn") {
+    // A signed-in account with no challenge has exactly one thing to do, so
+    // setting one up is the screen rather than something behind a menu.
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]} testID="welcome-signed-in">
-        <Text style={styles.title}>BetterWakeUp</Text>
-        <Text style={styles.body}>You are signed in.</Text>
-        <Pressable accessibilityRole="button" style={styles.button} onPress={() => void signOut()}>
-          <Text style={styles.buttonLabel}>Sign out</Text>
-        </Pressable>
+      <View style={styles.fill} testID="welcome-signed-in">
+        <CreateChallengeScreen onSignOut={() => void signOut()} />
       </View>
     );
   }
@@ -101,6 +100,7 @@ export function WelcomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  fill: { flex: 1 },
   container: {
     flex: 1,
     alignItems: "center",

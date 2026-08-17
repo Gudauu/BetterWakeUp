@@ -7,6 +7,7 @@ import type { ProviderSignIns } from "../src/auth/provider-sign-in.ts";
 import { WelcomeScreen } from "../src/screens/welcome-screen.tsx";
 import { SessionProvider } from "../src/session/session-context.tsx";
 import { createMemorySessionStore, type SessionStore } from "../src/session/session-store.ts";
+import { fakeApi } from "./support/fake-api.ts";
 import { appleCredential, fakeProvider, fakeProviders } from "./support/fake-providers.ts";
 
 const SESSION: SessionView = {
@@ -28,8 +29,12 @@ const METRICS = {
   insets: { top: 47, left: 0, right: 0, bottom: 34 },
 };
 
-/** The screens never build a client themselves, so a stub is enough here. */
-const api: ApiClient = { request: async () => ({}) as never };
+/**
+ * The signed-in screen sets up a challenge, so it asks for a projection as
+ * soon as it renders; a client that answers per endpoint keeps these tests
+ * about sign-in rather than about what a stub happened to return.
+ */
+const api: ApiClient = fakeApi();
 
 async function renderScreen(
   store: SessionStore,
@@ -111,7 +116,7 @@ describe("the sign-in buttons", () => {
   it("signs in when Apple is tapped", async () => {
     const store = createMemorySessionStore(null);
     await renderScreen(store, {
-      api: { request: async () => ({ session: SESSION, account: ACCOUNT }) as never },
+      api: fakeApi({ createSession: { session: SESSION, account: ACCOUNT } }),
     });
 
     await userEvent.press(screen.getByTestId("sign-in-apple"));
@@ -134,11 +139,9 @@ describe("the sign-in buttons", () => {
   it("shows one plain sentence when the exchange fails", async () => {
     await renderScreen(createMemorySessionStore(null), {
       providers: fakeProviders({ apple: fakeProvider({ result: appleCredential() }) }),
-      api: {
-        request: async () => {
-          throw new ApiError("internal_error", "connection pool exhausted", { status: 500 });
-        },
-      },
+      api: fakeApi({
+        createSession: new ApiError("internal_error", "connection pool exhausted", { status: 500 }),
+      }),
     });
 
     await userEvent.press(screen.getByTestId("sign-in-apple"));

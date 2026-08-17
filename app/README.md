@@ -19,6 +19,9 @@ expects Jest. See "Toolchain" in `docs/architecture.md`.
   one error type it raises.
 - `src/auth/` the two native sign-in providers behind one interface, and the
   sign-in flow that exchanges a credential for a session.
+- `src/challenges/` the in-memory draft a challenge is configured in, the
+  disclosures the user acknowledges, and the command that creates a challenge or
+  authorizes a deposit.
 - `src/completions/` the SQLite store holding completions until the server
   acknowledges them, and the pass that sends them.
 - `src/movement/` the pedometer behind one port, the normalization every
