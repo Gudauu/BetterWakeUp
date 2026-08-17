@@ -1528,7 +1528,81 @@ starting both sides of each race together left both losing branches unreached
 (the counts were 6/0 and 4/0), and each of the nine invariant checks is shown to
 fire by a state built to break the rule it names.
 
+### Issue 27: app skeleton and API client
+
+`app/` is now an Expo Router project in the pnpm workspace, on Expo SDK 57 with
+the new architecture enabled, and `pnpm run test` at the root runs Vitest across
+the other packages and then Jest inside `app`. Lint, format, and typecheck were
+already repository-wide and needed no second toolchain: the app extends
+`expo/tsconfig.base` and re-states the strict options the rest of the repository
+uses, and Biome covers it like everything else.
+
+`src/api/client.ts` is built from the contract's endpoint registry rather than
+from hand-written routes. One function turns an endpoint name into a request:
+the registry decides the method and path, whether an `Authorization` header is
+attached, whether an `Idempotency-Key` is required, and what the request and
+response are parsed against. The payment webhook is excluded from the client's
+endpoint names, so the one route the provider calls is not merely unused by the
+app but uncallable from it.
+
+Three decisions the architecture leaves open:
+
+- **The client validates a request before it sends it.** A body or a path
+  parameter the contract rejects fails locally, which costs no idempotency key,
+  no rate limit allowance, and no round trip. Responses are parsed too, and an
+  unreadable one is `internal_error` rather than a value handed to a caller that
+  the contract does not describe.
+- **Every failure is one type carrying a contract code.** `ApiError` holds the
+  code, the contract's own `disposition`, and the HTTP status, which is `null`
+  when the request never reached the server. The pending completion store in
+  issue 30 then decides what to retry by reading `disposition`, and never by
+  matching on a status or a message. A request that never arrived is retryable
+  because every command that changes anything carries an idempotency key.
+- **A refused session is cleared at the client.** A `401` answering
+  `unauthenticated` or `session_expired` clears secure storage, so a token the
+  server has already refused is never presented again; any other refusal leaves
+  it alone.
+
+Session material lives in `expo-secure-store` under one key, with
+`WHEN_UNLOCKED_THIS_DEVICE_ONLY`, so it does not follow a restored backup onto
+another device. A stored value this build cannot parse is discarded rather than
+thrown at launch: a session shape the app no longer understands is one sign-in
+away from being fixed, and crashing on launch is not.
+
+`SessionProvider` exposes three states, and `loading` is one of them because
+secure storage is asynchronous: the signed-out screen would otherwise flash at a
+signed-in user on every launch. `app/index.tsx` renders the welcome screen,
+whose two sign-in buttons are inert until issue 28 wires the native providers.
+
+27 Jest tests: 18 over the client (route building, headers, both refusals before
+a request is made, every failure shape, and a walk of the registry asserting
+every route parameter is named by its params schema), 6 over secure storage, and
+3 over which screen each session state reaches.
+
+Five neuter checks on disjoint sets: dropping the session header failed exactly
+the bearer-token and no-session tests, sending an unvalidated body failed only
+the pre-send validation test, keeping the session on a `401` failed only the
+clearing test, accepting an unparseable stored session failed only the discard
+test, and starting the provider in `signedOut` failed only the loading test.
+
+`pnpm --filter @betterwakeup/app run bundle` exports both an iOS and an Android
+bundle, which proves Metro resolves the workspace contract package from source
+and that the entry point and router load. See "Handed back" for the half of this
+issue's acceptance boundary that needs a device.
+
 ## Handed back
+
+### Issue 27: the app on real hardware
+
+The app bundles for both platforms here, but "builds on both platforms and
+reaches an unauthenticated screen" is only fully met on hardware. An EAS
+development build needs an Expo account, an Apple Developer account with a
+provisioning profile for `com.betterwakeup.app`, and an Android keystore, none
+of which exist yet. `eas.json` carries the `development`, `preview`, and
+`production` profiles ready for whoever holds those accounts.
+
+The same accounts block issue 3's device spike and issue 28's native sign-in, so
+one round of account setup unblocks all three.
 
 ### Issue 3: step accuracy spike
 

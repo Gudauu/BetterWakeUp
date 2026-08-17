@@ -13,11 +13,11 @@ pnpm run check
 before opening a pull request. `pnpm run lint:fix` applies the safe fixes Biome
 can make on its own.
 
-The workspace holds `server`, `infra`, `packages/contract`, and `tools`, which
-holds tests for repository tooling rather than shipped code. The Expo app in
-`app/` joins the workspace when issue 27 scaffolds it, and uses jest-expo rather
-than Vitest. Tool choices are recorded under "Toolchain" in
-`docs/architecture.md`.
+The workspace holds `app`, `server`, `infra`, `packages/contract`, and `tools`,
+which holds tests for repository tooling rather than shipped code. The Expo app
+in `app/` uses jest-expo rather than Vitest, so `pnpm run test` runs Vitest
+across the other packages and then Jest inside `app`. Tool choices are recorded
+under "Toolchain" in `docs/architecture.md`.
 
 ## The API contract
 
@@ -583,6 +583,42 @@ writing one of those tests:
 An invariant added to the architecture needs a check added to
 `invariants.ts` and a case in `invariant-checker.test.ts` that breaks it on
 purpose. A check nothing has ever seen fire is not an assertion.
+
+## The mobile app
+
+`app/` is the Expo Router project. `pnpm --filter @betterwakeup/app run start`
+opens it against a development build, `run test` runs Jest, and `run bundle`
+exports the iOS and Android bundles, which is the cheapest proof that a change
+still builds for both platforms without Xcode or Android Studio.
+
+Requests go through `src/api/client.ts`, which is built from the contract's
+endpoint registry. Never write a path, a method, an `Authorization` header, or
+an `Idempotency-Key` header anywhere else: an endpoint added to the contract is
+callable with no edit to the client, and one written by hand would be the only
+place a route can disagree with the server.
+
+The client validates a request against the contract before it sends it, so a
+request the server would refuse costs no idempotency key and no rate limit
+allowance. It parses every response too, and answers an unreadable one with
+`internal_error` rather than handing a caller a value the contract does not
+describe.
+
+Every failure the client raises is an `ApiError` carrying a contract error code
+and the contract's own `disposition`. A caller decides whether to retry by
+reading `disposition`, never by matching on a status code or a message: the
+retry rule belongs to the contract so the server and the pending completion
+store cannot disagree about it. A failure that never reached the server is
+`internal_error` with a `null` status, which is retryable because every command
+that changes anything carries an idempotency key.
+
+Session material lives in `expo-secure-store` behind `SessionStore`, bound to
+the device and never written anywhere else. A stored value this build cannot
+parse is discarded rather than thrown at launch, and a `401` from the server
+clears it, so a session the server has refused is never presented twice.
+
+Screens read session state from `useSession()`. `loading` is one of its three
+states because secure storage is asynchronous: rendering the signed-out screen
+while the read is in flight would flash it at a signed-in user.
 
 ## Commits
 

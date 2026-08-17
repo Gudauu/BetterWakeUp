@@ -36,6 +36,11 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Expo
+.expo/
+app/ios/
+app/android/
+
 # Swift and Xcode
 .build/
 DerivedData/
