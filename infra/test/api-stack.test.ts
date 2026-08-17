@@ -3,7 +3,11 @@ import { Match, Template } from "aws-cdk-lib/assertions";
 import { describe, expect, it } from "vitest";
 import { ApiStack, FUNCTION_URL_OUTPUT, LOG_RETENTION } from "../src/api-stack.ts";
 import { defineApp, PLACEHOLDER_CODE_ASSET_PATH, stackName } from "../src/app.ts";
-import { CONTEXT_KEYS, type StackConfiguration } from "../src/config.ts";
+import {
+  CONTEXT_KEYS,
+  DEFAULT_MONTHLY_BUDGET_USD,
+  type StackConfiguration,
+} from "../src/config.ts";
 import { LAMBDA_RESERVED_CONCURRENCY } from "../src/index.ts";
 import { SECRET_READ_ACTIONS } from "../src/secrets.ts";
 
@@ -12,6 +16,8 @@ const configuration: StackConfiguration = {
   region: "us-east-1",
   account: undefined,
   codeAssetPath: PLACEHOLDER_CODE_ASSET_PATH,
+  alertEmail: undefined,
+  monthlyBudgetUsd: DEFAULT_MONTHLY_BUDGET_USD,
 };
 
 function synthesize(overrides: Partial<StackConfiguration> = {}): Template {
@@ -165,6 +171,7 @@ describe("the CDK application", () => {
         [CONTEXT_KEYS.stage]: "prod",
         [CONTEXT_KEYS.region]: "eu-central-1",
         [CONTEXT_KEYS.account]: "123456789012",
+        [CONTEXT_KEYS.alertEmail]: "oncall@example.com",
       },
     });
     const [stack] = defineApp(app).synth().stacks;

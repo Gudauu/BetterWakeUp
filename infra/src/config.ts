@@ -50,7 +50,29 @@ export interface StackConfiguration {
    * placeholder so the stack still synthesizes and can be asserted against.
    */
   readonly codeAssetPath: string;
+  /**
+   * Where alarms and budget notifications are delivered.
+   *
+   * Optional in development, where the alarms exist to be asserted rather than
+   * answered, and required in production: a production stack whose alarms and
+   * budget notify nobody is worse than one with neither, because the template
+   * says somebody is watching.
+   */
+  readonly alertEmail: string | undefined;
+  /** The monthly spend, in whole dollars, the budget notifies about. */
+  readonly monthlyBudgetUsd: number;
 }
+
+/**
+ * The default monthly budget.
+ *
+ * The architecture's whole cost argument is a free-tier Lambda, a Function URL,
+ * a free Neon tier, and standard Parameter Store entries, so a bill of any size
+ * means something is wrong rather than that the product grew. Twenty dollars is
+ * far above what the design should cost and far below an amount worth
+ * discovering at the end of a month.
+ */
+export const DEFAULT_MONTHLY_BUDGET_USD = 20;
 
 /** The context keys this application reads. Prefixed so nothing collides. */
 export const CONTEXT_KEYS = {
@@ -58,6 +80,8 @@ export const CONTEXT_KEYS = {
   region: "bwu:region",
   account: "bwu:account",
   codeAssetPath: "bwu:codeAssetPath",
+  alertEmail: "bwu:alertEmail",
+  monthlyBudgetUsd: "bwu:monthlyBudgetUsd",
 } as const;
 
 export interface ContextReader {
@@ -102,12 +126,39 @@ export function readStackConfiguration(
     );
   }
 
+  const alertEmail = readString(context, CONTEXT_KEYS.alertEmail);
+  if (alertEmail !== undefined && !alertEmail.includes("@")) {
+    throw new Error(`Context ${CONTEXT_KEYS.alertEmail} must be an email address.`);
+  }
+  if (alertEmail === undefined && stage === "prod") {
+    // Refused rather than defaulted. Every alarm in this application notifies
+    // one topic, and a topic with no subscription is a stack that looks
+    // observed and is not.
+    throw new Error(
+      `Context ${CONTEXT_KEYS.alertEmail} is required for prod: alarms and the budget must reach somebody.`,
+    );
+  }
+
   return {
     stage,
     region,
     account: readString(context, CONTEXT_KEYS.account),
     codeAssetPath: readString(context, CONTEXT_KEYS.codeAssetPath) ?? defaults.codeAssetPath,
+    alertEmail,
+    monthlyBudgetUsd: readPositiveNumber(context, CONTEXT_KEYS.monthlyBudgetUsd),
   };
+}
+
+function readPositiveNumber(context: ContextReader, key: string): number {
+  const raw = context.tryGetContext(key);
+  if (raw === undefined || raw === null) return DEFAULT_MONTHLY_BUDGET_USD;
+  // Context arrives as a string from `-c key=value` and as a number from
+  // `cdk.json`, so both are accepted and anything else is refused.
+  const value = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`Context ${key} must be a positive number of dollars.`);
+  }
+  return value;
 }
 
 function isStage(value: string): value is Stage {

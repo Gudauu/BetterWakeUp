@@ -4,7 +4,7 @@ import { Match, Template } from "aws-cdk-lib/assertions";
 import { describe, expect, it } from "vitest";
 import { ApiStack } from "../src/api-stack.ts";
 import { PLACEHOLDER_CODE_ASSET_PATH, stackName } from "../src/app.ts";
-import type { StackConfiguration } from "../src/config.ts";
+import { DEFAULT_MONTHLY_BUDGET_USD, type StackConfiguration } from "../src/config.ts";
 import {
   DAILY_SWEEP_DETAIL_TYPE,
   DAILY_SWEEP_UTC_HOUR,
@@ -21,6 +21,8 @@ const configuration: StackConfiguration = {
   region: "us-east-1",
   account: undefined,
   codeAssetPath: PLACEHOLDER_CODE_ASSET_PATH,
+  alertEmail: undefined,
+  monthlyBudgetUsd: DEFAULT_MONTHLY_BUDGET_USD,
 };
 
 function synthesize(overrides: Partial<StackConfiguration> = {}): Template {

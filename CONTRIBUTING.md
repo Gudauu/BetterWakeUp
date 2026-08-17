@@ -843,7 +843,8 @@ placeholder in `infra/lambda-bundle-placeholder`, and the deploy pipeline passes
 a built bundle through the `bwu:codeAssetPath` context key instead.
 
 Deployment decisions arrive as CDK context (`bwu:stage`, `bwu:region`,
-`bwu:account`, `bwu:codeAssetPath`) and are read in exactly one place,
+`bwu:account`, `bwu:codeAssetPath`, `bwu:alertEmail`, `bwu:monthlyBudgetUsd`)
+and are read in exactly one place,
 `readStackConfiguration`. A missing or nonsensical value fails at synth, where
 somebody is watching. The region is required and must be one Neon runs in,
 because the architecture requires the Lambda and the database to share a region.
@@ -909,6 +910,36 @@ endpoint registry. It takes no session, spends no rate limit, and opens no
 database connection, so it answers whenever the function is running at all. Keep
 it that way: a probe that can fail for a second reason stops answering the
 question it exists to answer.
+
+## Metrics, alarms, and cost
+
+`server/src/observability/metrics.ts` holds every custom metric this system
+emits, and the set is closed at ten because that is CloudWatch's free allowance
+for custom metrics. The only dimension is the stage: a metric is billed per
+unique name and dimension pair, so an account or challenge dimension would bill
+per account.
+
+Metrics travel as embedded metric format lines on the function's own log stream,
+so emitting one costs no network call, no IAM grant, and nothing when an
+invocation is frozen mid-flight. Emit only what happened. A metric with no
+datapoint is absent rather than zero, and the alarms are written around that
+difference: the counters treat missing data as calm, while the two backlog
+levels the sweep publishes on every run treat it as a breach, because their
+silence means the sweep stopped running.
+
+Alarms live in `infra/src/alarms.ts` as data, and adding one means adding a
+breaching series and a quiet series to `infra/test/alarms.test.ts`. That test
+reads the alarms out of the synthesized template and fires each one through
+`infra/src/alarm-evaluation.ts`, which is CloudWatch's own rule; a new alarm with
+no series fails, and so does a series naming no alarm. An alarm nobody has fired
+once is an alarm whose quiet cannot be trusted.
+
+Every alarm notifies one topic, in both directions. Where that topic is
+delivered is context (`bwu:alertEmail`), and a production synth is refused
+without it. The monthly budget (`bwu:monthlyBudgetUsd`, defaulting to twenty
+dollars) is written only when there is somebody to notify, and reports both
+actual and forecast spend: the forecast is the one that arrives in time to stop
+a runaway loop.
 
 ## Commits
 

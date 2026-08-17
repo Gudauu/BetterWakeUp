@@ -13,6 +13,8 @@ import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from "aws-
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
 import type { Construct } from "constructs";
+import { OperationalAlarms } from "./alarms.ts";
+import { CostBudget } from "./budget.ts";
 import type { StackConfiguration } from "./config.ts";
 import { LAMBDA_RESERVED_CONCURRENCY } from "./index.ts";
 import { SweepSchedules } from "./schedules.ts";
@@ -65,6 +67,8 @@ export class ApiStack extends Stack {
   readonly logGroup: logs.LogGroup;
   readonly schedules: SweepSchedules;
   readonly secrets: SecretParameters;
+  readonly alarms: OperationalAlarms;
+  readonly budget: CostBudget;
 
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
@@ -120,6 +124,14 @@ export class ApiStack extends Stack {
       configuration,
       target: this.function,
     });
+
+    // Last, because every alarm watches something above it, and because the
+    // budget is about the whole stack rather than any one resource in it.
+    this.alarms = new OperationalAlarms(this, "Alarms", {
+      configuration,
+      target: this.function,
+    });
+    this.budget = new CostBudget(this, "Budget", { configuration });
 
     new CfnOutput(this, FUNCTION_URL_OUTPUT, {
       value: this.functionUrl.url,

@@ -25,7 +25,7 @@ import { Template } from "aws-cdk-lib/assertions";
 import { describe, expect, it } from "vitest";
 import { ApiStack, SECRET_PREFIX_VARIABLE } from "../src/api-stack.ts";
 import { PLACEHOLDER_CODE_ASSET_PATH, stackName } from "../src/app.ts";
-import type { StackConfiguration } from "../src/config.ts";
+import { DEFAULT_MONTHLY_BUDGET_USD, type StackConfiguration } from "../src/config.ts";
 import {
   SECRET_PARAMETER_SEGMENTS,
   SECRET_READ_ACTIONS,
@@ -37,6 +37,8 @@ const configuration: StackConfiguration = {
   region: "us-east-1",
   account: "123456789012",
   codeAssetPath: PLACEHOLDER_CODE_ASSET_PATH,
+  alertEmail: undefined,
+  monthlyBudgetUsd: DEFAULT_MONTHLY_BUDGET_USD,
 };
 
 function synthesize(overrides: Partial<StackConfiguration> = {}): Template {

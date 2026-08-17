@@ -41,7 +41,9 @@
 
 import type { Database } from "../db/client.ts";
 import type { ScheduledEvent } from "../lambda/events.ts";
+import { measureBacklog } from "../observability/backlog.ts";
 import type { Logger } from "../observability/logger.ts";
+import { type MetricEmitter, noMetrics } from "../observability/metrics.ts";
 import type { PaymentProviderClient } from "../payments/provider.ts";
 import { runRenewalPass } from "../payments/renewal.ts";
 import { runSettlementPass, type SettlementPassResult } from "../payments/settlement.ts";
@@ -118,6 +120,16 @@ export interface SweepDependencies {
   readonly now?: (() => Date) | undefined;
   readonly batchSize?: number | undefined;
   readonly maxPasses?: number | undefined;
+  /**
+   * Where the operational metrics go.
+   *
+   * The sweep is the only thing that publishes the two backlog levels and the
+   * only thing that can report its own failure as distinct from any other
+   * invocation's, so an alarmed deployment has to pass one. It defaults to
+   * publishing nothing rather than to a real emitter, because a test asserting
+   * on rows should not also be writing metric lines to stdout.
+   */
+  readonly metrics?: MetricEmitter | undefined;
 }
 
 /** What the Lambda handler's scheduled arm calls. */
@@ -126,8 +138,22 @@ export type SweepRunner = (event: ScheduledEvent, logger: Logger) => Promise<Swe
 export function createSweep(deps: SweepDependencies): SweepRunner {
   const batchSize = deps.batchSize ?? DEFAULT_BATCH_SIZE;
   const maxPasses = deps.maxPasses ?? DEFAULT_MAX_PASSES;
+  const metrics = deps.metrics ?? noMetrics;
 
-  return async (_event, logger) => {
+  return async (event, logger) => {
+    try {
+      return await run(event, logger);
+    } catch (failure) {
+      // Counted here rather than left to Lambda's own `Errors`, which cannot
+      // tell a sweep that died from a request that died. Rethrown immediately:
+      // a caught failure that returned an empty result would report a drained
+      // backlog to the very metric the alarm above reads.
+      metrics.record("SweepFailures");
+      throw failure;
+    }
+  };
+
+  async function run(_event: ScheduledEvent, logger: Logger): Promise<SweepResult> {
     // One instant for the whole invocation, so a task is not judged against a
     // clock that moved between two of its own rules, and so a test can state
     // the moment a boundary is tested at. Every comparison carries it into SQL
@@ -222,12 +248,30 @@ export function createSweep(deps: SweepDependencies): SweepRunner {
       tasksResolved: totals.tasksMissed + totals.tasksSkipped,
       moreWorkPending,
     };
+    // Only what actually happened. A pass that refused nothing publishes
+    // nothing, so a metric with no datapoint means the sweep did not run
+    // rather than that it ran and found nothing wrong, which is the
+    // distinction the alarms' missing-data handling depends on.
+    if (result.renewalsFailed > 0) {
+      metrics.record("AuthorizationRenewalFailures", result.renewalsFailed);
+    }
+    if (result.forfeitsUncollected > 0) {
+      metrics.record("UncollectedForfeits", result.forfeitsUncollected);
+    }
+
+    // Measured after the passes, so what this invocation resolved is already
+    // out of the numbers and the level published is the one an operator would
+    // still find waiting.
+    const backlog = await measureBacklog({ db: deps.db, now });
+    metrics.record("DepositsUnsecuredOverADay", backlog.depositsUnsecuredOverADay);
+    metrics.record("OverdueSettlementCommands", backlog.overdueSettlementCommands);
+
     logger.info("sweep completed", {
       command: "sweep",
       result: result.moreWorkPending ? "backlog_remaining" : "drained",
     });
     return result;
-  };
+  }
 }
 
 /**

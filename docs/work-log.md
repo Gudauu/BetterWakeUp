@@ -2207,7 +2207,94 @@ than collecting them failed one, removing the PostgreSQL value pattern failed
 one in each package, and planting a connection string in `infra/src/index.ts`
 failed the repository scan.
 
+### Issue 38: logs, alarms, and budgets
+
+Log retention was already explicit from issue 35, so this issue is the other two
+thirds: the metrics the alarms are built on, the alarms themselves, and a budget.
+
+`server/src/observability/metrics.ts` is a closed catalogue of ten metrics and
+an emitter that writes them as CloudWatch's embedded metric format, one JSON
+line per observation on the function's own log stream. Embedded format rather
+than `PutMetricData`: no network call on a request path, no IAM grant beyond
+writing logs, and nothing lost when an invocation is frozen before a call
+completes. `infra/src/alarms.ts` declares eleven alarms as data and builds them
+from that data, and `infra/src/budget.ts` writes a monthly cost budget.
+
+Five open decisions:
+
+- The catalogue is capped at ten metrics with the stage as its only dimension.
+  CloudWatch's free allowance is ten custom metrics and a metric is billed per
+  unique name and dimension pair, so an account or challenge dimension would
+  bill per account. A test holds the ceiling, which is what makes the eleventh
+  metric a decision rather than an accident.
+- Missing data means different things for different alarms. For the counters,
+  no datapoint means nothing went wrong, so they are `notBreaching`. The two
+  backlog levels are published by the sweep on every run whatever it found, so
+  a missing datapoint means the sweep did not run: those two alarms treat
+  missing data as a breach, and that is what covers the one outage that produces
+  no events at all.
+- Deposits unsecured and settlement commands past their instant are measured by
+  a query on every sweep rather than counted where they happen. Both describe a
+  state rather than a moment: the renewal that left a deposit unsecured failed a
+  day earlier and was counted then, and a settlement command becomes overdue
+  because a clock passed it while nothing ran.
+- The API error rate is a math expression over two metrics rather than a count.
+  A count that means an outage at pilot volumes means nothing at ten times the
+  traffic, and re-tuning a threshold after every growth step is how alarms stop
+  being trusted. The settlement backlog carries a one hour tolerance for the
+  same reason in reverse: the sweep writes a command and executes it in the same
+  invocation, so a zero tolerance would page during ordinary operation.
+- There is no CloudWatch alarm on `AWS/Billing`'s `EstimatedCharges`. That
+  metric is published only in `us-east-1` and this stack lives in Neon's region,
+  so it would mean a second stack containing one alarm. The budget's forecast
+  notification says the same thing several days sooner. The budget's subscribers
+  are email addresses for the same reason: AWS Budgets wants an SNS topic in
+  `us-east-1` and a topic policy naming the service.
+
+A production synth without `bwu:alertEmail` is refused, and a budget with no
+subscriber is not written at all. Both follow from the same rule: a topic with
+no subscription and a budget that notifies nobody are worse than neither,
+because the template says somebody is watching.
+
+Issue 38's acceptance boundary is that each alarm has been fired once in a test.
+`infra/src/alarm-evaluation.ts` is CloudWatch's own M-out-of-N rule with its
+missing-data handling, and `infra/test/alarms.test.ts` reads every alarm out of
+the synthesized template, so what is fired is the alarm CloudFormation would
+create rather than the specification it came from. Each alarm has two series
+beside it, one that is the incident and one that is ordinary operation, and the
+table is checked against the template both ways: an alarm with no series and a
+series naming no alarm both fail, so the next alarm cannot be added without
+being fired.
+
+The pre-existing repository secret scan was failing at the start of this issue
+on a `whsec_live_` literal in `server/test/secrets.test.ts`, added by issue 37's
+own work. It is now assembled from pieces, as the two fixtures issue 37 found
+were.
+
+56 new tests (14 in the server over the catalogue, the emitter, and what a
+request publishes; 10 in the server's integration suite over the two backlog
+queries and what a sweep publishes; 25 in infra over the alarms, their targets,
+the topic, and the budget; 7 over the new configuration refusals).
+
+Thirteen neuter checks on disjoint sets: dropping the missing-data rule, the
+M-out-of-N count, the OK action, the budget's no-subscriber refusal, the
+production alert-email refusal, and the metric dimension each failed infra
+tests; counting the health probe, counting every completion failure as a
+rejection, counting refusals as faults, dropping the stage from the emitted
+line, removing each of the two backlog tolerances, dropping the pending-only
+filter, and removing the sweep failure counter each failed server tests.
+
 ## Handed back
+
+### Issue 38: the alert address and the budget
+
+The alarms notify one SNS topic and the budget notifies an email address, and
+neither destination exists here: no account holds the topic and no address has
+been given. A production synth refuses without `bwu:alertEmail`, so what is left
+for whoever holds the account is one context value per stage, confirming the
+email subscription AWS sends, and checking that the budget's currency matches
+the account's billing currency.
+
 
 ### Issue 37: the parameter values
 

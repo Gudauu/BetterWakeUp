@@ -52,8 +52,32 @@ export { createApp } from "./http/app.ts";
 export type { ScheduledEvent } from "./lambda/events.ts";
 export { isHttpEvent, isScheduledEvent } from "./lambda/events.ts";
 export { createHandler, handler } from "./lambda/handler.ts";
+export type { BacklogMeasurement, MeasureBacklogOptions } from "./observability/backlog.ts";
+export {
+  measureBacklog,
+  SETTLEMENT_LATENESS_TOLERANCE_MINUTES,
+  UNSECURED_DEPOSIT_TOLERANCE_HOURS,
+} from "./observability/backlog.ts";
 export type { LogFields, Logger, LogLevel, LogSink } from "./observability/logger.ts";
 export { createLogger } from "./observability/logger.ts";
+export type {
+  MetricEmitter,
+  MetricName,
+  MetricSink,
+  MetricUnit,
+  RecordingMetricEmitter,
+} from "./observability/metrics.ts";
+export {
+  createEmfEmitter,
+  createRecordingEmitter,
+  FREE_CUSTOM_METRIC_ALLOWANCE,
+  METRIC_CATALOG,
+  METRIC_DIMENSION,
+  METRIC_NAMES,
+  METRIC_NAMESPACE,
+  noMetrics,
+  REJECTED_COMPLETION_CODES,
+} from "./observability/metrics.ts";
 export { scrub } from "./observability/redact.ts";
 export type { SweepDependencies, SweepResult, SweepRunner } from "./sweep/run-sweep.ts";
 export { createSweep, unconfiguredSweep } from "./sweep/run-sweep.ts";

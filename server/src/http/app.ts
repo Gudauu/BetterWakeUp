@@ -7,11 +7,16 @@
  * they are registered here rather than per route.
  */
 
-import { IDEMPOTENCY_HEADER } from "@betterwakeup/contract";
+import { ENDPOINTS, IDEMPOTENCY_HEADER } from "@betterwakeup/contract";
 import { type Context, Hono } from "hono";
 import type { SessionGate } from "../auth/session-gate.ts";
 import { AppError, toAppError } from "../errors/app-error.ts";
 import { createLogger, type Logger } from "../observability/logger.ts";
+import {
+  type MetricEmitter,
+  noMetrics,
+  REJECTED_COMPLETION_CODES,
+} from "../observability/metrics.ts";
 import type { ProviderWebhookEvent } from "../payments/provider.ts";
 import type { RateLimiter } from "../rate-limit/service.ts";
 import { type EndpointHandlers, registerRoutes } from "./routes.ts";
@@ -68,11 +73,21 @@ export interface CreateAppOptions {
   readonly rateLimiter?: RateLimiter;
   /** How a caller with no session is identified. Defaults to the envelope. */
   readonly clientAddress?: (c: Context<AppEnv>) => string;
+  /**
+   * Where the operational metrics go. Defaults to publishing nothing, so a
+   * test asserting on responses does not also write metric lines.
+   */
+  readonly metrics?: MetricEmitter;
 }
+
+/** The routes two of the metrics are specific to, taken from the contract. */
+const COMPLETION_ROUTE = ENDPOINTS.createCompletion.path;
+const WEBHOOK_ROUTE = ENDPOINTS.receivePaymentWebhook.path;
 
 export function createApp(options: CreateAppOptions = {}) {
   const rootLogger = options.logger ?? createLogger();
   const now = options.now ?? (() => Date.now());
+  const metrics = options.metrics ?? noMetrics;
   const app = new Hono<AppEnv>();
 
   app.use("*", async (c, next) => {
@@ -93,12 +108,30 @@ export function createApp(options: CreateAppOptions = {}) {
     // Read back rather than closed over: a route that authenticated the caller
     // replaces this request's logger with one carrying the account, and the
     // request line is the line most worth having it on.
+    const durationMs = now() - startedAt;
+
+    // The probe is deliberately outside both numbers. It always succeeds and
+    // nothing user-facing depends on it, so counting it would dilute the error
+    // rate by however often the deployment happens to be polled.
+    if (c.req.routePath !== HEALTH_PATH) {
+      metrics.record("ApiRequests");
+      // Our own failures only. A refusal is the API working, and the rate
+      // alarm is meant to fire on faults rather than on users being told no.
+      if (c.res.status >= 500) metrics.record("ApiServerErrors");
+      if (c.req.routePath === COMPLETION_ROUTE) {
+        // Every completion attempt, answered or refused: an acknowledgment the
+        // app waited a long time for and then had refused was still a long
+        // wait, and dropping those would measure the fast half of the traffic.
+        metrics.record("CompletionAcknowledgmentLatencyMs", durationMs);
+      }
+    }
+
     (c.get("logger") ?? logger).info("request handled", {
       // The matched pattern, so a log query groups by route rather than by
       // identifier, and so no query string can reach a log line.
       route: c.req.routePath,
       status: c.res.status,
-      durationMs: now() - startedAt,
+      durationMs,
     });
   });
 
@@ -140,6 +173,22 @@ export function createApp(options: CreateAppOptions = {}) {
       logger.error(describe(error), fields);
     } else {
       logger.warn(describe(error), fields);
+    }
+
+    // Counted where the code is known. The request middleware sees a status
+    // and nothing else, and a 409 on the completion route could be a replayed
+    // key as easily as evidence the server would not believe.
+    if (
+      c.req.routePath === COMPLETION_ROUTE &&
+      (REJECTED_COMPLETION_CODES as readonly string[]).includes(error.code)
+    ) {
+      metrics.record("RejectedClientCompletions");
+    }
+    // Every webhook the server did not accept, whichever side was at fault: a
+    // rejected signature and an internal fault both end with the provider
+    // holding an event we have not applied.
+    if (c.req.routePath === WEBHOOK_ROUTE) {
+      metrics.record("PaymentWebhookFailures");
     }
 
     if (error.retryAfterSeconds !== undefined) {
