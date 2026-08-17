@@ -11,6 +11,7 @@
       "!**/dist",
       "!**/coverage",
       "!**/generated",
+      "!server/drizzle",
       "!**/*.md",
       "!.gnhf",
       "!openspec"

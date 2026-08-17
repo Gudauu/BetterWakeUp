@@ -69,6 +69,39 @@ The app's pending completion store needs exactly that distinction to decide
 whether a record stays pending or is surfaced as rejected, and putting it here
 means the rule is not implemented a second time in the app.
 
+### Issue 5: database harness
+
+`server/src/db` holds the Drizzle setup, the Neon serverless WebSocket `Pool`,
+and the migration runner. The Neon driver cannot reach a plain PostgreSQL
+container, and the container is what keeps the suite off the vendor the
+architecture wants replaceable, so `createDatabase` selects between the Neon
+serverless driver and node-postgres from the connection string's host. Both are
+the same Drizzle PostgreSQL dialect, so one `Database` type covers them and no
+caller learns which driver it holds. The one place the drivers show through is
+raw `execute`, whose result shape differs, and `executeRows` contains that.
+
+`server/drizzle` is the migration folder, currently an empty journal: the first
+migration arrives with the identity schema in issue 6. `db:generate` writes
+migrations from the schema, `db:migrate` applies them to `DATABASE_URL` under
+plain `node`, and nothing else applies SQL to a database.
+
+Test isolation is a database per test rather than a transaction per test. One
+container starts per run, migrations are applied once to a template database,
+and each test copies that template with `CREATE DATABASE ... TEMPLATE`. A
+transaction-per-test harness would have been cheaper and would have made the
+issue's own acceptance test impossible to write, since `FOR UPDATE SKIP LOCKED`
+only means anything with two sessions competing.
+
+The acceptance test is `server/test/integration/database-harness.test.ts`: it
+opens a transaction, claims a row with `FOR UPDATE SKIP LOCKED` while a second
+connection claims the next row rather than blocking on the first, and rolls both
+back leaving the table untouched. It also proves migrations reached the test
+database and that one test's writes are invisible to the next.
+
+The integration tests are their own Vitest project, `server-integration`, so the
+unit tests still run with no Docker daemon present. Both projects run under
+`pnpm run test`, and the GitHub Actions runner has Docker, so CI covers them.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

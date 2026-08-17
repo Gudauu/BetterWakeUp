@@ -37,6 +37,34 @@ A test compares the checked-in artifact against a fresh build, so a change that
 was not regenerated fails CI rather than reaching a consumer. Biome does not
 format the `generated` directory, since the generator decides its layout.
 
+## The database
+
+`server/src/db` holds the Drizzle setup. Production runs on Neon through the
+serverless WebSocket `Pool`, and integration tests run against a PostgreSQL
+container, so `createDatabase` picks a driver from the connection string's host
+and hands back one `Database` type either way. Callers do not learn which driver
+they hold.
+
+`server/drizzle` is the migration folder and the description of the database.
+After changing `server/src/db/schema.ts`:
+
+```sh
+pnpm --filter @betterwakeup/server run db:generate
+```
+
+`db:migrate` applies pending migrations to `DATABASE_URL`, and `db:check` looks
+for conflicting migrations. Nothing else applies SQL to a real database, so
+development, tests, and deployment reach the same shape.
+
+Integration tests need a running Docker daemon. They live in
+`server/test/integration` and run as the `server-integration` Vitest project,
+separately from the unit tests, which need no container. One container is
+started per run, migrations are applied once to a template database, and each
+test gets its own database copied from that template. Isolation is therefore a
+real database rather than a transaction the test must remember not to commit,
+which is what lets a test hold two connections and observe locking. Use
+`useTestDatabase()` from `server/test/support/postgres.ts`.
+
 ## Commits
 
 Use Conventional Commits.

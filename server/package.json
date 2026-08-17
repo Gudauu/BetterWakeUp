@@ -5,13 +5,24 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "db:generate": "drizzle-kit generate",
+    "db:check": "drizzle-kit check",
+    "db:migrate": "node scripts/migrate.ts"
   },
   "dependencies": {
-    "@betterwakeup/contract": "workspace:*"
+    "@betterwakeup/contract": "workspace:*",
+    "@neondatabase/serverless": "1.1.0",
+    "drizzle-orm": "0.45.2",
+    "pg": "8.23.0",
+    "ws": "8.21.3"
   },
   "devDependencies": {
+    "@testcontainers/postgresql": "12.1.0",
     "@types/node": "22.18.9",
+    "@types/pg": "8.21.0",
+    "@types/ws": "8.18.1",
+    "drizzle-kit": "0.31.10",
     "typescript": "5.9.3",
     "vitest": "3.2.4"
   }
