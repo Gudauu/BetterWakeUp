@@ -113,6 +113,42 @@ real database rather than a transaction the test must remember not to commit,
 which is what lets a test hold two connections and observe locking. Use
 `useTestDatabase()` from `server/test/support/postgres.ts`.
 
+## The server
+
+`server/src/lambda/handler.ts` is the Lambda entry point. It decides whether an
+invocation is scheduled or HTTP before anything else runs, and a scheduled one
+never reaches Hono. Both predicates read the envelope AWS builds and never
+anything a caller supplies, so keep it that way: a discrimination that consults
+a request body would give the sweep an HTTP surface.
+
+`createApp` in `server/src/http/app.ts` registers the request log line and the
+error model. Routes go on the app, so they inherit both; do not add per-route
+logging or error handling.
+
+### Logging
+
+Use the logger from `server/src/observability/logger.ts`, and prefer the child
+logger on the Hono context (`c.get("logger")`), which already carries the
+request's identifiers.
+
+`LogFields` is a closed set. Adding a field means adding it there, which is the
+review point where someone asks whether it can carry a secret. Never widen it to
+`Record<string, unknown>` or add a `data` field: the whole guarantee that no
+session token, provider ID token, raw health data, or payment credential reaches
+a log line rests on the set being closed. `scrub` is a second net over free
+text, not a licence to log a value we know is sensitive.
+
+### Errors
+
+Throw an `AppError` with a contract error code. Nothing else may decide an HTTP
+status or build an error body. A new code goes in `packages/contract/src/errors.ts`
+first, and the server typecheck then fails until `ERROR_PROPERTIES` gives it a
+status and a classification, so a new code cannot silently default to a 500.
+
+Classifications are for operators, not clients. Only `internal` means our fault,
+and only `internal` logs at error level, so an alarm on error level stays a
+signal rather than a count of rejected requests.
+
 ## Commits
 
 Use Conventional Commits.

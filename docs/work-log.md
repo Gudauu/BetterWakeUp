@@ -319,6 +319,73 @@ no changes.
 triggers were verified to fire by making each function return early: exactly the
 six tests that assert `23001` against them failed, and nothing else did.
 
+### Issue 10: Lambda and Hono skeleton
+
+`server/src/lambda/handler.ts` is the entry point, and the discrimination the
+architecture asks for happens in it before anything else runs. A scheduled
+invocation goes to `runSweep` and never constructs a `Request`, never enters
+Hono, and never reaches a route table.
+
+The two predicates in `server/src/lambda/events.ts` both read the envelope AWS
+builds rather than anything a caller supplies. A Function URL event is
+recognized by `requestContext.http.method`, which the integration writes around
+the request and no body can add, and an HTTP event is excluded before the
+scheduled test runs at all. A request whose body claims `source:
+"aws.scheduler"` is therefore still an HTTP request that reaches a route. An
+event matching neither shape is logged and thrown rather than guessed at,
+because there is no safe default: guessing HTTP would give the sweep an HTTP
+surface, and guessing scheduled would run the sweep from an unknown caller.
+
+The scheduled payload shape is ours to fix, since EventBridge Scheduler sends
+whatever input its target is configured with. Issue 36 configures the rules to
+send exactly the shape `ScheduledEvent` describes.
+
+`server/src/observability/logger.ts` writes one JSON object per line with every
+field listed under Observability. The defence against logging a session token,
+a provider ID token, raw health data, or a payment credential is primarily that
+`LogFields` is a closed set of named identifiers: there is no `data`, `payload`,
+or `Record<string, unknown>`, so `logger.info("...", { idToken })` does not
+compile. Nothing in the request body or the headers is logged, and the request
+line carries the matched route pattern rather than the URL, so a query string
+cannot reach a log line either.
+
+`scrub` in `server/src/observability/redact.ts` is the second net, over free
+text. Exception messages, driver errors, and provider rejections are written by
+code we do not control and routinely quote the value that caused them. It
+removes JSON Web Tokens, `Bearer` and `Basic` header values, card numbers, and
+long opaque runs, and it cuts UUIDs out of the text first so the identifiers
+that make a log line traceable survive. Disabling `scrub` entirely fails six
+tests and leaves the closed-field-set test passing, which is the layering
+working as intended rather than a gap.
+
+`server/src/errors/app-error.ts` is the one error model. Every failure is an
+`AppError` carrying a contract `ErrorCode`, and `ERROR_PROPERTIES` decides a
+status and a classification for each. The classification is the log field the
+architecture requires, and it is coarser than the code on purpose: the code
+tells the app what happened, the classification tells an operator whether to
+care. Exactly one code classifies as `internal`, which is what an alarm should
+watch. A rejected request logs at `warn`, so the error level stays a signal.
+
+`internal_error` is the one code whose message does not reach the client, since
+an unexpected failure's message is the one most likely to carry something that
+should not leave the server. The message is kept on the error, so the log has
+what the response withholds.
+
+The not-found handler renders its error rather than throwing it. A throw there
+escapes the logging middleware's `next()`, and an unmatched route would be the
+one request with no "request handled" line.
+
+The app has no routes yet: issue 11 mounts them from the contract's endpoint
+registry, and every one inherits the request log line and the error model
+because both are registered on the app rather than per route. The tests mount
+their own routes to exercise that stack.
+
+36 tests across the handler, the app, the logger, and the error model. The
+discrimination and the scrubbing were both verified by neutering them: making
+`isScheduledEvent` return `false` fails exactly the two tests that assert the
+scheduled arm, and making `scrub` return its input fails exactly the six that
+assert redaction.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike
