@@ -698,6 +698,32 @@ the user's word that it may look at them.
 capture keeps the latest reading rather than adding readings up, and takes the
 maximum so an Android counter reset cannot shrink an already-observed window.
 
+### Pending completions
+
+A completion is written to SQLite before the local check is shown, and the
+record's own ID is the idempotency key every attempt carries, so a retry after a
+crash is the same command rather than a second completion.
+
+`src/completions/sqlite.ts` is a port shaped like the slice of `expo-sqlite` the
+store uses, and `src/completions/native-store.ts` is the only module importing
+`expo-sqlite`, `expo-network`, or `AppState`. The SQL itself lives in
+`store.ts`, which is what lets the tests run the statements the app ships
+against a real engine (Node's `node:sqlite`) rather than against a fake that
+would agree with whatever the store did.
+
+What happens to a failed attempt is decided by the contract's disposition for
+the error code and by nothing else: `reject` marks the record rejected and stops
+retrying it, and everything else leaves it pending. Do not match on a status
+code or a message anywhere in the app.
+
+A record leaves the store in exactly one way, by being acknowledged. A rejected
+record is retained, counted, and surfaced; nothing else deletes anything.
+
+Records are attempted independently and never as a queue. A new trigger (a
+moment worth trying again) is a `SyncTrigger`, which is a plain subscribe
+function, so adding one needs no change here and no native import above the
+ports.
+
 ## Commits
 
 Use Conventional Commits.

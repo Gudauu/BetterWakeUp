@@ -1732,6 +1732,63 @@ malformed windows.
 Both bundles still export. See "Handed back" for the half of this issue that
 needs hardware.
 
+### Issue 30: pending completion store
+
+A completion is written to SQLite before anything is shown, and the record's own
+ID is the idempotency key every attempt carries. `src/completions/store.ts` holds
+the record (challenge and task IDs, the device's completion instant, the
+normalized observation, the app version, the verification policy version, the
+status, the attempt count, and the last error), and `src/completions/sync.ts`
+holds the sending.
+
+Four decisions the architecture leaves open:
+
+- **The SQL is shared code and only the driver is native.** `sqlite.ts` is a port
+  shaped like the slice of `expo-sqlite` the store uses, and
+  `native-store.ts` is the only module importing `expo-sqlite`, `expo-network`,
+  or `AppState`. That means the statements the app ships run in the tests against
+  Node's own SQLite rather than against a hand-written fake, which would only
+  ever agree with whatever the store happened to do. The one file that cannot be
+  tested here is the pass-through adapter, which contains no decisions.
+- **What happens to a record is read off the contract's disposition.** `reject`
+  marks the record rejected; everything else, including a request that never
+  reached the server and anything thrown that is not an `ApiError`, leaves it
+  pending. No status code and no message is matched anywhere in the app, which is
+  what keeps the app's idea of "retryable" from drifting from the server's.
+- **A record leaves the store in exactly one way: acknowledged.** Nothing else
+  deletes anything. A rejected record is retained, counted, and surfaced through
+  `listRejected`, and `noteAttemptFailed` is guarded on the status so a late
+  failure cannot put a rejected record back into the retry set.
+- **A stored observation that no longer parses is a rejection, not a crash and
+  not a silent drop.** The store reports it as `observation: null` in whatever
+  state it is stored in, and the sync pass writes the refusal down through the
+  same path every other refusal takes. Deciding it in the store would have meant
+  two writers of the same conclusion.
+
+Sending is per record and never a queue: one pass reads every pending record and
+fires them together, and each outcome is written on its own. An in-flight set
+stops the same record being sent twice when a trigger fires during a pass, which
+would otherwise be answered `idempotency_in_progress` and counted as a failure of
+a record that is actually fine. The three moments the architecture names are all
+the same operation: `start()` is the app opening, and the foreground and network
+triggers in `native-store.ts` are the other two, both plain subscribe functions
+so nothing above the ports imports a native module.
+
+18 new app tests (105 in `app` now): 9 over the store, including one that closes
+a file-backed database and opens a new one over it, and 9 over the sync,
+including the acceptance boundary, a completion recorded against an unreachable
+server, the process ending, and the next launch acknowledging it under the same
+key.
+
+Five neuter checks on disjoint sets: removing the in-flight guard failed only the
+double-send test, dropping `AND status = 'pending'` from `noteAttemptFailed`
+failed only the late-failure test, sending a fresh idempotency key instead of the
+record's ID failed the two tests that name the key, sending a record with an
+unreadable observation failed only that test, and not deleting an acknowledged
+record failed five.
+
+Both bundles still export with `expo-sqlite` and `expo-network` added.
+
 ## Handed back
 
 ### Issue 29: movement capture on a device
