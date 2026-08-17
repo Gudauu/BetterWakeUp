@@ -45,7 +45,9 @@ export const accounts = pgTable("accounts", {
    * The lifetime Emergency Recovery flag. Null means unspent; the instant it
    * was spent means spent, and there is no way back. A boolean would carry the
    * same invariant with less of the audit trail, and a counter would allow a
-   * second consumption to be representable.
+   * second consumption to be representable. The one-way move itself is a
+   * trigger in migration 0005: nothing about a nullable column stops an
+   * `UPDATE` overwriting the instant and spending the allowance again.
    */
   emergencyRecoveryConsumedAt: timestamp("emergency_recovery_consumed_at", {
     withTimezone: true,

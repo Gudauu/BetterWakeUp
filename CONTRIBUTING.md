@@ -92,6 +92,17 @@ trigger instead. The ledger's append-only guarantee is one: no `UPDATE` or
 `DELETE` reaches a ledger entry, and a ledger transaction accepts an update only
 when it nulls a foreign key back to a person. Those raise SQLSTATE `23001`, so a
 test can tell an immutability refusal apart from a `23000` aggregate violation.
+A state machine is the same kind of rule: a terminal task outcome or a terminal
+challenge status is terminal because an immediate trigger refuses the `UPDATE`
+that would leave it, not because the writer knows better.
+
+`server/test/integration/invariant-assault.test.ts` attacks every invariant the
+architecture lists through raw SQL, with no Drizzle and no schema module in the
+path, using `useRawSql()` and the SQL fixtures in
+`server/test/support/raw-challenge.ts`. A new invariant belongs there as well as
+in its own schema suite. The distinction is not academic: three invariants
+looked enforced in the Drizzle suites and were not, because Drizzle's types, and
+not the database, were refusing the write.
 
 Integration tests need a running Docker daemon. They live in
 `server/test/integration` and run as the `server-integration` Vitest project,

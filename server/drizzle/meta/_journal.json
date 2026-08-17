@@ -36,6 +36,13 @@
       "when": 1786942077908,
       "tag": "0004_ledger_balance_and_append_only_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786942439611,
+      "tag": "0005_state_machine_and_recovery_triggers",
+      "breakpoints": true
     }
   ]
 }

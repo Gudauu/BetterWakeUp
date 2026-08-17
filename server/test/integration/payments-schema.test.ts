@@ -30,13 +30,11 @@ import {
   CHECK_VIOLATION,
   expectSqlState,
   INTEGRITY_CONSTRAINT_VIOLATION,
+  RESTRICT_VIOLATION,
   UNIQUE_VIOLATION,
 } from "../support/sql-errors.ts";
 
 const testDatabase = useTestDatabase();
-
-/** A trigger that rejects a statement outright rather than a row's contents. */
-const RESTRICT_VIOLATION = "23001";
 
 type EntrySide = {
   readonly ledgerAccount: (typeof ledgerEntries.$inferInsert)["ledgerAccount"];

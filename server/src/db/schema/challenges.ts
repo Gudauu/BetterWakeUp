@@ -13,9 +13,10 @@
  * into a shape rather than a convention:
  *
  * - A task's outcome is one status column plus one instant per outcome. There
- *   is no state in which a task is both completed and missed, and no way to
- *   forgive a task twice, because `forgiven_at` is one column that is either
- *   set or not.
+ *   is no state in which a task is both completed and missed. Making that
+ *   outcome final needs a trigger as well, since a check constraint sees the
+ *   row a statement would leave and not the row it started from: the state
+ *   machine lives in migration 0005, which the assault suite is what found.
  * - The completion result lives in its own table keyed uniquely on the task,
  *   so "one completion result per scheduled task" is a unique index rather
  *   than a rule the completion service has to remember.

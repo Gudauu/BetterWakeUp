@@ -276,6 +276,49 @@ verified to fail, the balance trigger by making its function return early
 attaching them with `WHEN (false)` (exactly the three immutability tests
 failed).
 
+### Issue 9: invariant assault suite
+
+`server/test/integration/invariant-assault.test.ts` attempts every invariant
+under "Challenge state" through raw SQL. The suite opens its own `pg.Client`
+against the test database and writes plain statements: no Drizzle, no schema
+module, and no server code anywhere in the path. `server/test/support/raw-sql.ts`
+is the session, and `server/test/support/raw-challenge.ts` rebuilds the valid
+challenge fixture in SQL rather than importing the Drizzle one.
+
+Duplicating the fixture is deliberate. Reusing the Drizzle builder would put the
+schema module back in the path of the tests whose whole point is that it is not
+there, and if the two builders ever disagree about what a valid challenge looks
+like, one of them is wrong about the database.
+
+Three invariants did not survive the change of writer, because Drizzle's types
+had been refusing the write rather than the database:
+
+* A `completed` task could be updated to `skipped`, and a `forgiven` task back to
+  `missed` and then forgiven a second time. The check constraints tie each status
+  to its instant, but say nothing about which status may follow which.
+* A `succeeded` challenge could return to `active`, and a terminal challenge
+  could be given a second `terminal_at`.
+* An account's lifetime Emergency Recovery could be spent again by overwriting
+  `emergency_recovery_consumed_at` with a later instant, or by clearing it to
+  `NULL`. A nullable instant makes a second consumption unrepresentable only in
+  the sense that there is nowhere to record it.
+
+`server/drizzle/0005_state_machine_and_recovery_triggers.sql` closes all three
+with immediate `BEFORE UPDATE` triggers raising SQLSTATE `23001`, matching the
+ledger's append-only triggers. They are transition rules, not aggregates, so
+deferral would buy nothing: there is no legitimate intermediate state to pass
+through. The challenge trigger writes out the architecture's diagram directly,
+including that `recovery_pending` leaves only for `active` or `failed`.
+
+The triggers refuse transitions and do not require them. A legal status change
+still has to satisfy the check constraints tying each status to its instant and
+the deferred task count trigger, which is why the existing Drizzle suites needed
+no changes.
+
+19 tests, one section per invariant, each asserting a SQLSTATE. All three new
+triggers were verified to fire by making each function return early: exactly the
+six tests that assert `23001` against them failed, and nothing else did.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

@@ -21,6 +21,13 @@ export const FOREIGN_KEY_VIOLATION = "23503";
  * this way, since no narrower state describes a count across rows.
  */
 export const INTEGRITY_CONSTRAINT_VIOLATION = "23000";
+/**
+ * An immediate trigger rejected the statement rather than the row's contents:
+ * an append-only ledger write, or a transition out of a terminal state. The
+ * distinct state is what lets a test tell "this write is never permitted" apart
+ * from "the rows this write would leave behind do not add up".
+ */
+export const RESTRICT_VIOLATION = "23001";
 
 /**
  * Drizzle wraps a driver error in a `DrizzleQueryError`, so the SQLSTATE the
