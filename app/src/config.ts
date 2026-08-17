@@ -23,6 +23,11 @@ export interface AppConfig {
   /** Sent with every completion, so a bad client build can be identified. */
   readonly appVersion: string;
   readonly google: GoogleClientIds;
+  /**
+   * Where crash and synchronization reports go. Absent in a build with no
+   * Sentry project, which makes reporting inactive rather than broken.
+   */
+  readonly sentryDsn: string | undefined;
 }
 
 function readApiBaseUrl(): string {
@@ -73,5 +78,8 @@ export function loadAppConfig(): AppConfig {
       webClientId: readOptional(process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID, "googleWebClientId"),
       iosClientId: readOptional(process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID, "googleIosClientId"),
     },
+    // A DSN is a public identifier like a client ID, so it travels the same
+    // two ways and is never a secret in the repository.
+    sentryDsn: readOptional(process.env.EXPO_PUBLIC_SENTRY_DSN, "sentryDsn"),
   };
 }

@@ -1966,7 +1966,76 @@ failed one apiece, removing the expired-offer refusal failed one, removing the
 deletion blocker failed one, and collapsing the two-step control into a single
 press failed seven.
 
+### Issue 34: crash and sync reporting
+
+Sentry for crashes and synchronization failures, with the decision about what a
+report may contain kept above the SDK so it is testable.
+
+`app/src/reporting/reporter.ts` is the port. `ReportFields` is a closed set,
+exactly as the server's logger is: a report carries a record ID, a challenge
+and task ID, a contract error code and its disposition, an attempt count, the
+app and verification policy versions, and the name of the operation. Attaching
+a session token, a movement observation, or a payment credential to a report
+would first mean naming the field here, which is a change a reviewer sees.
+
+`app/src/reporting/scrub.ts` is the second net, and it is the one Sentry itself
+passes through. A payload the SDK builds carries much that we did not write: an
+exception message, request data, whatever a dependency attached. So every
+payload is walked before it is sent. A property whose normalized name contains
+one of the forbidden markers (`token`, `credential`, `secret`, `authorization`,
+`email`, `health`, `observation`, `step`, `card`, ...) is replaced rather than
+sent, and every remaining string goes through the same free-text rules the
+server's `redact.ts` uses, with an email rule added. UUIDs are cut out of the
+text before those rules run, so the identifiers a report exists to carry survive
+the card-number rule.
+
+`app/src/reporting/sync-reporting.ts` decides what a sync pass reports. Four
+open decisions:
+
+- A rejected completion is an `error`, because the architecture lists rejected
+  client completions as an alarm: they mean the app and the server disagree
+  about what a valid completion is, which is a defect rather than a user's
+  mistake.
+- A deferred record is reported once, on its third failed attempt, and never
+  again. An app that is simply offline defers every record on every trigger,
+  and reporting each of those would bury the first kind.
+- An acknowledged completion is reported as nothing at all. It is the ordinary
+  outcome and Sentry is not a metrics pipeline.
+- A build with no DSN gets the no-op reporter and never initializes the SDK.
+  Reporting is not something the app needs in order to work, so a development
+  build without a Sentry project is a build without reporting rather than one
+  that crashes at launch.
+
+`app/src/reporting/native-reporting.ts` is the only module importing
+`@sentry/react-native`. It sets `sendDefaultPii: false`, drops breadcrumbs
+entirely (the SDK's own breadcrumbs quote request bodies and view hierarchies,
+which is exactly where health data would hide), and installs `scrubPayload` as
+`beforeSend`. The root layout builds it before anything else runs, since a
+crash during startup is one this exists to see.
+
+16 new app tests (230 in `app` now): 6 over free-text scrubbing, 3 over payload
+scrubbing, 5 over what a sync event reports including the acceptance boundary (a
+forced rejected completion, asserted field for field and then asserted to
+contain neither the step count, the window instants, the pedometer source, the
+session token, nor the server's sentence), and 2 over the DSN's absence.
+
+Four neuter checks on disjoint sets: never matching a forbidden property name
+failed two, removing the free-text rules failed six, removing the acknowledged
+short-circuit failed one, and reporting every deferred attempt failed one. The
+third of those failed nothing on the first run, because the test's record had
+too few attempts to be reported under the deferred branch either; raising the
+count is what made the branch load-bearing.
+
 ## Handed back
+
+### Issue 34: a real Sentry project
+
+A report is asserted here as the exact payload that would have left the device,
+which is as far as this can be taken without an account. "Appears in Sentry"
+also needs an organization, a project, and its DSN in
+`EXPO_PUBLIC_SENTRY_DSN`, plus the `@sentry/react-native` config plugin with an
+org and project slug if source maps are to be uploaded on an EAS build. Neither
+is added here, because the plugin refuses a build without those values.
 
 ### Issue 31: the payment sheet behind a funding intent
 

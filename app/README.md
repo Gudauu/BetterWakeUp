@@ -28,6 +28,9 @@ expects Jest. See "Toolchain" in `docs/architecture.md`.
   today's task the screen renders.
 - `src/movement/` the pedometer behind one port, the normalization every
   reading passes through, and the foreground-only capture.
+- `src/reporting/` the crash and synchronization reporting port, the scrubbing
+  every payload passes through, what a sync failure reports, and the one module
+  that imports Sentry.
 - `src/session/` secure storage for session material, and the React context the
   screens read it from.
 - `src/screens/` screen components, kept out of `app/` so a test renders one
@@ -54,6 +57,7 @@ build, which today is Google's config plugin, included only when
 | `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` | Google Sign-In reports itself unavailable and its button is not shown |
 | `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` | Google Sign-In falls back to the web client ID on iOS |
 | `EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME` | Google's config plugin is left out of the build |
+| `EXPO_PUBLIC_SENTRY_DSN` | crash and synchronization reporting is inactive and the SDK is never initialized |
 
 Working rules for this package are under "The mobile app" in
 `CONTRIBUTING.md`.

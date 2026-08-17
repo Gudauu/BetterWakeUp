@@ -813,6 +813,24 @@ to the store. A stored completion is what the local check reports, so storing a
 short window would make that check a lie and would spend an idempotency key on a
 request the server would refuse.
 
+### Crash and synchronization reporting
+
+Nothing above `src/reporting/native-reporting.ts` imports Sentry. A caller holds
+a `CrashReporter` and hands it a `Report`, whose `fields` are a closed set the
+same way the server's log fields are: adding a field is a source change with a
+name on it, not something a call site can do in passing.
+
+`scrubPayload` is the net under that, installed as Sentry's `beforeSend`, and it
+is the only thing standing between the SDK's own payloads and the network. A new
+kind of sensitive value needs a marker in `FORBIDDEN_NAME_MARKERS`, a rule in
+`RULES`, or both, plus a test that fails without it.
+
+Report a defect, not a condition. A rejected completion means the app and the
+server disagree about what a valid completion is; a deferred one usually means
+the network is down. So a rejection is reported at once and a deferral is
+reported once, on the attempt that crosses `STALLED_AFTER_ATTEMPTS`, and an
+acknowledgment is not reported at all.
+
 ## Commits
 
 Use Conventional Commits.

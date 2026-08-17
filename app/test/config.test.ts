@@ -13,6 +13,7 @@ const VARIABLES = [
   "EXPO_PUBLIC_API_BASE_URL",
   "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID",
   "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID",
+  "EXPO_PUBLIC_SENTRY_DSN",
 ] as const;
 
 const saved = new Map<string, string | undefined>();
@@ -57,5 +58,17 @@ describe("the Google client IDs", () => {
     process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID = "";
 
     expect(loadAppConfig().google.webClientId).toBeUndefined();
+  });
+});
+
+describe("the Sentry DSN", () => {
+  it("is absent in a build with no Sentry project, which turns reporting off", () => {
+    expect(loadAppConfig().sentryDsn).toBeUndefined();
+  });
+
+  it("is read from the build's environment", () => {
+    process.env.EXPO_PUBLIC_SENTRY_DSN = "https://key@o0.ingest.example.test/1";
+
+    expect(loadAppConfig().sentryDsn).toBe("https://key@o0.ingest.example.test/1");
   });
 });
