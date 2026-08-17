@@ -7,11 +7,12 @@
  * that were never made, which only a client that counts them can establish.
  */
 
-import type {
-  ChallengeView,
-  CreateFundingIntentResponse,
-  CreateProjectionResponse,
-  TaskView,
+import {
+  type ChallengeView,
+  type CreateFundingIntentResponse,
+  type CreateProjectionResponse,
+  DISCLOSURE_POLICY_VERSION,
+  type TaskView,
 } from "@betterwakeup/contract";
 import type { ApiClient, ApiRequest, ClientEndpointName } from "../../src/api/client.ts";
 
@@ -76,7 +77,7 @@ export function challengeView(overrides: Partial<ChallengeView> = {}): Challenge
       timeZone: "America/Los_Angeles",
       deposit: { amount: 0, currency: "USD" },
     },
-    policyVersion: "disclosures.1",
+    policyVersion: DISCLOSURE_POLICY_VERSION,
     createdAt: "2026-08-31T00:00:00.000Z",
     activatedAt: "2026-08-31T00:00:00.000Z",
     projectedEndDate: "2026-10-12",

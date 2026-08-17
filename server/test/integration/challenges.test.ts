@@ -10,6 +10,7 @@
 
 import {
   type ChallengeConfiguration,
+  DISCLOSURE_POLICY_VERSION,
   IDEMPOTENCY_HEADER,
   type Weekday,
 } from "@betterwakeup/contract";
@@ -137,7 +138,7 @@ describe("issue 18's acceptance boundary", () => {
       ...post(
         token,
         "/challenges",
-        { configuration: config, policyVersion: "2026-01-01" },
+        { configuration: config, policyVersion: DISCLOSURE_POLICY_VERSION },
         "5a4bcd10-0000-4000-8000-000000000001",
       ),
     );
@@ -212,7 +213,7 @@ describe("issue 18's acceptance boundary", () => {
       ...post(
         token,
         "/challenges",
-        { configuration: between, policyVersion: "2026-01-01" },
+        { configuration: between, policyVersion: DISCLOSURE_POLICY_VERSION },
         "5a4bcd10-0000-4000-8000-000000000002",
       ),
     );
@@ -243,7 +244,7 @@ describe("creating a zero deposit challenge", () => {
               { weekday: "thursday", deadline: "21:15" },
             ],
           }),
-          policyVersion: "2026-01-01",
+          policyVersion: DISCLOSURE_POLICY_VERSION,
         },
         "5a4bcd10-0000-4000-8000-000000000003",
       ),
@@ -253,7 +254,7 @@ describe("creating a zero deposit challenge", () => {
     expect(await response.json()).toMatchObject({
       challenge: {
         status: "active",
-        policyVersion: "2026-01-01",
+        policyVersion: DISCLOSURE_POLICY_VERSION,
         projectedEndDate: "2026-01-15",
         depositSecured: true,
         configuration: {
@@ -297,7 +298,7 @@ describe("creating a zero deposit challenge", () => {
         "/challenges",
         {
           configuration: configuration({ deposit: { amount: 5000, currency: "USD" } }),
-          policyVersion: "2026-01-01",
+          policyVersion: DISCLOSURE_POLICY_VERSION,
         },
         "5a4bcd10-0000-4000-8000-000000000004",
       ),
@@ -319,7 +320,7 @@ describe("creating a zero deposit challenge", () => {
         ...post(
           token,
           "/challenges",
-          { configuration: configuration(), policyVersion: "2026-01-01" },
+          { configuration: configuration(), policyVersion: DISCLOSURE_POLICY_VERSION },
           "5a4bcd10-0000-4000-8000-000000000005",
         ),
       );
@@ -346,7 +347,7 @@ describe("creating a zero deposit challenge", () => {
       ...post(
         token,
         "/challenges",
-        { configuration: configuration(), policyVersion: "2026-01-01" },
+        { configuration: configuration(), policyVersion: DISCLOSURE_POLICY_VERSION },
         "5a4bcd10-0000-4000-8000-000000000006",
       ),
     );
@@ -365,7 +366,7 @@ describe("creating a zero deposit challenge", () => {
       ...post(
         token,
         "/challenges",
-        { configuration: configuration(), policyVersion: "2026-01-01" },
+        { configuration: configuration(), policyVersion: DISCLOSURE_POLICY_VERSION },
         "5a4bcd10-0000-4000-8000-000000000007",
       ),
     );
@@ -389,7 +390,7 @@ describe("creating a zero deposit challenge", () => {
         ...post(
           token,
           "/challenges",
-          { configuration: configuration(), policyVersion: "2026-01-01" },
+          { configuration: configuration(), policyVersion: DISCLOSURE_POLICY_VERSION },
           "5a4bcd10-0000-4000-8000-000000000008",
         ),
       ),
@@ -397,7 +398,7 @@ describe("creating a zero deposit challenge", () => {
         ...post(
           token,
           "/challenges",
-          { configuration: configuration(), policyVersion: "2026-01-01" },
+          { configuration: configuration(), policyVersion: DISCLOSURE_POLICY_VERSION },
           "5a4bcd10-0000-4000-8000-000000000009",
         ),
       ),
@@ -434,7 +435,7 @@ describe("the current challenge", () => {
       ...post(
         token,
         "/challenges",
-        { configuration: configuration(), policyVersion: "2026-01-01" },
+        { configuration: configuration(), policyVersion: DISCLOSURE_POLICY_VERSION },
         "5a4bcd10-0000-4000-8000-00000000000a",
       ),
     );

@@ -7,10 +7,13 @@
  * must never touch the funding intent, which is the payment boundary.
  */
 
-import { MAXIMUM_CHALLENGE_DURATION_DAYS } from "@betterwakeup/contract";
+import {
+  DISCLOSURE_POLICY_VERSION,
+  disclosuresFor,
+  MAXIMUM_CHALLENGE_DURATION_DAYS,
+} from "@betterwakeup/contract";
 import { ApiError } from "../src/api/errors.ts";
 import { projectChallenge, startChallenge } from "../src/challenges/create-challenge.ts";
-import { DISCLOSURE_POLICY_VERSION, disclosuresFor } from "../src/challenges/disclosures.ts";
 import { type ChallengeDraft, createDraft } from "../src/challenges/draft.ts";
 import { challengeView, FUNDING_INTENT, fakeApi, PROJECTION } from "./support/fake-api.ts";
 

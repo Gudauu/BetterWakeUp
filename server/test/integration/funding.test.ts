@@ -13,6 +13,7 @@
 
 import {
   type ChallengeConfiguration,
+  DISCLOSURE_POLICY_VERSION,
   IDEMPOTENCY_HEADER,
   WEBHOOK_SIGNATURE_HEADER,
   type Weekday,
@@ -145,7 +146,7 @@ async function fund(
     ...post(
       token,
       "/challenges/funding-intents",
-      { configuration: configuration(overrides), policyVersion: "2026-01-01" },
+      { configuration: configuration(overrides), policyVersion: DISCLOSURE_POLICY_VERSION },
       key,
     ),
   );
@@ -226,7 +227,7 @@ describe("issue 19's acceptance boundary", () => {
     // The terms are the stored ones, taken from the intent and not from the
     // delivery, which describes no challenge at all.
     expect(challenge?.depositMinorUnits).toBe(DEPOSIT.amount);
-    expect(challenge?.policyVersion).toBe("2026-01-01");
+    expect(challenge?.policyVersion).toBe(DISCLOSURE_POLICY_VERSION);
   });
 
   it("refuses a delivery whose signature does not verify, and applies nothing", async () => {

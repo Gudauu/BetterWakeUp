@@ -737,13 +737,27 @@ contract already carries. The one sentence written here rather than derived is
 the deposit gap, because "either nothing or at least a dollar" reads better than
 a schema error.
 
-Disclosures are data (`src/challenges/disclosures.ts`), not screen copy, and
-each is scoped to `all` or `funded`. Every statement `product.md` requires
-before a deposit is one item, and `DISCLOSURE_POLICY_VERSION` names the exact
-list. Editing, adding, or removing an item means a later user accepted something
-different, so move the version with the list. That version is the `policyVersion`
-sent with a challenge, which is what makes the terms stored beside a challenge
-the ones the user actually read.
+Disclosures are data (`packages/contract/src/policy.ts`), not screen copy, and
+each is scoped to `all` or `funded`. They live in the contract rather than in the
+app because a promise is two-sided: the app shows it, the server has to honor it,
+and the version accepted is stored beside the challenge forever. Every statement
+`product.md` requires before a deposit is one item, and
+`DISCLOSURE_POLICY_VERSION` names the exact list. Editing, adding, or removing an
+item means a later user accepted something different, so move the version with
+the list and add the new one to `KNOWN_POLICY_VERSIONS`. That version is the
+`policyVersion` sent with a challenge, which is what makes the terms stored
+beside a challenge the ones the user actually read.
+
+Any figure a statement quotes is interpolated from the constant the server
+enforces, never retyped. `server/test/integration/policy-audit.test.ts` iterates
+the list and drives each promise through real code, so a statement added without
+a case fails the completeness test, and a promise the app rather than the server
+makes has to name the app-suite test that proves it.
+
+An incoming acceptance is validated against `acceptedPolicyVersion`, which is
+pinned to the versions this build publishes. `challengeView.policyVersion` stays
+open text: a challenge created under a version since retired has to stay
+readable.
 
 The gate on the deposit belongs in `startChallenge`, not on a screen.
 `readinessOf` says what is outstanding, and the command returns `blocked` before

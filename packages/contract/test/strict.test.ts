@@ -15,6 +15,7 @@ import {
   challengeConfiguration,
   createChallengeRequest,
   createCompletionRequest,
+  DISCLOSURE_POLICY_VERSION,
   deepStrict,
   ENDPOINTS,
   getCurrentChallengeResponse,
@@ -93,7 +94,7 @@ describe("deepStrict", () => {
   });
 
   it("accepts a valid request unchanged", () => {
-    const request = { configuration: CONFIGURATION, policyVersion: "2026-08-01" };
+    const request = { configuration: CONFIGURATION, policyVersion: DISCLOSURE_POLICY_VERSION };
     expect(deepStrict(createChallengeRequest).parse(request)).toEqual(request);
   });
 

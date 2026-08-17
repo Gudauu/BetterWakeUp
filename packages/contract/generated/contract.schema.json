@@ -9,7 +9,9 @@
     "maximumChallengeDurationDays": 365,
     "maximumPauseDays": 365,
     "receiptGraceSeconds": 60,
-    "recoveryWindowHours": 24
+    "recoveryWindowHours": 24,
+    "donatedShareOfForfeitPercent": 80,
+    "disclosurePolicyVersion": "disclosures.2"
   },
   "errors": {
     "response": {
@@ -506,7 +508,10 @@
           },
           "policyVersion": {
             "type": "string",
-            "minLength": 1
+            "enum": [
+              "disclosures.1",
+              "disclosures.2"
+            ]
           }
         },
         "required": [
@@ -928,7 +933,10 @@
           },
           "policyVersion": {
             "type": "string",
-            "minLength": 1
+            "enum": [
+              "disclosures.1",
+              "disclosures.2"
+            ]
           }
         },
         "required": [

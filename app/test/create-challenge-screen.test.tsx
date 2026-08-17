@@ -6,10 +6,9 @@
  * zero deposit challenge is created without a payment step.
  */
 
-import type { SessionView } from "@betterwakeup/contract";
+import { disclosuresFor, type SessionView } from "@betterwakeup/contract";
 import { fireEvent, render, screen, userEvent, waitFor } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { disclosuresFor } from "../src/challenges/disclosures.ts";
 import { type ChallengeDraft, createDraft } from "../src/challenges/draft.ts";
 import { CreateChallengeScreen } from "../src/screens/create-challenge-screen.tsx";
 import { SessionProvider } from "../src/session/session-context.tsx";

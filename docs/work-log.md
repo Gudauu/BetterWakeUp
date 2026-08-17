@@ -2284,7 +2284,138 @@ rejection, counting refusals as faults, dropping the stage from the emitted
 line, removing each of the two backlog tolerances, dropping the pending-only
 filter, and removing the sweep failure counter each failed server tests.
 
+### Issue 43: policy and disclosure audit
+
+The disclosures were the promises already, but they lived in the app, which
+meant nothing could check them against the server that has to honor them. They
+now live in `packages/contract/src/policy.ts` as data, and
+`server/test/integration/policy-audit.test.ts` iterates them: each promise has a
+case that drives real rows through real code, and a promise with no case fails
+the completeness test. That is the shape the issue asks for. "Confirm every
+user-facing promise matches server behavior" is not a review that happens once,
+it is a test that keeps happening.
+
+The audit found four promises the screen was not making at all. The receipt
+grace, the maximum duration, the fact that a paused challenge never resumes on
+its own, and the donation pledge were all stated in `docs/product.md` and
+enforced by the server while the user acknowledged none of them. They are now
+items in the list, which moves the version to `disclosures.2`.
+
+Five open decisions:
+
+- Every figure in a statement is interpolated from the constant the server
+  enforces. A sentence saying "24 hours" beside a sweep using some other window
+  cannot be written, because there is one place the number comes from. This is
+  what the pledge case then extends to the published share:
+  `DONATED_SHARE_OF_FORFEIT_PERCENT` is asserted against the figure in
+  `docs/product.md` as well as against the disclosure.
+- The accepted version is pinned. `createChallengeRequest` and
+  `createFundingIntentRequest` take `acceptedPolicyVersion`, an enum over the
+  versions this build publishes, so a client that forgot to update its
+  disclosures is refused at the validation boundary rather than recording a
+  meaningless acceptance against real money. `challengeView.policyVersion` stays
+  open text: a stored version is history and has to remain readable after the
+  build that wrote it retired it.
+- The pledge is audited by the absence of a mechanism rather than the presence
+  of one. The ledger's account enum has no account standing for a charity or any
+  other third party, and a forfeit's only credit side is `platform_revenue`, so
+  the shape the disclosure disclaims is not expressible. That is a stronger
+  statement than any assertion about a transfer that does not happen.
+- Two promises are claims about the app, not the server: that a poor connection
+  can stop a result reaching the server, and that closing the app early can
+  leave one unsent. They are declared as client-side and name the app-suite test
+  that proves them, and the audit asserts that test still exists. Covering them
+  here would have meant asserting something the server cannot see.
+- The pause case asserts that nothing was ever missed or completed while paused,
+  not that every task is `skipped`. Each skip appends a replacement task, so a
+  paused challenge always has a `scheduled` tail; the promise is that the
+  challenge did not run, which is what the weaker-looking assertion actually
+  says.
+
+14 new tests. Five neuter checks on disjoint sets: unpinning the accepted
+version, widening the receipt grace, adding a third-party ledger account,
+making every projection report itself within the maximum duration, and doubling
+the pause bound each failed exactly the case that names the promise.
+
+Pinning the version broke fixtures in three existing suites that sent invented
+version strings in real requests. They send `DISCLOSURE_POLICY_VERSION` now. The
+database fixture still writes `2026-01-01`, which no build published, because the
+audit uses it to prove a retired version stays readable.
+
 ## Handed back
+
+### Issue 44: production readiness sign-off
+
+Nothing to attempt. The issue is the checklist that closes every release gate,
+and it depends on issues 40, 41, 42, 42a, and 43a, all of which are handed back
+below for accounts or hardware nobody has provided. A production Neon plan and
+two store submissions are the other two thirds of it.
+
+### Issue 43a: App Store review package
+
+The reviewer notes are writable here and the framing they have to state is
+settled: a commitment contract, no chance and no pot, a successful user is never
+charged at all, and an authorization that is released rather than captured is
+not something in-app purchase can express. What cannot be done is the acceptance
+boundary, which is a TestFlight external review build clearing without a 3.1.1,
+4.2, or 5.3 objection. That needs the Apple Developer account issue 27 already
+handed back, and a build signed against it.
+
+Issue 43's audit is the part of this that could be done, and it is done: the
+claim that the app is free and fully usable at zero stake is asserted by the
+zero deposit path, which never reaches the payment provider at all.
+
+### Issue 42a: long-horizon authorization proof
+
+Skipped, not attempted. Authorizing a real card and keeping it renewed across a
+full length challenge needs the processor issue 42 hands back, a real card, and
+the length of a challenge in wall-clock time. The numbers it produces, how often
+extended authorization is granted and how often renewals decline, are the
+assumption the payment design rests on, and inventing them would be worse than
+having none.
+
+Issue 24a built the renewal machinery against the fake provider, so what is
+missing is the measurement rather than the mechanism.
+
+### Issue 42: funds flow approval and real provider
+
+Skipped, not attempted. Legal counsel and a payment processor both have to
+approve the authorize-and-capture flow and what happens to a forfeit after
+collection, and neither exists here. The fake provider sits behind the same
+interface the real one will, and the ledger already keeps a forfeit as platform
+revenue with no account a third party could be paid from, which is the shape
+counsel would be asked to approve.
+
+### Issue 41: backup and recovery drill
+
+Skipped, not attempted. Restoring a Neon backup into a scratch environment needs
+the Neon project and the deployed environment issue 39 hands back. The sweep
+backlog it would be replayed against is idempotent and tested as such against a
+real database, so what the drill adds is evidence about the restore rather than
+about the replay.
+
+### Issue 40: real-device test matrix
+
+Skipped, not attempted. Every row of the matrix is a physical device: foreground
+step counting, indoor use, permission denial and revocation, termination before
+acknowledgment, network loss, device reboot, and the lowest supported OS
+versions. This is the same hardware and account blocker as issues 3, 27, 28, and
+29's device half.
+
+The rejected-completion row is the one thing already proven end to end, in the
+app suite's acceptance boundary for issue 34.
+
+### Issue 39: the deploy pipeline
+
+Skipped, not attempted. The acceptance boundary is that a merge to the default
+branch deploys development end to end, which needs an AWS account, deployment
+credentials in the repository, and a Neon project. There is also still no `git
+remote`, so there is no repository for a workflow to run in.
+
+What the pipeline needs from this repository exists: `cdk synth` runs from a
+clean checkout, `bwu:codeAssetPath` takes a real bundle in place of the
+placeholder, and the migration step is the same `drizzle` command the test
+harness already runs.
 
 ### Issue 38: the alert address and the budget
 

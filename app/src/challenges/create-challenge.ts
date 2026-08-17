@@ -14,14 +14,16 @@
 
 import {
   type ChallengeView,
+  type CreateChallengeRequest,
   type CreateFundingIntentResponse,
   type CreateProjectionResponse,
+  DISCLOSURE_POLICY_VERSION,
+  disclosuresFor,
   type ErrorCode,
   MAXIMUM_CHALLENGE_DURATION_DAYS,
 } from "@betterwakeup/contract";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
-import { DISCLOSURE_POLICY_VERSION, disclosuresFor } from "./disclosures.ts";
 import { type ChallengeDraft, configurationOf, readinessOf } from "./draft.ts";
 
 export type StartChallengeOutcome =
@@ -104,7 +106,7 @@ export async function startChallenge(input: StartChallengeInput): Promise<StartC
     return { status: "blocked", reasons: configuration.problems };
   }
 
-  const body = {
+  const body: CreateChallengeRequest = {
     configuration: configuration.configuration,
     policyVersion: DISCLOSURE_POLICY_VERSION,
   };

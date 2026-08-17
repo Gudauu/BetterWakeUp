@@ -16,10 +16,10 @@ import {
   type ChallengeConfiguration,
   challengeConfiguration,
   MINIMUM_FUNDED_DEPOSIT_MINOR_UNITS,
+  outstandingDisclosures,
   type ScheduledWeekday,
   type Weekday,
 } from "@betterwakeup/contract";
-import { outstandingDisclosures } from "./disclosures.ts";
 
 /** Monday first, which is how the weekly schedule reads to a user. */
 export const WEEKDAY_ORDER: readonly Weekday[] = [

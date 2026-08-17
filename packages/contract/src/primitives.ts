@@ -26,6 +26,18 @@ export const RECOVERY_WINDOW_HOURS = 24;
 /** A pause reaching this length closes the challenge as `expired`. */
 export const MAXIMUM_PAUSE_DAYS = 365;
 
+/**
+ * The share of forfeit revenue, after processing costs, the platform commits
+ * to donating.
+ *
+ * This is a public claim rather than a mechanism: no part of a deposit is
+ * routed to a third party, and the donation happens outside this system. It
+ * lives beside the protocol constants anyway, because the figure the app
+ * discloses and the figure the platform publishes have to be the same one, and
+ * two copies of a number are two chances for the claim to stop being true.
+ */
+export const DONATED_SHARE_OF_FORFEIT_PERCENT = 80;
+
 /** An identifier the server minted. Opaque to the app, which only echoes it back. */
 export const resourceId = z.uuid();
 

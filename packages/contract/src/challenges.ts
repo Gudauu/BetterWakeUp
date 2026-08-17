@@ -9,6 +9,7 @@
  */
 
 import { z } from "zod";
+import { acceptedPolicyVersion } from "./policy.ts";
 import {
   depositAmount,
   ianaTimeZone,
@@ -77,7 +78,11 @@ export const challengeView = z.object({
   id: resourceId,
   status: challengeStatus,
   configuration: challengeConfiguration,
-  /** The terms version the user accepted at funding. */
+  /**
+   * The terms version the user accepted at funding. Open text rather than the
+   * pinned `acceptedPolicyVersion`, because a challenge created under a
+   * version this build has since retired still has to be readable.
+   */
   policyVersion: z.string().min(1),
   createdAt: instant,
   /** When the challenge became `active`. Null while a funded one awaits its webhook. */
@@ -118,7 +123,7 @@ export const createProjectionResponse = z.object({
 /** `POST /challenges` creates a zero deposit challenge and rejects any other. */
 export const createChallengeRequest = z.object({
   configuration: challengeConfiguration,
-  policyVersion: z.string().min(1),
+  policyVersion: acceptedPolicyVersion,
 });
 
 export const createChallengeResponse = z.object({
@@ -132,7 +137,7 @@ export const createChallengeResponse = z.object({
  */
 export const createFundingIntentRequest = z.object({
   configuration: challengeConfiguration,
-  policyVersion: z.string().min(1),
+  policyVersion: acceptedPolicyVersion,
 });
 
 export const createFundingIntentResponse = z.object({

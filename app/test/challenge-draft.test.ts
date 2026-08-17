@@ -5,12 +5,13 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { MINIMUM_FUNDED_DEPOSIT_MINOR_UNITS, RECOVERY_WINDOW_HOURS } from "@betterwakeup/contract";
 import {
   DISCLOSURES,
   disclosuresFor,
+  MINIMUM_FUNDED_DEPOSIT_MINOR_UNITS,
   outstandingDisclosures,
-} from "../src/challenges/disclosures.ts";
+  RECOVERY_WINDOW_HOURS,
+} from "@betterwakeup/contract";
 import {
   type ChallengeDraft,
   configurationOf,

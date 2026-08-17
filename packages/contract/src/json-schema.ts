@@ -13,7 +13,9 @@
 import { z } from "zod";
 import { ENDPOINTS } from "./endpoints.ts";
 import { ERROR_DISPOSITIONS, errorResponse } from "./errors.ts";
+import { DISCLOSURE_POLICY_VERSION } from "./policy.ts";
 import {
+  DONATED_SHARE_OF_FORFEIT_PERCENT,
   IDEMPOTENCY_HEADER,
   MAXIMUM_CHALLENGE_DURATION_DAYS,
   MAXIMUM_PAUSE_DAYS,
@@ -62,6 +64,8 @@ export function buildContractJsonSchema(): unknown {
       maximumPauseDays: MAXIMUM_PAUSE_DAYS,
       receiptGraceSeconds: RECEIPT_GRACE_SECONDS,
       recoveryWindowHours: RECOVERY_WINDOW_HOURS,
+      donatedShareOfForfeitPercent: DONATED_SHARE_OF_FORFEIT_PERCENT,
+      disclosurePolicyVersion: DISCLOSURE_POLICY_VERSION,
     },
     errors: {
       response: toJsonSchema(errorResponse, "output"),

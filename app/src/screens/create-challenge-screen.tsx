@@ -11,7 +11,11 @@
  * disclosure blocks the deposit in two places rather than one.
  */
 
-import type { CreateProjectionResponse, Weekday } from "@betterwakeup/contract";
+import {
+  type CreateProjectionResponse,
+  disclosuresFor,
+  type Weekday,
+} from "@betterwakeup/contract";
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,7 +24,6 @@ import {
   type StartChallengeOutcome,
   startChallenge,
 } from "../challenges/create-challenge.ts";
-import { disclosuresFor } from "../challenges/disclosures.ts";
 import {
   type ChallengeDraft,
   createDraft,
