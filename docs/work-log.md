@@ -970,6 +970,76 @@ accepting any signature failed the signature test, removing the event dedupe
 failed the redelivery test, and removing the open-challenge check at
 confirmation failed the case where a challenge appeared in between.
 
+### Issue 20: completions
+
+`POST /tasks/:taskId/completions`, in `server/src/tasks`. This is the command the
+product turns on: a completion the server has not acknowledged does not count,
+so every refusal here is one a user feels, and each of the six is a separate
+named error code the app can act on rather than one generic rejection.
+
+The checks run in a fixed order, from the ones no later request could pass to the
+ones a corrected request could. The body's `clientRecordId` must be the key the
+request carries, and the observation's provenance must be `live-foreground`;
+both are decided before an idempotency key is claimed, because a request that
+can never succeed should not spend the caller's key. Then the task must exist,
+be the caller's, still be open, and belong to an `active` challenge. Then the
+receipt grace, then the reported instant against the task window, then the step
+target.
+
+The receipt grace and the window are two different rules and are worth keeping
+apart. The grace forgives a late arrival by up to sixty seconds, which is what
+the architecture wrote it for: server acknowledgment is a hard condition for
+credit, so a cold start or a moment of weak signal must not decide a deposit. It
+never forgives a late completion. A request received inside the grace that
+reports movement finishing after the deadline is refused with
+`completion_outside_task_window`, and the two have their own tests.
+
+The window start is derived rather than stored: it is the beginning of the task's
+calendar day in the challenge's zone, so the task row's date plus the
+challenge's zone is the window. Storing a third instant per task would mean
+keeping it true through a time zone change, which issue 22 rewrites instants for.
+
+The step target is checked against the challenge's own `step_target`, not taken
+on the device's word. The app evaluates it locally to show the user a result at
+once; the server re-evaluates it because the observation is evidence and the
+number is on the challenge.
+
+**The receipt instant is the server clock when the command is handled**, injected
+so a test can state it. The idempotency key's `created_at` is a second reading of
+the same clock and is the one issue 23's sweep reads to know a completion is in
+flight. The two differ only by the duration of an attempt, so they disagree about
+a single completion only when an attempt crashes within a minute of the deadline
+and is retried, in which case the retry is refused and the sweep then misses the
+task. That gap is bounded and stated here rather than left to be discovered.
+
+The task row is read `for update` before anything is decided, which is what makes
+this command and any writer that consumes the same task mutually exclusive. The
+proof is a test where a pause-style skip holds the lock and then consumes the
+task: the completion waits, re-reads, and answers `task_already_resolved`.
+Without the lock the same test fails, because the completion decides against a
+row another transaction is about to change and discovers the conflict two
+statements later as a duplicate-key failure.
+
+`replayed` is decided by the key rather than stored under it. The stored result
+is what the first attempt produced, and whether this caller is the one who
+produced it is a property of this request, so a replay returns the same
+acknowledgment with that one field flipped.
+
+The challenge succeeds on the completion that reaches its required count, by
+counting the completed rows rather than incrementing a column: there is no number
+to double-count, and the deferred trigger counts the same rows at commit, so a
+disagreement is a failed transaction rather than a challenge claiming an outcome
+it has not earned.
+
+16 integration tests through the mounted route: both sides of the grace boundary
+to the millisecond, a duplicate key replaying, all five refusals, the stored
+evidence, the succeeding completion, the concurrent writer, and another
+account's task answering not found.
+
+Six neuter checks on disjoint tests: the grace, the step target, the record
+identifier, the provenance, and the row lock each failed exactly one test, and
+the window check failed exactly two.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

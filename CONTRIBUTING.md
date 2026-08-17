@@ -335,6 +335,26 @@ than by assembling a response from what you just wrote. A response built from
 intentions describes rows that may not have committed and misses the defaults
 the database applied.
 
+## Completions
+
+Refuse with the narrowest error code that fits. The app's pending completion
+store decides whether to retry from the code, and it surfaces a rejection to the
+user, so `deadline_passed`, `completion_outside_task_window`,
+`step_target_not_met`, `movement_provenance_rejected`, and
+`task_already_resolved` are five different things a user needs told apart.
+
+Keep the receipt grace and the task window apart. The grace forgives a late
+arrival by sixty seconds and never a late completion, so a request received in
+time that reports movement finishing after the deadline is refused.
+
+Take the task row `for update` before deciding anything about it. The sweep, the
+pause skip, and this command all consume the same row, and a decision made
+against a row another transaction is about to change is discovered later as a
+duplicate-key failure instead of as a conflict the caller is told about.
+
+Decide anything that does not need the database before claiming an idempotency
+key. A request that can never succeed should not spend the caller's key.
+
 ## Payments
 
 The provider is reached only through `PaymentProviderClient` in
