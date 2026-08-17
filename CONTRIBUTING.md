@@ -71,6 +71,22 @@ rule in a service function holds only for callers that remember it. Each such
 constraint should have a negative test that attempts the violation directly
 through Drizzle and asserts the SQLSTATE.
 
+An invariant that counts or sums across rows cannot be a check constraint,
+which sees one row, or a unique index, which sees one key. Those go in a
+deferred constraint trigger, written as a hand-authored migration:
+
+```sh
+pnpm exec drizzle-kit generate --custom --name=<what-it-enforces>
+```
+
+Deferral is what makes them usable. A transaction that consumes a task and
+appends its replacement is momentarily wrong between the two statements, and
+only the state at commit has to hold. A constraint trigger raises SQLSTATE
+`23000`, so tests assert that rather than a message. `drizzle-kit` neither
+generates nor tracks triggers, so the migration file is their only description;
+they will not appear in a snapshot and a regenerated migration will not drop
+them.
+
 Integration tests need a running Docker daemon. They live in
 `server/test/integration` and run as the `server-integration` Vitest project,
 separately from the unit tests, which need no container. One container is

@@ -141,6 +141,73 @@ migrated database's columns against the ones the Drizzle schema declares. It
 was verified to fail by adding a column to the schema without regenerating,
 which is the exact mistake it exists to catch.
 
+### Issue 7: challenge and task schema
+
+Four tables in `server/src/db/schema/challenges.ts`, applied by
+`server/drizzle/0001_challenges.sql`, with the aggregate invariants in the
+hand-authored `server/drizzle/0002_challenge_task_count_trigger.sql`.
+
+`challenges` holds the configuration the architecture's "Challenge time model"
+lists: the confirmed time zone, required task count, step target, No Regret
+minutes, deposit in minor units, policy version, and projected end date. Pause
+is `paused_at` on the challenge rather than a flag per task, because pause is a
+mode: the sweep consumes tasks as their own cutoffs pass, and only a resume
+ends it.
+
+One active challenge per account is a partial unique index on `account_id`
+covering `active` and `recovery_pending`. `recovery_pending` holds the slot
+because that challenge is still running and may return to `active`; every
+terminal status drops out of the index, which is what guarantees the slot comes
+back and a forgotten paused challenge cannot lock an account out.
+
+One terminal outcome per challenge is a single `terminal_at` column paired with
+the status by a check constraint, so there is no half-closed challenge with an
+outcome and no time, or a time and no outcome. A second check makes
+`recovery_pending` unreachable without a deposit, which is the architecture's
+rule that a lifetime allowance must not be consumable on a challenge that costs
+nothing to fail.
+
+`challenge_schedule_days` is a row per active weekday with a composite primary
+key, so a weekday appearing twice in one schedule is unrepresentable rather
+than merely rejected somewhere.
+
+`scheduled_tasks` carries the UTC instants for deadline and pause cutoff, the
+local task date, and a `sequence` ordinal. Its outcome is one status column
+plus one instant per outcome, each tied to the status by a check constraint.
+That is where "one terminal outcome per scheduled task" comes from, and
+`forgiven_at` being one column is why a task cannot be forgiven twice. A
+forgiven task keeps its `missed_at`, since recovery supersedes the miss rather
+than deleting it.
+
+`task_completions` is its own table with a unique index on `task_id`, which is
+"one completion result per scheduled task". A completion is evidence, not a
+flag, so it stores the observation window, step count, provenance, source, app
+version, and verification policy version.
+
+Two invariants are counts across rows and cannot be a check constraint or a
+unique index: the task count while a challenge is `active`, and the rule that a
+challenge succeeds only after its required completion count is reached. Both
+live in one plpgsql function called by two deferred constraint triggers, one on
+each table. The challenge-side trigger matters because the rule is conditional
+on status: a challenge returning to `active` changes which rule applies without
+touching a task row. The function returns early when the challenge no longer
+exists, which is the cascade-delete case, where the trigger fires at commit
+against a challenge that is already gone.
+
+The task count is scoped to `active` deliberately. A missed task drops the count
+below the required total by design and stays below through `recovery_pending`,
+until the task is forgiven or the challenge fails.
+
+The acceptance test is `server/test/integration/challenge-schema.test.ts`: 21
+tests writing through Drizzle with no service layer, each asserting a SQLSTATE.
+The trigger tests were verified to fail by making the function return early,
+which is the only way to tell a working constraint from an assertion that never
+fires. `server/test/support/challenge-fixtures.ts` builds a challenge the
+database will accept, since the deferred trigger means a challenge and its full
+set of tasks have to arrive in one transaction; issue 9's assault suite starts
+from the same fixtures. The SQLSTATE helpers moved out of the identity test into
+`server/test/support/sql-errors.ts`.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

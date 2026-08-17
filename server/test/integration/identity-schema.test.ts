@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import type { Database } from "../../src/db/index.ts";
 import { accounts, providerIdentities, sessions } from "../../src/db/schema.ts";
 import { useTestDatabase } from "../support/postgres.ts";
+import { CHECK_VIOLATION, expectSqlState, UNIQUE_VIOLATION } from "../support/sql-errors.ts";
 
 const testDatabase = useTestDatabase();
 
@@ -28,39 +29,6 @@ async function insertAccount(db: Database, displayName?: string): Promise<string
     throw new Error("insert returned no account");
   }
   return row.id;
-}
-
-/** The PostgreSQL class for a unique violation. */
-const UNIQUE_VIOLATION = "23505";
-/** The class for a failed check constraint. */
-const CHECK_VIOLATION = "23514";
-
-/**
- * Drizzle wraps a driver error in a `DrizzleQueryError`, so the SQLSTATE the
- * assertion cares about sits somewhere down the `cause` chain rather than on
- * the thrown error itself.
- */
-function sqlState(error: unknown): string | undefined {
-  for (let current = error; current instanceof Error; current = current.cause) {
-    const { code } = current as { code?: unknown };
-    if (typeof code === "string") {
-      return code;
-    }
-  }
-  return undefined;
-}
-
-async function expectSqlState(state: string, run: () => Promise<unknown>): Promise<void> {
-  let thrown: unknown;
-  let threw = false;
-  try {
-    await run();
-  } catch (error) {
-    thrown = error;
-    threw = true;
-  }
-  expect(threw, "expected the write to be rejected").toBe(true);
-  expect(sqlState(thrown)).toBe(state);
 }
 
 function hourFromNow(): Date {

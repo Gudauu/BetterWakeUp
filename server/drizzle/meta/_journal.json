@@ -8,6 +8,20 @@
       "when": 1786941200910,
       "tag": "0000_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786941582166,
+      "tag": "0001_challenges",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786941614996,
+      "tag": "0002_challenge_task_count_trigger",
+      "breakpoints": true
     }
   ]
 }
