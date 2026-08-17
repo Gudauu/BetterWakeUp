@@ -1669,7 +1669,89 @@ failed only the offline sign-out test. On the server, revoking without the
 Both bundles still export. See "Handed back" for the part of this issue's
 acceptance boundary that needs hardware and provider accounts.
 
+### Issue 29: movement capture
+
+The pedometer wrapper exists, along with the normalization every reading passes
+through and the capture that decides when a window is open.
+
+`src/movement/pedometer.ts` is the port: is there a step counter, what does the
+operating system say about motion access, prompt for it, and start delivering
+live step counts. `src/movement/native-pedometer.ts` is the only module that
+imports `expo-sensors` or `AppState`, for the same reason `native-providers.ts`
+is the only one that imports the sign-in SDKs. The port carries a step count and
+nothing else, which is not minimalism: `PedometerResult` carries a step count and
+nothing else on both platforms, and the `CMPedometer` distance underneath is
+steps multiplied by an uncalibrated stride estimate.
+
+Four decisions the architecture leaves open:
+
+- **Provenance is a property of the channel, not an argument.**
+  `observeLiveForeground` states `live-foreground` as a literal and takes no
+  provenance from its caller, so there is no parameter to default and no reading
+  to infer from. Version 1 has one channel, which makes `historical-query`
+  unconstructible from the app rather than merely unused. A second channel would
+  be a second function here. Two tests hold this: one smuggles a provenance into
+  the input and gets `live-foreground` back, and one asserts the word appears
+  exactly once in the module and nowhere else in `src/movement`.
+- **Backgrounding ends the window; it does not pause it.** A foreground change
+  closes the capture immediately, and coming back starts a fresh window. Anything
+  else would have to decide what a resumed window's `startedAt` means, and the
+  server checks an observation against the task window. `inactive` counts as
+  backgrounded: the iOS app switcher and an incoming call leave the app on screen
+  without the user, and the pedometer keeps delivering through both.
+- **The rule is enforced by the capture, not by the platform's manners.** Each
+  window is guarded by object identity, so a reading delivered to a subscription
+  that has already been removed is discarded rather than counted. The fake
+  pedometer keeps delivering after `remove()` on purpose, which is the only way
+  to prove this rather than assume it.
+- **Permission is re-read at both ends of a capture and never cached.** At the
+  start it notices a revocation performed in Settings between two attempts. At
+  the end it discards a window whose permission was withdrawn while it ran: the
+  steps may be real, but the app no longer has the user's word that it may look
+  at them, so the observation is `null` and the reason is `permission-revoked`.
+
+One smaller thing worth recording: `watchStepCount` reports steps cumulatively
+since the subscription began, so the capture keeps the latest reading rather than
+summing deliveries, and takes the maximum so an Android counter reset under a
+live subscription cannot shrink a window that has already been observed.
+
+35 new app tests (87 in `app` now): 15 over normalization, source, and the
+contract refusing a bad window, and 20 over the capture's permission gate,
+counting, stopping, backgrounding, and revocation.
+
+Seven neuter checks on disjoint sets: removing the reading's window guard failed
+the two tests about readings after backgrounding, removing the foreground close
+failed the five backgrounding tests, dropping the permission re-read at close
+failed exactly the two revocation tests, replacing the cumulative maximum with
+the latest reading failed only the counter-reset test, removing the foreground
+check at start failed only the start-while-backgrounded test, caching the
+permission across captures failed only the revoked-in-Settings test, and dropping
+the contract parse from normalization failed exactly the three tests over
+malformed windows.
+
+Both bundles still export. See "Handed back" for the half of this issue that
+needs hardware.
+
 ## Handed back
+
+### Issue 29: movement capture on a device
+
+Everything above the pedometer port is covered by tests, and
+`native-pedometer.ts` is the only code a device build would exercise for the
+first time. What hardware is still needed for:
+
+- Confirming `expo-sensors` really does stop delivering while backgrounded on
+  both platforms. The capture discards such readings regardless, so the app is
+  correct either way, but the claim about the platform is untested here.
+- The Android `ACTIVITY_RECOGNITION` and iOS motion permission prompts, and what
+  the operating system reports after a revocation in Settings. The three-state
+  mapping in `native-pedometer.ts` is written from the documented
+  `PermissionStatus` values.
+- Whether a device without a step counter reports `isAvailableAsync()` false
+  rather than throwing.
+
+This is the same account and hardware blocker as issues 3, 27, and 28, and issue
+3's spike is the right place to settle the first and third of these.
 
 ### Issue 28: sign-in on a device
 

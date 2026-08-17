@@ -19,6 +19,8 @@ expects Jest. See "Toolchain" in `docs/architecture.md`.
   one error type it raises.
 - `src/auth/` the two native sign-in providers behind one interface, and the
   sign-in flow that exchanges a credential for a session.
+- `src/movement/` the pedometer behind one port, the normalization every
+  reading passes through, and the foreground-only capture.
 - `src/session/` secure storage for session material, and the React context the
   screens read it from.
 - `src/screens/` screen components, kept out of `app/` so a test renders one

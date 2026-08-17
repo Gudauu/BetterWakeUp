@@ -10,7 +10,7 @@
     "isolatedModules": true,
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "types": ["jest"]
+    "types": ["jest", "node"]
   },
   "include": ["app", "src", "test", "*.ts", "*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]
 }

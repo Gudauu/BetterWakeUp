@@ -662,6 +662,42 @@ Sign-out calls `DELETE /sessions` so the row is revoked and a copy of the token
 is useless, then clears the device whatever the call did. A user with no network
 must still be able to sign out of their own phone.
 
+### Movement capture
+
+`expo-sensors` and React Native's `AppState` are reached only through the ports
+in `src/movement/pedometer.ts`, and `src/movement/native-pedometer.ts` is the
+only module that imports either. Same reason as the sign-in SDKs: a native
+module in a test's import graph needs a device.
+
+`src/movement/observation.ts` is the one place a reading becomes a
+`MovementObservation`, and the one place in the app that names a provenance at
+all. Provenance is never inferred and never defaulted: each observation channel
+gets its own function that states its provenance as a literal, no function takes
+a provenance argument, and no fallback exists to be wrong. Version 1 has one
+channel, so `historical-query` is not constructible from the app. Adding a
+second channel means adding a second function here, not a parameter to this one.
+
+`source` comes from the platform the code is running on, and an unsupported
+platform throws rather than guessing. Every observation is parsed through the
+contract on the way out, so a window that ends before it starts fails in the app
+rather than at the server.
+
+Backgrounding is not a pause. A capture ends the instant the app stops being in
+front of the user, `inactive` counts as not in front (the iOS app switcher and
+an incoming call), and a reading delivered after that is discarded by the
+capture itself rather than trusted not to arrive. Coming back starts a fresh
+window; it never resumes the old one.
+
+Motion permission is read from the operating system at both ends of a capture,
+never cached. Reading it at the start is what notices a revocation performed in
+Settings; reading it at the end is what discards a window whose permission the
+user took away while it ran. Those steps may be real, but the app no longer has
+the user's word that it may look at them.
+
+`watchStepCount` reports steps cumulatively since the subscription began, so the
+capture keeps the latest reading rather than adding readings up, and takes the
+maximum so an Android counter reset cannot shrink an already-observed window.
+
 ## Commits
 
 Use Conventional Commits.
