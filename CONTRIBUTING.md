@@ -335,6 +335,39 @@ than by assembling a response from what you just wrote. A response built from
 intentions describes rows that may not have committed and misses the defaults
 the database applied.
 
+## Payments
+
+The provider is reached only through `PaymentProviderClient` in
+`server/src/payments/provider.ts`. No domain module imports a processor SDK, and
+`FakePaymentProvider` carries the whole flow until a real processor is approved.
+Adding an operation means adding it to the interface first, so every
+implementation has to answer for it.
+
+Authorizing is not charging. `authorizeDeposit` and `releaseAuthorization` move
+no money and cost no fee; `captureAuthorization` and `chargeOffSession` are the
+only operations that do, and nothing on the funding path may reach them.
+
+A funded challenge is created by the payment webhook and by nothing else. No
+route a client can reach may create one, whatever the client reports about its
+own payment. The terms come from the stored `funding_intents` row rather than
+from the delivery, which describes no challenge.
+
+Verify a webhook signature over the raw bytes, in the route's signature
+verifier, before anything parses the payload. Re-serializing a payload changes
+bytes a provider signed, so never verify against a parsed document.
+
+A webhook answers 200 for anything no redelivery would change: an unknown event
+type, a delivery naming no funding intent, an intent already settled, a
+confirmation for an account that acquired a challenge in the meantime. Reserve a
+non-2xx answer for a failure a retry could fix, since anything else buys an
+unbounded retry loop from the provider.
+
+A challenge is written by `materializeChallenge` in
+`server/src/challenges/materialize.ts`, on both the funded and the unfunded
+path. A second writer would be a second chance to get the task count invariant
+wrong. Take the account lock first, through `lockAccount`, as every path that
+decides whether a challenge may start does.
+
 ## Commits
 
 Use Conventional Commits.

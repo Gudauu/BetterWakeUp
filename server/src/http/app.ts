@@ -12,6 +12,7 @@ import { type Context, Hono } from "hono";
 import type { SessionGate } from "../auth/session-gate.ts";
 import { AppError, toAppError } from "../errors/app-error.ts";
 import { createLogger, type Logger } from "../observability/logger.ts";
+import type { ProviderWebhookEvent } from "../payments/provider.ts";
 import type { RateLimiter } from "../rate-limit/service.ts";
 import { type EndpointHandlers, registerRoutes } from "./routes.ts";
 
@@ -29,6 +30,12 @@ export interface AppEnv {
     readonly requestId: string;
     /** A logger already carrying this request's identifiers. */
     readonly logger: Logger;
+    /**
+     * The payment provider's delivery, once its signature verified. Set by the
+     * signature verifier and read by the webhook handler, so nothing downstream
+     * has to re-verify or, worse, trust an unverified payload.
+     */
+    readonly providerEvent?: ProviderWebhookEvent | undefined;
   };
 }
 

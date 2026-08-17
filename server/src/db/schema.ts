@@ -7,6 +7,7 @@
  */
 
 export * from "./schema/challenges.ts";
+export * from "./schema/funding.ts";
 export * from "./schema/identity.ts";
 export * from "./schema/payments.ts";
 export * from "./schema/rate-limit.ts";

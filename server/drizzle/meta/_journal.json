@@ -57,6 +57,13 @@
       "when": 1786947203035,
       "tag": "0007_rate_limit_counters",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786949092861,
+      "tag": "0008_funding_intents",
+      "breakpoints": true
     }
   ]
 }

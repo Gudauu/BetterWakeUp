@@ -876,6 +876,100 @@ message rather than for the status code, and the index remains the authority
 that makes a second open challenge impossible. Removing the zero deposit refusal
 failed exactly the one test that asserts it.
 
+### Issue 19: fake payment provider and funding
+
+The funded door, in `server/src/payments` and `server/src/challenges/funding-intent.ts`.
+A funding intent asks the provider for a hold and records what the hold is for.
+The challenge appears only when the provider says the authorization succeeded.
+
+The provider interface is the architecture's list, implemented in full rather
+than in the part today's code calls. Authorizing and saving the instrument,
+renewing and reporting expiry, releasing, capturing or charging off-session,
+recording an uncollected forfeit, verifying webhooks, looking up transaction
+status, and reporting a stable instrument fingerprint. A fake that answered only
+the funding path would leave the boundary unexercised exactly where it is least
+understood, and the operations that move money are covered by their own tests
+that assert the funding flow never reaches them.
+
+The fake models three things a stub would not. A hold starts `pending` and
+becomes `authorized` only through a delivery, which is what lets the server
+prove a client callback activates nothing. A delivery is signed with an HMAC
+over the exact bytes, compared in constant time, so a payload edited in flight
+fails even though it still parses. And asking for the same delivery twice
+returns byte-identical bytes under one event ID, which is what makes a retried
+delivery testable.
+
+`funding_intents` stores the whole configuration and the accepted policy
+version against the provider's authorization identifier. The architecture's
+reason is that the webhook has to know what was authorized and the amount at
+stake has to be tied to the exact terms the user accepted. Nothing in a delivery
+describes a challenge, so a forged or mangled payload cannot change the terms
+even if it somehow verified. Two check constraints carry the rest: an intent is
+never for less than the funded minimum, and `authorized` holds a challenge while
+no other status does, which is "money activates a funded challenge, and only
+through the provider's confirmation" written as a constraint.
+
+Materialization is one function for both doors. `materializeChallenge` writes
+the challenge, the weekly schedule, and the full task set, and issue 18's
+creation path was rewritten to call it. That is what makes the task count
+invariant hold immediately after activation on the funded path as well: the
+deferred trigger counts at commit, so a challenge that committed at all
+committed complete.
+
+A funded challenge is scheduled from the confirming instant rather than from the
+instant the intent was created. The challenge did not exist until the provider
+answered, so a user who left the payment sheet open is not handed a first
+deadline that already passed.
+
+Three refusals happen before the idempotency key is spent, since each one is the
+caller's to fix by sending a different request: a zero deposit belongs to
+`POST /challenges` and answers `deposit_required_for_funding`, a schedule
+running past the maximum duration answers `maximum_duration_exceeded` (the rule
+issue 18 could only report now binds, at the moment an authorization is taken),
+and an account already holding a challenge answers `active_challenge_exists`
+under the same account lock every other path takes.
+
+The provider call happens inside the transaction that records the intent, which
+would be wrong for a capture and is right for this one. Authorizing is
+reversible and free, so an intent created and rolled back is a hold nobody
+confirms, which expires having charged nothing. The alternative, recording
+first and calling after, leaves a row claiming a hold that may not exist.
+
+Two simultaneous funding intents are both allowed. Neither account has a
+challenge yet, a user who taps twice has two holds, and at most one of them will
+ever be confirmed: the second confirmation finds the slot taken.
+
+That case is the one refusal the webhook cannot answer with an error. A provider
+that confirmed a hold cannot be told to try again later, so an account that
+acquired a challenge between the intent and the confirmation fails the intent
+instead, and the hold expires unconfirmed. Everything else the webhook cannot
+act on (an unknown event type, a delivery naming no intent, an intent already
+settled) is recorded and ignored for the same reason: no redelivery would
+change the answer, and answering anything but 200 buys an unbounded retry.
+
+Nothing is captured. The only ledger movement on this path is
+`deposit_authorized`, a debit to `user_commitment` against a credit to
+`payment_processor`, which the deferred balance trigger checks sums to zero. No
+`platform_revenue` or `processor_fees` entry appears anywhere, because a
+processing fee attaches to a capture and there has been none.
+
+The signature check is the route's authentication, in the position the session
+gate occupies for a client command, so it runs before validation parses a field.
+The verified event travels on the request context; verifying again in the
+handler would let the endpoint be mounted without a verifier and still appear to
+work, which is the failure the route table's mount-time refusal exists to
+prevent.
+
+25 tests: 11 unit tests over the provider boundary and 14 integration tests
+through the mounted routes over the acceptance boundary, the three refusals,
+idempotent replay, two simultaneous intents, both provider answers, a delivery
+naming no intent, and the ledger and provider records after a full funding.
+
+Three neuter checks, each landing on exactly one test and a different one:
+accepting any signature failed the signature test, removing the event dedupe
+failed the redelivery test, and removing the open-challenge check at
+confirmation failed the case where a challenge appeared in between.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

@@ -12,14 +12,25 @@
 
 import { AppError } from "../errors/app-error.ts";
 import type { EndpointHandlers } from "../http/routes.ts";
+import type { PaymentProviderClient } from "../payments/provider.ts";
 import { type CreateChallengeDependencies, createChallenge } from "./create-challenge.ts";
 import { getCurrentChallenge } from "./current-challenge.ts";
+import { createFundingIntent } from "./funding-intent.ts";
 import { planChallenge } from "./plan.ts";
 
-export interface ChallengeHandlerDependencies extends CreateChallengeDependencies {}
+export interface ChallengeHandlerDependencies extends CreateChallengeDependencies {
+  /**
+   * The payment provider. Optional, because the three unfunded endpoints work
+   * without one: a deployment with no provider configured still projects,
+   * creates zero deposit challenges, and reads the current one, and simply does
+   * not mount the funded door.
+   */
+  readonly provider?: PaymentProviderClient | undefined;
+}
 
 export function createChallengeHandlers(deps: ChallengeHandlerDependencies): EndpointHandlers {
   const now = deps.now ?? (() => new Date());
+  const provider = deps.provider;
 
   return {
     createChallengeProjection: ({ body, logger }) => {
@@ -56,5 +67,36 @@ export function createChallengeHandlers(deps: ChallengeHandlerDependencies): End
     },
 
     getCurrentChallenge: async ({ session }) => await getCurrentChallenge(deps, session.accountId),
+
+    ...(provider === undefined
+      ? {}
+      : {
+          createFundingIntent: async ({ body, session, idempotencyKey, logger }) => {
+            if (idempotencyKey === undefined) {
+              throw new AppError(
+                "internal_error",
+                "createFundingIntent reached its handler with no key",
+              );
+            }
+
+            const { response, replayed } = await createFundingIntent(
+              { ...deps, provider },
+              {
+                accountId: session.accountId,
+                idempotencyKey,
+                configuration: body.configuration,
+                policyVersion: body.policyVersion,
+              },
+            );
+            // The deposit amount is not logged: what was authorized is on the
+            // funding intent row, and a log line is not the financial record.
+            logger.info("deposit authorization requested", {
+              command: "createFundingIntent",
+              result: replayed ? "replayed" : "requested",
+              paymentProvider: provider.name,
+            });
+            return response;
+          },
+        }),
   };
 }
