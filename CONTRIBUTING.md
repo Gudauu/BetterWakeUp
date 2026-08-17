@@ -179,6 +179,29 @@ Classifications are for operators, not clients. Only `internal` means our fault,
 and only `internal` logs at error level, so an alarm on error level stays a
 signal rather than a count of rejected requests.
 
+### Authentication
+
+`server/src/auth/` owns everything between a provider ID token and a session.
+Verify a provider token through `createProviderTokenVerifier` and nothing else:
+it keeps the algorithm list closed to the asymmetric algorithms Apple and
+Google sign with, which is what stops a public JWKS key being presented as an
+HS256 secret.
+
+An email address is never an identifier, a key, or a deduplication signal. The
+identity key is `(issuer, subject)`. An Apple private relay address is dropped
+at the boundary by `displayableEmail`, so nothing downstream has to remember the
+rule, and a test asserts the column stays empty rather than asserting the return
+value.
+
+A session is a signed JWT plus a `sessions` row holding a hash of the token.
+Look a presented token up by `hashSessionToken`; never store or log the token
+itself. The row is the authority on revocation and expiry, so a signature check
+alone is not a session check.
+
+`loadAuthConfig` reads `SESSION_SECRET`, `APPLE_AUDIENCES`, and
+`GOOGLE_AUDIENCES` and throws when any is missing or empty. Keep it that way: an
+empty audience list means every audience is accepted.
+
 ### Idempotency
 
 A handler for an endpoint the contract marks idempotent does its work inside

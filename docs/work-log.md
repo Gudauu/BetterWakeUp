@@ -481,6 +481,61 @@ the same mistake as changing the body.
 
 22 tests: 14 integration tests against a real database and 8 over the hash.
 
+### Issue 13: authentication and sessions
+
+`server/src/auth/` holds the sign-in path: `provider-tokens.ts` verifies an
+Apple or Google ID token, `sign-in.ts` maps the verified identity to an internal
+account and issues a session, and `session-token.ts` mints and recognizes the
+token the app then presents.
+
+Verification is `jose` against the provider's published JWKS, checking
+signature, issuer, audience, and expiry. Three details are decisions rather than
+defaults. The algorithm list is closed to `RS256` and `ES256`: a JWKS is public,
+so an open list turns "anyone can read Apple's key" into "anyone can mint an
+Apple token" by presenting it as an HS256 secret. Google's issuer is accepted in
+both spellings it has minted for years, because a single-issuer check rejects
+real tokens at random. And a JWKS that times out is `internal_error`, never
+`unauthenticated`: telling every user their credential is bad while a provider
+is unreachable would send the whole install base through a sign-in that cannot
+work.
+
+An Apple private relay address is discarded at the boundary rather than stored
+and handled carefully afterwards. `displayableEmail` drops an unverified
+address, an address Apple flags with `is_private_email`, and anything on
+`@privaterelay.appleid.com`, so no writer downstream is trusted to remember the
+rule. The integration suite checks the column rather than the return value:
+after a relay sign-in, no row in `provider_identities` has an email at all.
+
+The mapping key is `(issuer, subject)`, which is the unique index issue 6
+already carries, and that index is also the concurrency control for a first
+sign-in. Two simultaneous first sign-ins both insert an account and then race on
+the identity insert; the loser gets no row back from `onConflictDoNothing` and
+throws, which rolls its own account insert back rather than leaving an account
+nobody can reach. Removing that guard leaves two accounts and fails exactly the
+concurrent test.
+
+The session token is a signed JWT whose `jti` is the session row, with a
+SHA-256 hash of the token in the row. Both halves earn their place: the
+signature rejects a forged token without a database round trip, and the row is
+what makes revocation and expiry real and what keeps a database dump from
+containing anything presentable as a session. Thirty days is the lifetime, and
+`SESSION_SECRET`, `APPLE_AUDIENCES`, and `GOOGLE_AUDIENCES` are the three
+environment variables `loadAuthConfig` refuses to start without; an empty
+audience list accepts every audience, so it is an error rather than a default.
+
+One thing is deliberately not done here. `createAuthHandlers` is mounted by
+whoever composes an app with a database, and the Lambda entry point still
+composes `createApp` with no handlers, because nothing has yet decided where a
+database handle is opened and closed across invocations. `POST /sessions` is
+therefore live in tests and not yet in a deployed function; the composition root
+belongs with the rest of the handlers rather than half-built here.
+
+36 tests: 25 unit tests over verification, the session token, and the
+configuration, and 11 integration tests over the mapping, including the
+concurrent first sign-in and the `POST /sessions` route end to end. Allowing
+`HS256`, dropping the relay checks, and removing the race guard each fail
+exactly the tests that assert them and nothing else.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

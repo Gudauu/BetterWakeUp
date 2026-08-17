@@ -3,6 +3,21 @@
  * a test or a future entry point (a container, a local dev server) composes.
  */
 
+export type { AuthConfig, ProviderConfig, ProviderConfigs } from "./auth/config.ts";
+export {
+  loadAuthConfig,
+  PROVIDER_ENDPOINTS,
+  SESSION_AUDIENCE,
+  SESSION_ISSUER,
+  SESSION_TTL_SECONDS,
+} from "./auth/config.ts";
+export { createAuthHandlers } from "./auth/handlers.ts";
+export type { ProviderTokenVerifier, VerifiedIdentity } from "./auth/provider-tokens.ts";
+export { createProviderTokenVerifier } from "./auth/provider-tokens.ts";
+export type { MintedSession, SessionClaims } from "./auth/session-token.ts";
+export { hashSessionToken, mintSessionToken, verifySessionToken } from "./auth/session-token.ts";
+export type { SignInDependencies } from "./auth/sign-in.ts";
+export { signIn } from "./auth/sign-in.ts";
 export type { ErrorClassification } from "./errors/app-error.ts";
 export { AppError, ERROR_PROPERTIES, toAppError } from "./errors/app-error.ts";
 export type { App, AppEnv } from "./http/app.ts";
