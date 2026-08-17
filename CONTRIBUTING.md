@@ -854,6 +854,39 @@ Parameter Store SecureString entries the role is granted a read of, and a test
 asserts every Lambda environment variable is neither named nor shaped like a
 credential.
 
+## Secrets
+
+The secret set is closed and declared in `server/src/config/secrets.ts`. Adding
+one means adding it there, adding its path segment in `infra/src/secrets.ts`,
+and letting the test that asserts the two lists agree tell you if you missed a
+side. A value belongs in that set only if disclosing it would let someone act as
+this server: the Apple and Google client identifiers are published in the app
+bundle and are not secrets.
+
+The stack does not create the parameters, because CloudFormation cannot create a
+`SecureString` at all, and a stack that could would have had to be handed the
+value. It names them and grants `ssm:GetParameter` and `ssm:GetParameters` on
+exactly those four ARNs. Do not widen that to a path wildcard, and do not reach
+for `StringParameter.grantRead`, which grants `DescribeParameters` on `*`.
+
+The function is told `PARAMETER_PATH_PREFIX` and nothing else. Read secrets
+through `cachedSecretLoader`, which reads all four in one call, reports every
+missing parameter together by name, and caches the promise per container without
+caching a failure.
+
+Two checks enforce this and both are one definition: `environmentSecretLeaks`
+decides what counts as a secret in a variable, the server calls it at startup to
+refuse one, and `infra/test/secrets.test.ts` runs the synthesized environment map
+and every tracked file in the repository through the same patterns. If a fixture
+needs a credential-shaped string, assemble it from pieces
+(`` `sk_${"live"}_...` ``) rather than adding an exemption. An exemption
+mechanism is the hole a real leak walks through.
+
+`server/src/config/parameter-store.ts` is the only module importing the AWS SDK,
+and it is not re-exported from the package index. Keep it that way: re-exporting
+would pull the SDK into every consumer of the index, including the
+infrastructure tests.
+
 The sweep is scheduled from `infra/src/schedules.ts`: a daily correctness pass
 and a separate warm-tick schedule, both invoking the same function. Keep them
 separate. Correctness must not be able to stop because somebody narrowed or

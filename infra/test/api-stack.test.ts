@@ -5,6 +5,7 @@ import { ApiStack, FUNCTION_URL_OUTPUT, LOG_RETENTION } from "../src/api-stack.t
 import { defineApp, PLACEHOLDER_CODE_ASSET_PATH, stackName } from "../src/app.ts";
 import { CONTEXT_KEYS, type StackConfiguration } from "../src/config.ts";
 import { LAMBDA_RESERVED_CONCURRENCY } from "../src/index.ts";
+import { SECRET_READ_ACTIONS } from "../src/secrets.ts";
 
 const configuration: StackConfiguration = {
   stage: "dev",
@@ -110,7 +111,7 @@ describe("the API stack", () => {
     });
   });
 
-  it("grants the function nothing beyond writing its own logs", () => {
+  it("grants the function nothing beyond writing its own logs and reading its secrets", () => {
     const template = synthesize();
     // The function's own policy, told apart from the schedulers' invoke
     // policies by the role it is attached to.
@@ -126,16 +127,26 @@ describe("the API stack", () => {
         JSON.stringify(resource.Properties?.Roles).includes(String(functionRoleId)),
       ),
     );
-    // Its whole grant is the basic execution role, which is log writing and
+    // Its managed grant is the basic execution role, which is log writing and
     // nothing else. Any capability added later would arrive either as a second
-    // managed policy or as an inline one, and both are asserted away here.
+    // managed policy or as an inline one, and both are pinned here.
     const functionRole = template.findResources("AWS::IAM::Role")[String(functionRoleId)];
     expect(JSON.stringify(functionRole?.Properties?.ManagedPolicyArns)).toContain(
       "AWSLambdaBasicExecutionRole",
     );
     expect(functionRole?.Properties?.ManagedPolicyArns).toHaveLength(1);
     expect(functionRole?.Properties?.Policies).toBeUndefined();
-    expect(Object.keys(policies)).toHaveLength(0);
+    // Exactly one inline policy, and every action in it is a secret read. This
+    // is the count assertion that keeps the loop from passing vacuously.
+    expect(Object.keys(policies)).toHaveLength(1);
+    const statements = Object.values(policies).flatMap(
+      (policy) =>
+        (policy.Properties?.PolicyDocument as { Statement: { Action: unknown }[] }).Statement,
+    );
+    expect(statements).toHaveLength(1);
+    for (const statement of statements) {
+      expect(statement.Action).toEqual([...SECRET_READ_ACTIONS]);
+    }
   });
 });
 

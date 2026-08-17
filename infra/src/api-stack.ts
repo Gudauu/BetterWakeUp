@@ -3,8 +3,10 @@
  *
  * Deliberately absent: a VPC (Neon is reached over its public endpoint, so a
  * VPC would add a NAT gateway's cost and protect nothing), an API Gateway (the
- * Function URL free tier does not expire), and any secret material (issue 37
- * puts those in Parameter Store and grants the role a read).
+ * Function URL free tier does not expire), and any secret material: the
+ * function is told the Parameter Store path its secrets hang off and granted a
+ * read on exactly those four parameters, and no value ever enters its
+ * environment or this template.
  */
 
 import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from "aws-cdk-lib";
@@ -14,6 +16,20 @@ import type { Construct } from "constructs";
 import type { StackConfiguration } from "./config.ts";
 import { LAMBDA_RESERVED_CONCURRENCY } from "./index.ts";
 import { SweepSchedules } from "./schedules.ts";
+import { SecretParameters } from "./secrets.ts";
+
+/**
+ * The environment variable naming the Parameter Store path prefix.
+ *
+ * A path is not a credential: knowing where a parameter lives grants nothing
+ * without the IAM read above it. Passing it means one build is deployable to
+ * every stage, which compiling the stage into the server would not be.
+ *
+ * Named for what it holds rather than for what it points at, so the server's
+ * leak check needs no exception for it: an exception is the shape a real leak
+ * would take. A test asserts this string equals the server's own constant.
+ */
+export const SECRET_PREFIX_VARIABLE = "PARAMETER_PATH_PREFIX";
 
 /**
  * How long CloudWatch keeps this application's logs.
@@ -48,10 +64,15 @@ export class ApiStack extends Stack {
   readonly functionUrl: lambda.FunctionUrl;
   readonly logGroup: logs.LogGroup;
   readonly schedules: SweepSchedules;
+  readonly secrets: SecretParameters;
 
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
     const { configuration } = props;
+
+    // Named before the function, because the function's environment carries the
+    // prefix and its role carries the read.
+    this.secrets = new SecretParameters(this, "Secrets", { configuration });
 
     // Created here rather than left to Lambda's implicit group, which is what
     // makes the retention period ours to set and the group ours to delete.
@@ -74,12 +95,16 @@ export class ApiStack extends Stack {
       reservedConcurrentExecutions: LAMBDA_RESERVED_CONCURRENCY,
       logGroup: this.logGroup,
       // Every value here is a routing or reporting decision. Nothing that
-      // grants access appears in this map: see issue 37.
+      // grants access appears in this map, and a test runs the synthesized map
+      // through the server's own leak detector to keep it that way.
       environment: {
         STAGE: configuration.stage,
         NODE_OPTIONS: "--enable-source-maps",
+        [SECRET_PREFIX_VARIABLE]: this.secrets.prefix,
       },
     });
+
+    this.secrets.grantRead(this.function);
 
     this.functionUrl = this.function.addFunctionUrl({
       // The mobile app carries a session token and the payment provider signs

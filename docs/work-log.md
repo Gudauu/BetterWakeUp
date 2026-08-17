@@ -2129,7 +2129,96 @@ looped over an empty list, and the first real `AWS::IAM::Policy` in the stack
 (the scheduler's) broke it. It now asserts the role's whole grant is one managed
 policy, the basic execution role, with no inline policy attached.
 
+### Issue 37: secrets and permissions
+
+Four SSM Parameter Store SecureString entries, named by both halves of the
+system and read by one of them: `server/src/config/secrets.ts` holds the secret
+set, the resolution rules, and the refusal; `infra/src/secrets.ts` holds the
+parameter path and the grant.
+
+Five open decisions:
+
+- The stack does not create the parameters. CloudFormation cannot create an
+  `AWS::SSM::Parameter` of type `SecureString` at all, and that limitation is
+  the right outcome rather than an obstacle: a stack that could create one would
+  have had to be given the value, which puts it in a template, a context file,
+  or a CI variable. The stack names four parameters and grants a read; the
+  values are placed out of band.
+- The grant is written as an explicit statement scoped to four ARNs, not through
+  `StringParameter.grantRead`. That helper grants four actions including
+  `DescribeParameters` on `*`, which is the opposite of "each trigger only what
+  it needs". `GetParameter` is included beside `GetParameters` because a
+  singular read is what a future caller reaches for first, and the widening is
+  negligible next to discovering the omission in production.
+- No KMS statement. SecureStrings under the account's default `alias/aws/ssm`
+  key are decryptable through that AWS-managed key's own policy by any principal
+  SSM calls on behalf of, so a `kms:Decrypt` grant would widen the role for no
+  effect. Adopting a customer-managed key is the moment to add one, and the test
+  asserting the exact statement set is what will notice.
+- The variable naming the parameter path is `PARAMETER_PATH_PREFIX`, not
+  `SECRETS_PARAMETER_PREFIX`. A path is a locator rather than a credential, but
+  a variable with `SECRET` in its name would have forced the leak check to carry
+  an exception for itself, and an exception is precisely the shape a real leak
+  would take.
+- The parameter names are stated in both packages rather than imported from one.
+  Synthesizing the stack should not depend on the application package, and a
+  test asserting the two lists agree name for name and in order is the only
+  thing importing would have bought.
+
+Secrets are loaded all at once and cached per container. All at once because a
+server that starts, serves sign-in, and only discovers at the first payment that
+its provider key was never set has turned a deployment mistake into a production
+incident; every missing parameter is reported together for the same reason, by
+name and never by value. The cache holds the promise rather than the result, so
+two concurrent requests in a cold container make one call, and a rejection is
+not cached, because caching one would make a transient Parameter Store failure
+permanent for the life of the container.
+
+Issue 37's acceptance boundary is asserted in both halves. The environment half
+runs the synthesized function's environment map through the server's own
+`environmentSecretLeaks`, so the stack and the server cannot drift into
+disagreeing about what a secret is; the same detector is what the server calls
+at startup to refuse a leaked variable. The repository half walks every tracked
+file and applies the same value patterns. Both existed to catch something, and
+the repository scan caught two real fixtures on its first run
+(`app/test/reporting.test.ts` and `server/test/error-model.test.ts`, each
+holding a deliberately fake credential to prove redaction); both were reassembled
+from pieces rather than exempted, because an exemption mechanism is the hole.
+
+`AWS_` and `LAMBDA_` prefixed variables are excluded from the leak check. The
+Lambda runtime sets `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` from the
+execution role, and refusing to start because AWS supplied them would make the
+check unusable, which is how checks get deleted.
+
+`@aws-sdk/client-ssm` is a new server dependency, isolated in
+`server/src/config/parameter-store.ts`, which is deliberately not re-exported
+from the package index: re-exporting it would pull the SDK into every consumer
+of that index, including the infrastructure tests. This is the same isolation
+rule the Sentry and Google Sign-In wrappers follow.
+
+33 new tests (20 in the server over the secret set, loading, the cache, the
+environment refusal, and the SSM adapter; 13 in infra over the names, the
+environment, the grant, and the repository scan).
+
+Six neuter checks on disjoint sets: widening the grant's resources to `*` failed
+two infra tests, removing the runtime-prefix exclusion failed one server test,
+caching a failed load failed one, throwing on the first missing parameter rather
+than collecting them failed one, removing the PostgreSQL value pattern failed
+one in each package, and planting a connection string in `infra/src/index.ts`
+failed the repository scan.
+
 ## Handed back
+
+### Issue 37: the parameter values
+
+The four SecureString parameters cannot be created here. They need an AWS
+account to hold them, and three of the four values do not exist yet: the Neon
+connection string waits on the project issue 39 provisions, and the payment
+provider's API key and webhook secret wait on issue 42's processor. The stack
+names them, grants the read, and refuses to carry a value, so what is left is
+four `aws ssm put-parameter --type SecureString` calls per stage by whoever
+holds the account.
+
 
 ### Issue 35: the deployed function
 

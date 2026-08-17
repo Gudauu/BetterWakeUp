@@ -24,6 +24,27 @@ export type { MintedSession, SessionClaims, SessionTokenCheck } from "./auth/ses
 export { hashSessionToken, mintSessionToken, verifySessionToken } from "./auth/session-token.ts";
 export type { SignInDependencies } from "./auth/sign-in.ts";
 export { signIn } from "./auth/sign-in.ts";
+// `config/parameter-store.ts` is deliberately not re-exported here: it is the
+// one module importing the AWS SDK, and re-exporting it would pull the SDK into
+// every consumer of this index, including the infrastructure tests. Import it
+// by path from the composition root that actually needs it.
+export type { EnvironmentLeak, SecretName, SecretSource, Secrets } from "./config/secrets.ts";
+export {
+  assertNoSecretsInEnvironment,
+  cachedSecretLoader,
+  environmentSecretLeaks,
+  loadSecrets,
+  MissingSecretsError,
+  RUNTIME_ENVIRONMENT_PREFIXES,
+  SECRET_NAMES,
+  SECRET_PARAMETER_SEGMENTS,
+  SECRET_PREFIX_VARIABLE,
+  SECRET_VALUE_PATTERNS,
+  SECRET_VARIABLE_MARKERS,
+  secretParameterName,
+  secretParameterNames,
+  secretParameterPrefix,
+} from "./config/secrets.ts";
 export type { ErrorClassification } from "./errors/app-error.ts";
 export { AppError, ERROR_PROPERTIES, toAppError } from "./errors/app-error.ts";
 export type { App, AppEnv } from "./http/app.ts";
