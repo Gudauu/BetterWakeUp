@@ -796,6 +796,86 @@ occurrence of an ambiguous time failed exactly the two backward-transition
 tests, moving the start boundary from strict to inclusive failed exactly the two
 cutoff-boundary tests, and dropping the No Regret subtraction failed seven.
 
+### Issue 18: projection and zero deposit challenges
+
+Three endpoints, in `server/src/challenges`, and the seam the phased plan asked
+for: from here a challenge exists, has tasks, and can be completed, paused, and
+swept, with no payment code anywhere in the path.
+
+The projection and the creation call one function. `planChallenge` returns both
+the task list and the three facts the projection screen shows, so "the
+projection equals the schedule later materialized from the same configuration"
+is true by construction rather than by two implementations agreeing. The
+projection throws the task list away; creation writes it. The acceptance test
+still checks the property end to end, because a shared function would not
+protect against creation deciding to place its own dates later.
+
+The projection takes no database handle. "Nothing is written by a projection
+call" is therefore a property of the code, and the test that counts rows before
+and after is a guard against a future edit rather than the reason the claim is
+true.
+
+The maximum duration rule is reported here, not enforced. The projection is a
+question the app asks before the user has committed to anything, so the answer
+is `withinMaximumDuration` rather than a refusal. Enforcement belongs to the
+command that takes the money, which is issue 19's funding intent, and
+`isWithinMaximumDuration` is exported for it. The rule is measured in calendar
+days in the challenge's own zone, from the day the money would be taken to the
+day the last task falls on, so a transition that made one of those days 23 hours
+long does not move the boundary. A zero deposit challenge is always within it:
+the rule exists because an authorization cannot be held indefinitely, and there
+is nothing to hold.
+
+The deposit rule is stated twice on purpose. The contract rejects an amount
+between zero and the funded minimum, so an HTTP request never reaches the
+domain, and both endpoints answer `validation_failed` for fifty cents.
+`assertDepositAmount` states the same rule for the callers that are not HTTP
+requests. A money rule stated only at the edge is a money rule that holds only
+for the edge.
+
+`POST /challenges` refuses any non-zero deposit with `zero_deposit_required`,
+and that is permanent rather than a stopgap. A funded challenge must not exist
+until the provider confirms the authorization, so a path that could create one
+without that confirmation is a path that lets a user start a challenge nobody
+can be charged for.
+
+Creation runs inside `runIdempotent`, and both refusals are decided before the
+key is claimed: a doomed request should not spend a key it will have to abandon.
+The transaction opens with the same `for update` lock on the account row that
+account deletion takes, which is the coordination point issue 16 said the
+funding path would owe.
+
+`loadChallengeView` is one reader, used by creation and by
+`GET /challenges/current`. Creation reads the challenge back through its own
+transaction rather than assembling a response from what it just inserted, so the
+response describes rows that exist and carries the defaults the database
+applied. Two view fields are derived rather than stored, because storing them
+would mean keeping them true: `pause.expiresAt` is the paused instant plus the
+maximum pause length, and `recoveryOffer` is the latest missed task plus the
+recovery window, present only in `recovery_pending`.
+
+"Current" means the challenge holding the account's slot, `active` or
+`recovery_pending`. Every terminal challenge answers null, which is what the
+contract says and what the app's empty state is built around. Returning the last
+finished one would make the app guess whether it is looking at something it can
+act on.
+
+23 tests: 8 unit tests over the projection and the duration boundary on both
+sides and both deposits, and 15 integration tests through the mounted routes
+over the acceptance boundary, the two refusals, idempotent replay, the
+one-challenge rule, two simultaneous creations on two connections, and what
+`current` answers before, during, and after a challenge.
+
+Two neuter checks, and the first was worth more than it looked. Removing the
+account lock failed nothing: the partial unique index catches the second
+creation and `rethrowDuplicate` renders it as the same 409. Neutering that
+translation as well showed the concurrent case reaching the index and answering
+500, and restoring the lock alone put it back on the check path. So the lock is
+load-bearing, but for keeping a concurrent creation on the path with the useful
+message rather than for the status code, and the index remains the authority
+that makes a second open challenge impossible. Removing the zero deposit refusal
+failed exactly the one test that asserts it.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

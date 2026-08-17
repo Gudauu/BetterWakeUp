@@ -312,6 +312,29 @@ Regret Time the pause cutoff is derived from, are subtracted from the instant,
 because eight hours of notice must be eight real hours on the day the clocks
 change too.
 
+### Challenges
+
+`server/src/challenges` owns the challenge lifecycle. Four rules there are worth
+knowing before you add to it.
+
+A configuration becomes a schedule in exactly one place. `planChallenge` returns
+both the task list and the projection facts, and every caller that needs either
+calls it. The projection endpoint and the creation command therefore cannot
+disagree about where a challenge starts or when it ends, and neither can the
+funding path when it arrives.
+
+A projection persists nothing, and the way that is kept true is that the
+projection path takes no database handle at all. Do not give it one.
+
+The maximum duration rule is reported by the projection and enforced by the
+command that takes money. `isWithinMaximumDuration` is the one statement of it;
+call it rather than comparing dates again.
+
+Answer with a challenge by reading it back through `loadChallengeView` rather
+than by assembling a response from what you just wrote. A response built from
+intentions describes rows that may not have committed and misses the defaults
+the database applied.
+
 ## Commits
 
 Use Conventional Commits.
