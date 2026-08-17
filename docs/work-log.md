@@ -37,7 +37,53 @@ body lines at 72 columns. The subject cap is new: the contributing guide stated
 rules are verifiable without pushing a commit. The root `typecheck` now also
 typechecks the two root config files, which no package tsconfig covered.
 
+### Issue 4: shared contract package
+
+`packages/contract` now carries the Zod schemas for all fourteen operations
+under "Endpoints" in `docs/architecture.md`, the `MovementObservation` type,
+the error codes, and the idempotency header. Every exported type is inferred
+from a schema, so no request or response shape is written twice.
+
+`src/endpoints.ts` is the registry: method, path, whether a session is
+required, whether an idempotency key is required, and the request and response
+schemas. Making the route table data rather than prose is what lets a test
+assert that no sweep route exists, that no draft challenge resource exists, and
+that every state-changing client command demands an idempotency key.
+
+The issue's acceptance boundary is generation checked in CI. Zod infers the
+client types directly, so the generated artifact is the JSON Schema document at
+`packages/contract/generated/contract.schema.json`, produced by
+`pnpm --filter @betterwakeup/contract run generate`. A test rebuilds it and
+compares it byte for byte with the checked-in file, and CI already runs the
+tests, so a stale artifact fails the build.
+
+Two supporting changes. `tsconfig.base.json` now sets
+`allowImportingTsExtensions`, so relative imports name the `.ts` file they
+actually resolve to and the generator runs under Node's own type stripping
+without a bundler or an extra dependency. And Biome no longer formats
+`generated` directories, because the generator decides that file's layout and
+the two formatters disagreed.
+
+Error codes carry a disposition, `retry` or `reject`, in the contract itself.
+The app's pending completion store needs exactly that distinction to decide
+whether a record stays pending or is surfaced as rejected, and putting it here
+means the rule is not implemented a second time in the app.
+
 ## Handed back
+
+### Issue 3: step accuracy spike
+
+Skipped, not attempted. The issue is a throwaway Expo build measuring
+`expo-sensors` step counts on physical iOS and Android hardware: accuracy
+against a manual count, indoor use, behavior after a reboot, phone in a pocket
+against in a hand, and permission denial. None of that can be produced without
+the devices and an Apple Developer account, and a number invented here would be
+worse than no number, since it closes release gate 1 and sets the default step
+target.
+
+Nothing downstream is blocked meanwhile. Issue 4 depends on issue 1 only, and
+the contract expresses the target in steps regardless of what the spike finds,
+so the finding changes a default rather than a shape.
 
 ### Issue 2: CI must block merge
 

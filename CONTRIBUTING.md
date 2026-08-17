@@ -19,6 +19,24 @@ holds tests for repository tooling rather than shipped code. The Expo app in
 than Vitest. Tool choices are recorded under "Toolchain" in
 `docs/architecture.md`.
 
+## The API contract
+
+`packages/contract` holds the Zod schemas for every endpoint. Both the app and
+the server infer their types from those schemas, so nothing hand-writes a
+request or response shape.
+
+The schemas also produce a JSON Schema artifact, checked in at
+`packages/contract/generated/contract.schema.json`. After changing a schema,
+regenerate it:
+
+```sh
+pnpm --filter @betterwakeup/contract run generate
+```
+
+A test compares the checked-in artifact against a fresh build, so a change that
+was not regenerated fails CI rather than reaching a consumer. Biome does not
+format the `generated` directory, since the generator decides its layout.
+
 ## Commits
 
 Use Conventional Commits.

@@ -6,7 +6,15 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!**/coverage", "!**/*.md", "!.gnhf", "!openspec"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/coverage",
+      "!**/generated",
+      "!**/*.md",
+      "!.gnhf",
+      "!openspec"
+    ]
   },
   "formatter": {
     "enabled": true,

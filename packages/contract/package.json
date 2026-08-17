@@ -9,10 +9,15 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "generate": "node scripts/generate-json-schema.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
+    "@types/node": "22.18.9",
     "typescript": "5.9.3",
     "vitest": "3.2.4"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
   }
 }

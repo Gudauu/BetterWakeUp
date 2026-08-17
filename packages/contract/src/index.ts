@@ -1,11 +1,19 @@
 /**
- * Shared request and response schemas, the `MovementObservation` type, error
- * codes, and the idempotency header.
+ * The BetterWakeUp API contract.
  *
- * The contract itself lands in issue 4. This module exists now so the app and
- * the server have a package to import instead of reaching for a server
- * database model.
+ * Zod schemas are the single source: every client type in this package is
+ * inferred from a schema, and the JSON Schema artifact under `generated/` is
+ * produced from the same definitions, so nothing can be hand-edited into
+ * disagreement with what the server validates.
+ *
+ * The mobile app imports this package and never a server database model.
  */
 
-/** Header carrying the idempotency key on every state-changing client command. */
-export const IDEMPOTENCY_HEADER = "idempotency-key";
+export * from "./challenges.ts";
+export * from "./endpoints.ts";
+export * from "./errors.ts";
+export * from "./identity.ts";
+export * from "./movement.ts";
+export * from "./payments.ts";
+export * from "./primitives.ts";
+export * from "./tasks.ts";
