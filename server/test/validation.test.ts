@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "../src/http/app.ts";
 import type { HandlerInput } from "../src/http/routes.ts";
 import { createLogger } from "../src/observability/logger.ts";
+import { fakeRateLimiter } from "./support/fake-rate-limiter.ts";
 import { fakeSessionGate } from "./support/fake-session-gate.ts";
 
 const KEY = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
@@ -267,6 +268,7 @@ describe("a route that takes no body", () => {
     const app = createApp({
       logger: silent(),
       sessionGate: fakeSessionGate(),
+      rateLimiter: fakeRateLimiter(),
       handlers: { deleteSession: () => ({}) },
     });
 
@@ -286,6 +288,7 @@ describe("a route that takes no body", () => {
     const app = createApp({
       logger: silent(),
       sessionGate: fakeSessionGate(),
+      rateLimiter: fakeRateLimiter(),
       handlers: { deleteSession: () => ({}) },
     });
 

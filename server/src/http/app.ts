@@ -12,12 +12,18 @@ import { type Context, Hono } from "hono";
 import type { SessionGate } from "../auth/session-gate.ts";
 import { AppError, toAppError } from "../errors/app-error.ts";
 import { createLogger, type Logger } from "../observability/logger.ts";
+import type { RateLimiter } from "../rate-limit/service.ts";
 import { type EndpointHandlers, registerRoutes } from "./routes.ts";
 
 export interface AppEnv {
   Bindings: {
     /** Set by the AWS Lambda adapter. Absent when the app is called directly. */
     readonly lambdaContext?: { readonly awsRequestId?: string };
+    /**
+     * The raw invocation event, also set by the adapter. Read only for the
+     * source address AWS wrote into it: see `client-address.ts`.
+     */
+    readonly event?: unknown;
   };
   Variables: {
     readonly requestId: string;
@@ -45,6 +51,13 @@ export interface CreateAppOptions {
   readonly sessionGate?: SessionGate;
   /** Verification for the signature-authenticated endpoints. See issue 25. */
   readonly signatureVerifier?: (c: Context<AppEnv>) => Promise<void>;
+  /**
+   * The counters enforcing `RATE_LIMITS`. Mounting an endpoint that declares a
+   * limit without it fails here rather than serving it unlimited.
+   */
+  readonly rateLimiter?: RateLimiter;
+  /** How a caller with no session is identified. Defaults to the envelope. */
+  readonly clientAddress?: (c: Context<AppEnv>) => string;
 }
 
 export function createApp(options: CreateAppOptions = {}) {
@@ -82,6 +95,8 @@ export function createApp(options: CreateAppOptions = {}) {
   registerRoutes(app, options.handlers ?? {}, {
     sessionGate: options.sessionGate,
     signatureVerifier: options.signatureVerifier,
+    rateLimiter: options.rateLimiter,
+    clientAddress: options.clientAddress,
   });
 
   // Rendered rather than thrown: a throw here would escape the logging

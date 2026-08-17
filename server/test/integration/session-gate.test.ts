@@ -19,6 +19,7 @@ import { scheduledTasks, sessions } from "../../src/db/schema.ts";
 import { createApp } from "../../src/http/app.ts";
 import { createLogger } from "../../src/observability/logger.ts";
 import { insertAccount, insertChallengeForAccount } from "../support/challenge-fixtures.ts";
+import { fakeRateLimiter } from "../support/fake-rate-limiter.ts";
 import { useTestDatabase } from "../support/postgres.ts";
 
 const testDatabase = useTestDatabase();
@@ -208,6 +209,7 @@ describe("issue 14's acceptance boundary", () => {
     return createApp({
       logger: createLogger({ sink: () => {} }),
       sessionGate: gateFor(db),
+      rateLimiter: fakeRateLimiter(),
       handlers: {
         createCompletion: () => {
           throw new Error("a handler must never run for a task the caller does not own");

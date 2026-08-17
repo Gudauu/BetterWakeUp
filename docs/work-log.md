@@ -591,6 +591,80 @@ The composition root is still absent, as noted under issue 13: the Lambda entry
 point composes `createApp` with no handlers, so the gate is live in tests and
 not yet in a deployed function.
 
+### Issue 15: rate limiting
+
+Counters live in PostgreSQL, one row per fixed window per bucket per subject,
+and counting is one upsert that increments and returns the new total.
+That single statement is the whole concurrency story: two Lambda containers
+arriving together are ordered by the row lock the upsert takes, so each sees a
+distinct total and exactly `limit` of them are inside the allowance.
+In-process counters were never an option, since Lambda instances share no
+memory and the effective ceiling would have been a function of AWS's scaling
+decisions rather than of the policy.
+
+The window is fixed rather than sliding.
+A fixed window is one row and one statement; a sliding window is a row per
+request and a scan at read time.
+The cost is the boundary effect, where a caller can spend two allowances across
+the instant a window turns over, and that is acceptable for a limit whose job is
+to bound cost and abuse rather than to shape traffic precisely.
+The window start is derived from the database's clock, for the reason issue 12's
+lease is: a container with a skewed clock would otherwise be counted against a
+window of its own, and a caller could pick the friendliest clock by retrying.
+
+`RATE_LIMITS` is keyed by endpoint name and exhaustive by type, on the
+`ERROR_PROPERTIES` precedent, so an endpoint added to the contract without a
+decision fails the server typecheck rather than arriving unlimited.
+`null` is a decision, and every one of them carries its reasoning.
+Pause and resume share a bucket, so alternating between them does not buy twice
+the calls, and the two payment endpoints share one because a provider call is
+the expensive thing either of them makes.
+The provider's webhook is deliberately unlimited: dropping its retries would
+lose events that decide whether money moved, its authenticity is proven by
+signature, and its volume is bounded by our own commands.
+
+Sign-in is the one limit counted by source address, because before a session
+exists there is no account to count and it is the only limit that has to hold
+against a caller holding no credential at all.
+The address comes from `requestContext.http.sourceIp`, which the Function URL
+integration writes around the request.
+The forwarding headers are the obvious alternative and are exactly wrong: a
+Function URL passes through whatever `X-Forwarded-For` the caller sent, so
+trusting it would let one caller spend another address's allowance or mint a
+fresh one per request and never meet a limit at all.
+A request with no source address is a direct invocation or a test, and those
+share one subject rather than being waved through, because an unlimited fallback
+is a way around the limit and a shared one is only inconvenient.
+
+Order within a request follows from where the subject becomes known.
+A client-scoped limit is spent first, before validation, so a flood costs one
+statement rather than a parse.
+An account-scoped limit is spent immediately after authentication and still
+before validation: an anonymous caller cannot spend somebody's account
+allowance, and a caller past its own cannot keep the server parsing by sending
+larger bodies.
+
+Mounting a limited endpoint without a limiter throws, as does an account-scoped
+limit on an endpoint with no session, both at mount time.
+The first is the session gate's precedent; the second would otherwise count
+nobody, silently.
+
+Reserved concurrency is the second ceiling and lives in the infra package as
+`LAMBDA_RESERVED_CONCURRENCY`, since issue 35 defines the function that consumes
+it. It is the limit that holds where the counters do not: a counter that fails
+open, an unlimited endpoint under load, or a caller distributed widely enough
+that no single subject ever meets its allowance.
+
+23 tests: 15 unit tests over which endpoints are limited, mount-time refusals,
+who is counted, ordering, and the address, and 8 integration tests over real
+rows including the acceptance boundary.
+The neuter check is the one worth recording: replacing the upsert with a read
+followed by a write left all seven serial integration tests passing and failed
+only the acceptance test, which admitted all 30 concurrent requests against an
+allowance of 20. A rate limiter that is correct one caller at a time and wrong
+under concurrency looks exactly like a working one until two connections fire at
+once.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

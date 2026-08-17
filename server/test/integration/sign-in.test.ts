@@ -18,6 +18,7 @@ import { type Database, executeRows } from "../../src/db/index.ts";
 import { accounts, providerIdentities, sessions } from "../../src/db/schema.ts";
 import { createApp } from "../../src/http/app.ts";
 import { createLogger } from "../../src/observability/logger.ts";
+import { fakeRateLimiter } from "../support/fake-rate-limiter.ts";
 import { useTestDatabase } from "../support/postgres.ts";
 import { createProviderKeys, type ProviderKeys } from "../support/provider-tokens.ts";
 
@@ -212,6 +213,7 @@ describe("POST /sessions", () => {
   function app(db: Database) {
     return createApp({
       logger: createLogger({ sink: () => {} }),
+      rateLimiter: fakeRateLimiter(),
       handlers: createAuthHandlers(dependencies(db)),
     });
   }

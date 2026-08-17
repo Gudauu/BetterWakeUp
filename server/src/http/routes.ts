@@ -24,7 +24,10 @@ import type { Context, Hono } from "hono";
 import type { AuthenticatedSession, SessionGate } from "../auth/session-gate.ts";
 import { AppError } from "../errors/app-error.ts";
 import type { Logger } from "../observability/logger.ts";
+import { RATE_LIMITS, type RateLimitPolicy } from "../rate-limit/policy.ts";
+import type { RateLimiter } from "../rate-limit/service.ts";
 import type { AppEnv } from "./app.ts";
+import { clientAddressFromEvent } from "./client-address.ts";
 import { validateRequest } from "./validation.ts";
 
 /**
@@ -77,6 +80,18 @@ export interface RegisterRoutesOptions {
    * needs one cannot be mounted.
    */
   readonly signatureVerifier?: ((c: Context<AppEnv>) => Promise<void>) | undefined;
+  /**
+   * The counters behind `RATE_LIMITS`. Required to mount any endpoint that
+   * declares a limit, on the same reasoning as the session gate: a deployment
+   * that forgot to configure it should fail to start rather than serve an
+   * unlimited sign-in endpoint to anyone who finds it.
+   */
+  readonly rateLimiter?: RateLimiter | undefined;
+  /**
+   * How the source address of a caller with no session is established.
+   * Defaults to the Lambda envelope; a test overrides it to name a caller.
+   */
+  readonly clientAddress?: ((c: Context<AppEnv>) => string) | undefined;
 }
 
 export function registerRoutes(
@@ -92,12 +107,29 @@ export function registerRoutes(
     if (handler === undefined) continue;
     const endpoint = ENDPOINTS[name];
     const gate = gateFor(name, endpoint.auth, options);
+    const limit = limitFor(name, endpoint.auth, options);
+    const addressOf = options.clientAddress ?? clientAddressFromEvent;
 
     app.on(endpoint.method, endpoint.path, async (c) => {
+      // A client-scoped limit is spent before anything else, because the
+      // caller it exists to bound is the one with no credential to check.
+      if (limit !== null && limit.policy.scope === "client") {
+        await limit.limiter.consume(limit.policy, addressOf(c));
+      }
+
       // Authentication before validation. A caller with no usable credential
       // is told that and nothing else: field-level feedback on a body it was
       // never entitled to send would describe the API to a stranger.
       const session = await gate(c);
+
+      // An account-scoped limit is spent as soon as there is an account to
+      // spend it against, and before the body is parsed: a caller past its
+      // allowance should not be able to keep the server working on its
+      // requests just by making them larger.
+      if (limit !== null && limit.policy.scope === "account" && session !== null) {
+        await limit.limiter.consume(limit.policy, session.accountId);
+      }
+
       const validated = await validateRequest(c, endpoint);
       if (session !== null) {
         await options.sessionGate?.assertOwnership(session, validated.params);
@@ -127,6 +159,37 @@ export function registerRoutes(
       return c.json(parsed.data as object);
     });
   }
+}
+
+/**
+ * The rate limit for one endpoint, resolved once at mount time.
+ *
+ * Both refusals here are configuration mistakes that would otherwise be
+ * invisible. A declared limit with no limiter is an endpoint serving without
+ * the ceiling somebody wrote down for it, and an account-scoped limit on an
+ * endpoint with no session has no subject to count, so it would silently
+ * count nobody.
+ */
+function limitFor(
+  name: EndpointName,
+  auth: (typeof ENDPOINTS)[EndpointName]["auth"],
+  options: RegisterRoutesOptions,
+): { readonly policy: RateLimitPolicy; readonly limiter: RateLimiter } | null {
+  const policy = RATE_LIMITS[name];
+  if (policy === null) return null;
+
+  const limiter = options.rateLimiter;
+  if (limiter === undefined) {
+    throw new Error(
+      `Cannot mount ${name}: it declares a rate limit and no rate limiter was given.`,
+    );
+  }
+  if (policy.scope === "account" && auth !== "session") {
+    throw new Error(
+      `Cannot mount ${name}: its rate limit is scoped to an account and it takes no session.`,
+    );
+  }
+  return { policy, limiter };
 }
 
 /**

@@ -14,6 +14,7 @@ import { createSessionGate, OWNERSHIP_CHECKS } from "../src/auth/session-gate.ts
 import { AppError } from "../src/errors/app-error.ts";
 import { createApp } from "../src/http/app.ts";
 import { createLogger } from "../src/observability/logger.ts";
+import { fakeRateLimiter } from "./support/fake-rate-limiter.ts";
 import { fakeSessionGate, TEST_ACCOUNT_ID } from "./support/fake-session-gate.ts";
 
 const TASK_ID = "5e0f1a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b";
@@ -47,6 +48,7 @@ describe("mounting a protected endpoint", () => {
     expect(() =>
       createApp({
         logger: silent(),
+        rateLimiter: fakeRateLimiter(),
         handlers: {
           createSession: () => {
             throw new Error("not reached");
@@ -62,6 +64,7 @@ describe("the order the gate runs in", () => {
   function refusing() {
     return createApp({
       logger: silent(),
+      rateLimiter: fakeRateLimiter(),
       sessionGate: {
         authenticate: async () => {
           throw new AppError("unauthenticated", "This endpoint requires a session token.");

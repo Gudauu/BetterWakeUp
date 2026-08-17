@@ -225,6 +225,32 @@ mounting the payment webhook requires a `signatureVerifier`. Both are checked at
 mount time and throw, which is what keeps a misconfigured deployment from
 starting rather than from being noticed.
 
+### Rate limiting
+
+`RATE_LIMITS` in `server/src/rate-limit/policy.ts` is keyed by endpoint name and
+exhaustive by type, so a new endpoint in the contract fails the server typecheck
+until somebody decides what it costs. `null` is that decision written down, not
+its absence, and it deserves the sentence of reasoning the existing entries have.
+
+Counting is one SQL statement: an upsert on `(bucket, subject, window_start)`
+that increments and returns the new total. Do not put a read in front of it. A
+read followed by a write lets two Lambda containers both decide they were the
+last one permitted, and the integration suite's acceptance test is there to
+catch exactly that.
+
+Two endpoints that should not be alternated between share a `bucket`. The window
+is fixed rather than sliding, which accepts the boundary effect in exchange for
+one row and one statement per request.
+
+The subject of a `client`-scoped limit comes from `requestContext.http.sourceIp`
+and never from a forwarding header, which a Function URL passes through from the
+caller unmodified.
+
+Composing an app that mounts a limited endpoint requires a `rateLimiter`,
+checked at mount time and thrown, on the same reasoning as the session gate.
+`LAMBDA_RESERVED_CONCURRENCY` in the infra package is the second ceiling: it
+bounds cost where a counter does not apply or fails open.
+
 ### Idempotency
 
 A handler for an endpoint the contract marks idempotent does its work inside
