@@ -57,6 +57,10 @@ captures/
 .externalNativeBuild/
 .cxx/
 
+# AWS CDK synthesized assemblies
+infra/cdk.out/
+infra/cdk.context.json
+
 # Test and tool caches
 .cache/
 .tmp/

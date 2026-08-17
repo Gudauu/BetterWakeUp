@@ -12,6 +12,7 @@
       "!**/coverage",
       "!**/generated",
       "!server/drizzle",
+      "!infra/cdk.out",
       "!**/*.md",
       "!.gnhf",
       "!openspec"

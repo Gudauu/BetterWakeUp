@@ -11,8 +11,10 @@
 import { IDEMPOTENCY_HEADER } from "@betterwakeup/contract";
 import { describe, expect, it } from "vitest";
 import { AppError } from "../src/errors/app-error.ts";
-import { createApp } from "../src/http/app.ts";
+import { createApp, HEALTH_PATH } from "../src/http/app.ts";
+import { createHandler } from "../src/lambda/handler.ts";
 import { createLogger } from "../src/observability/logger.ts";
+import { functionUrlEvent } from "./support/lambda-events.ts";
 
 /** A believable session token: three base64url segments, like every JWT. */
 const SESSION_TOKEN =
@@ -204,5 +206,39 @@ describe("the error model", () => {
       errorCode: "active_challenge_exists",
       errorClassification: "conflict",
     });
+  });
+});
+
+describe("the health probe", () => {
+  it("answers without a session, a rate limiter, or a database handle", async () => {
+    // Issue 35's acceptance boundary: the deployed function serves a health
+    // request. `createApp` is called with nothing, which is the point: the
+    // probe cannot depend on anything a broken deployment would be missing.
+    const response = await createApp().request(HEALTH_PATH);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "ok" });
+  });
+
+  it("reaches the probe through the Lambda's HTTP arm", async () => {
+    const response = (await createHandler()(
+      functionUrlEvent({ method: "GET", path: HEALTH_PATH }),
+    )) as {
+      statusCode: number;
+      body: string;
+    };
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({ status: "ok" });
+  });
+
+  it("reports nothing about the deployment a caller could act on", async () => {
+    const body = await (await createApp().request(HEALTH_PATH)).text();
+    expect(body).not.toMatch(/version|commit|stage|region|database|node/i);
+  });
+
+  it("still writes exactly one request line", async () => {
+    const { logger, lines } = capture();
+    await createApp({ logger }).request(HEALTH_PATH);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ route: HEALTH_PATH, status: 200 });
   });
 });

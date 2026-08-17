@@ -2026,7 +2026,61 @@ third of those failed nothing on the first run, because the test's record had
 too few attempts to be reported under the deferred branch either; raising the
 count is what made the branch load-bearing.
 
+### Issue 35: CDK application
+
+One Lambda with a Function URL, no VPC, in the region Neon runs in. The stack
+lives in `infra/src/api-stack.ts`, its deployment inputs in
+`infra/src/config.ts`, and the CDK entry point in `infra/bin/cdk-app.ts`, which
+`cdk.json` names. `pnpm --filter @betterwakeup/infra run synth` produces a
+template from a clean checkout with no build step.
+
+Five open decisions:
+
+- The region is context, is required, and is refused unless it is one Neon runs
+  in. It is the one setting that has to agree with a decision made outside this
+  repository, and a wrong value is a cross-region round trip on every query
+  that nothing else in the system would catch. Neon offers the shorter list, so
+  `NEON_AWS_REGIONS` is what a region is checked against.
+- The function's code is a path (`bwu:codeAssetPath`) defaulting to a checked-in
+  placeholder that answers 503. Bundling the server is issue 39's pipeline, and
+  a stack that cannot synthesize until a build has run is a stack nobody can
+  assert against. The placeholder answers rather than crashing so a stack
+  deployed by accident is diagnosable.
+- The Function URL authenticates nobody (`AuthType: NONE`). The application
+  authenticates every caller itself: the app carries a session token and the
+  provider signs its deliveries, and IAM here would lock out both.
+- The log group is declared rather than left to Lambda's implicit one, which is
+  what makes the retention ours to set. Three months, explicitly, because the
+  default is forever and storage accrues for the life of the account. A
+  production group is retained on stack deletion and a development group is not.
+- Nothing that grants access is an environment variable. A synthesized template
+  is readable by anyone who can describe the stack, so the two variables are
+  `STAGE` and `NODE_OPTIONS`; secrets are issue 37.
+
+`GET /health` was added to the server in the same issue, since issue 35's
+acceptance boundary is a function serving a health request. It is deliberately
+not in the contract's endpoint registry: the registry is the product's API,
+versioned with the app, while this is an operational probe. It takes no session,
+spends no rate limit, opens no database connection, and reports nothing about
+the deployment a caller could act on.
+
+22 infra tests (13 over the synthesized template, 7 over the configuration, 2
+over the application) and 4 new server tests over the probe.
+
+Four neuter checks on disjoint sets, one test each: accepting any region,
+dropping the reserved concurrency, dropping the log retention, and switching the
+Function URL to IAM authentication.
+
 ## Handed back
+
+### Issue 35: the deployed function
+
+"A deployed function serves a health request" is met here as far as `cdk synth`
+and template assertions can take it: the stack synthesizes, the probe answers
+through the Lambda's HTTP arm in a test, and the placeholder bundle is the only
+part a real deployment would replace. The deploy itself needs an AWS account, a
+bootstrapped environment, and a Neon project whose region the context names, all
+of which are issue 39's blockers.
 
 ### Issue 34: a real Sentry project
 

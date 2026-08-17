@@ -16,6 +16,9 @@ import type { ProviderWebhookEvent } from "../payments/provider.ts";
 import type { RateLimiter } from "../rate-limit/service.ts";
 import { type EndpointHandlers, registerRoutes } from "./routes.ts";
 
+/** The operational probe issue 35's deployed function has to answer. */
+export const HEALTH_PATH = "/health";
+
 export interface AppEnv {
   Bindings: {
     /** Set by the AWS Lambda adapter. Absent when the app is called directly. */
@@ -98,6 +101,13 @@ export function createApp(options: CreateAppOptions = {}) {
       durationMs: now() - startedAt,
     });
   });
+
+  // Deliberately not in the contract's endpoint registry. The registry is the
+  // product's API, versioned with the app; this is an operational probe that
+  // proves the function was deployed and can answer, so it takes no session,
+  // spends no rate limit, opens no database connection, and reports nothing
+  // about the account or the deployment that a caller could act on.
+  app.get(HEALTH_PATH, (c) => c.json({ status: "ok" }));
 
   registerRoutes(app, options.handlers ?? {}, {
     sessionGate: options.sessionGate,

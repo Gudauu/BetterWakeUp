@@ -831,6 +831,39 @@ the network is down. So a rejection is reported at once and a deferral is
 reported once, on the attempt that crosses `STALLED_AFTER_ATTEMPTS`, and an
 acknowledgment is not reported at all.
 
+## Infrastructure
+
+Infrastructure is AWS CDK in TypeScript under `infra`. `infra/bin/cdk-app.ts` is
+what `cdk.json` runs; `infra/src/app.ts` holds `defineApp` so a test can build
+the tree without synthesizing an assembly as an import side effect.
+
+Run `pnpm --filter @betterwakeup/infra run synth` to produce a template. It
+works from a clean checkout: the function's code defaults to the checked-in
+placeholder in `infra/lambda-bundle-placeholder`, and the deploy pipeline passes
+a built bundle through the `bwu:codeAssetPath` context key instead.
+
+Deployment decisions arrive as CDK context (`bwu:stage`, `bwu:region`,
+`bwu:account`, `bwu:codeAssetPath`) and are read in exactly one place,
+`readStackConfiguration`. A missing or nonsensical value fails at synth, where
+somebody is watching. The region is required and must be one Neon runs in,
+because the architecture requires the Lambda and the database to share a region.
+
+Never put anything that grants access in a resource property. A synthesized
+template is readable by anyone who can describe the stack, so secrets are
+Parameter Store SecureString entries the role is granted a read of, and a test
+asserts every Lambda environment variable is neither named nor shaped like a
+credential.
+
+Every stack change needs a template assertion. `Template.fromStack` synthesizes
+in process, so an assertion costs a millisecond and is the only thing standing
+between a review and a deploy.
+
+`GET /health` is an operational probe and is deliberately outside the contract's
+endpoint registry. It takes no session, spends no rate limit, and opens no
+database connection, so it answers whenever the function is running at all. Keep
+it that way: a probe that can fail for a second reason stops answering the
+question it exists to answer.
+
 ## Commits
 
 Use Conventional Commits.

@@ -1,0 +1,12 @@
+{
+  "app": "node bin/cdk-app.ts",
+  "watch": { "exclude": ["**/node_modules/**", "cdk.out/**", "test/**"] },
+  "context": {
+    "bwu:stage": "dev",
+    "bwu:region": "us-east-1",
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/core:checkSecretUsage": true,
+    "@aws-cdk/aws-iam:minimizePolicies": true,
+    "@aws-cdk/core:validateSnapshotRemovalPolicy": true
+  }
+}

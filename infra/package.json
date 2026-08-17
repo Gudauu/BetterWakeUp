@@ -4,10 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "synth": "cdk synth --quiet",
+    "cdk": "cdk"
   },
   "devDependencies": {
     "@types/node": "22.18.9",
+    "aws-cdk": "2.1137.0",
+    "aws-cdk-lib": "2.265.0",
+    "constructs": "10.8.1",
     "typescript": "5.9.3",
     "vitest": "3.2.4"
   }
