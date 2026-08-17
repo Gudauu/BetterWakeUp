@@ -209,8 +209,8 @@ describe("session tokens", () => {
     });
 
     expect(await verifySessionToken(minted.token, TEST_SESSION_SECRET)).toEqual({
-      accountId,
-      sessionId: minted.sessionId,
+      ok: true,
+      claims: { accountId, sessionId: minted.sessionId },
     });
   });
 
@@ -233,7 +233,10 @@ describe("session tokens", () => {
       ttlSeconds: 3600,
     });
 
-    expect(await verifySessionToken(minted.token, `${TEST_SESSION_SECRET}-other`)).toBeNull();
+    expect(await verifySessionToken(minted.token, `${TEST_SESSION_SECRET}-other`)).toEqual({
+      ok: false,
+      reason: "unusable",
+    });
   });
 
   it("refuses a token whose payload was edited", async () => {
@@ -254,10 +257,13 @@ describe("session tokens", () => {
       signature,
     ].join(".");
 
-    expect(await verifySessionToken(tampered, TEST_SESSION_SECRET)).toBeNull();
+    expect(await verifySessionToken(tampered, TEST_SESSION_SECRET)).toEqual({
+      ok: false,
+      reason: "unusable",
+    });
   });
 
-  it("refuses a token that has expired", async () => {
+  it("reports an expired token as expired, which is the one refusal the app can act on", async () => {
     const minted = await mintSessionToken({
       secret: TEST_SESSION_SECRET,
       accountId,
@@ -265,7 +271,10 @@ describe("session tokens", () => {
       now: new Date(Date.now() - 10 * 60 * 1000),
     });
 
-    expect(await verifySessionToken(minted.token, TEST_SESSION_SECRET)).toBeNull();
+    expect(await verifySessionToken(minted.token, TEST_SESSION_SECRET)).toEqual({
+      ok: false,
+      reason: "expired",
+    });
   });
 
   it("hashes to something stable that is not the token", async () => {

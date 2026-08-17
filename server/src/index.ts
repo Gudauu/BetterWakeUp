@@ -14,7 +14,13 @@ export {
 export { createAuthHandlers } from "./auth/handlers.ts";
 export type { ProviderTokenVerifier, VerifiedIdentity } from "./auth/provider-tokens.ts";
 export { createProviderTokenVerifier } from "./auth/provider-tokens.ts";
-export type { MintedSession, SessionClaims } from "./auth/session-token.ts";
+export type {
+  AuthenticatedSession,
+  SessionGate,
+  SessionGateDependencies,
+} from "./auth/session-gate.ts";
+export { createSessionGate, OWNERSHIP_CHECKS } from "./auth/session-gate.ts";
+export type { MintedSession, SessionClaims, SessionTokenCheck } from "./auth/session-token.ts";
 export { hashSessionToken, mintSessionToken, verifySessionToken } from "./auth/session-token.ts";
 export type { SignInDependencies } from "./auth/sign-in.ts";
 export { signIn } from "./auth/sign-in.ts";

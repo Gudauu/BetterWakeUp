@@ -9,6 +9,7 @@
 
 import { IDEMPOTENCY_HEADER } from "@betterwakeup/contract";
 import { type Context, Hono } from "hono";
+import type { SessionGate } from "../auth/session-gate.ts";
 import { AppError, toAppError } from "../errors/app-error.ts";
 import { createLogger, type Logger } from "../observability/logger.ts";
 import { type EndpointHandlers, registerRoutes } from "./routes.ts";
@@ -37,6 +38,13 @@ export interface CreateAppOptions {
    * pretending to work.
    */
   readonly handlers?: EndpointHandlers;
+  /**
+   * How a caller is authenticated and how ownership is proved. Mounting a
+   * session endpoint without it fails here rather than serving it unguarded.
+   */
+  readonly sessionGate?: SessionGate;
+  /** Verification for the signature-authenticated endpoints. See issue 25. */
+  readonly signatureVerifier?: (c: Context<AppEnv>) => Promise<void>;
 }
 
 export function createApp(options: CreateAppOptions = {}) {
@@ -59,7 +67,10 @@ export function createApp(options: CreateAppOptions = {}) {
 
     const startedAt = now();
     await next();
-    logger.info("request handled", {
+    // Read back rather than closed over: a route that authenticated the caller
+    // replaces this request's logger with one carrying the account, and the
+    // request line is the line most worth having it on.
+    (c.get("logger") ?? logger).info("request handled", {
       // The matched pattern, so a log query groups by route rather than by
       // identifier, and so no query string can reach a log line.
       route: c.req.routePath,
@@ -68,7 +79,10 @@ export function createApp(options: CreateAppOptions = {}) {
     });
   });
 
-  registerRoutes(app, options.handlers ?? {});
+  registerRoutes(app, options.handlers ?? {}, {
+    sessionGate: options.sessionGate,
+    signatureVerifier: options.signatureVerifier,
+  });
 
   // Rendered rather than thrown: a throw here would escape the logging
   // middleware's `next()`, and an unmatched route would be the one request

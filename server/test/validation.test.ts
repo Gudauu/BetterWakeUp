@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "../src/http/app.ts";
 import type { HandlerInput } from "../src/http/routes.ts";
 import { createLogger } from "../src/observability/logger.ts";
+import { fakeSessionGate } from "./support/fake-session-gate.ts";
 
 const KEY = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const CHALLENGE_ID = "0d2f6a51-6e5f-4a1e-9a63-2a6b9f1c7e40";
@@ -44,6 +45,7 @@ function harness() {
   const seen: HandlerInput<"createChallengeProjection">[] = [];
   const app = createApp({
     logger: silent(),
+    sessionGate: fakeSessionGate(),
     handlers: {
       createChallengeProjection: (input) => {
         seen.push(input);
@@ -264,6 +266,7 @@ describe("a route that takes no body", () => {
   it("rejects one that was sent anyway", async () => {
     const app = createApp({
       logger: silent(),
+      sessionGate: fakeSessionGate(),
       handlers: { deleteSession: () => ({}) },
     });
 
@@ -280,7 +283,11 @@ describe("a route that takes no body", () => {
   });
 
   it("accepts one sent with no body at all", async () => {
-    const app = createApp({ logger: silent(), handlers: { deleteSession: () => ({}) } });
+    const app = createApp({
+      logger: silent(),
+      sessionGate: fakeSessionGate(),
+      handlers: { deleteSession: () => ({}) },
+    });
 
     const response = await app.request("/sessions", { method: "DELETE" });
 
@@ -293,6 +300,7 @@ describe("responses", () => {
   it("are parsed on the way out, so a response the app cannot parse is our error", async () => {
     const app = createApp({
       logger: silent(),
+      sessionGate: fakeSessionGate(),
       handlers: {
         // A handler that forgot the schema requires a first task deadline.
         createChallengeProjection: () =>

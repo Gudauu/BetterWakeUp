@@ -149,9 +149,10 @@ never declare a path string in the server. An endpoint with no handler is not
 mounted and answers `not_found`, which is how the surface grows one issue at a
 time without a half-built route pretending to work.
 
-A handler receives a `HandlerInput`: a body, path parameters, and an idempotency
-key that were all parsed at the boundary against the contract. It never re-checks
-them, and it never reads the raw request. Its return value is parsed against the
+A handler receives a `HandlerInput`: a body, path parameters, an idempotency
+key, and the authenticated caller, all of them checked at the boundary against
+the contract. The caller already owns every resource the path addresses, so a
+handler never re-checks any of it, and it never reads the raw request. Its return value is parsed against the
 response schema on the way out, and a response that does not match is
 `internal_error`, because it is our bug and not something an app can act on.
 
@@ -201,6 +202,28 @@ alone is not a session check.
 `loadAuthConfig` reads `SESSION_SECRET`, `APPLE_AUDIENCES`, and
 `GOOGLE_AUDIENCES` and throws when any is missing or empty. Keep it that way: an
 empty audience list means every audience is accepted.
+
+### Sessions and ownership
+
+`createSessionGate` answers both questions every command asks: who is calling,
+and is the thing they addressed theirs. `registerRoutes` runs it for every
+endpoint the contract marks `auth: "session"`, so a handler never checks either
+one for itself and never gets the chance to forget.
+
+Ownership is answered with `not_found` and never `forbidden`. Both a resource
+that does not exist and one belonging to somebody else must produce the same
+response body, because a distinguishable 403 lets anyone with a session
+enumerate other people's resources.
+
+A new addressed resource means a new entry in `OWNERSHIP_CHECKS`, keyed by the
+path parameter name the contract uses. A parameter with no entry is refused as
+`internal_error` rather than allowed through, and a test walks the registry to
+assert every session endpoint is covered.
+
+Composing an app that mounts a session endpoint requires a `sessionGate`, and
+mounting the payment webhook requires a `signatureVerifier`. Both are checked at
+mount time and throw, which is what keeps a misconfigured deployment from
+starting rather than from being noticed.
 
 ### Idempotency
 

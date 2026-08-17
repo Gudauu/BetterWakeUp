@@ -18,7 +18,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { jwtVerify, SignJWT } from "jose";
+import { errors, jwtVerify, SignJWT } from "jose";
 import { SESSION_AUDIENCE, SESSION_ISSUER } from "./config.ts";
 
 export interface SessionClaims {
@@ -73,17 +73,26 @@ export async function mintSessionToken(options: MintOptions): Promise<MintedSess
 }
 
 /**
- * Check a presented token's signature, issuer, audience, and expiry.
+ * The outcome of checking a presented token.
  *
- * Returns the claims, or null for any token this server did not issue or
- * would no longer accept. Null rather than a throw because the caller decides
- * what an unusable credential means on its path, and every reason it is
- * unusable is the same reason to the client.
+ * Expiry is separated from every other failure because it is the one the app
+ * can act on: a session that ran out means sign in again and carry on, while a
+ * token that does not verify at all means the credential the app is holding is
+ * not one this server ever issued. They are both a 401, but they are not the
+ * same news, and the contract has a code for each.
+ *
+ * A result rather than a throw, because the caller decides what an unusable
+ * credential means on its path.
  */
+export type SessionTokenCheck =
+  | { readonly ok: true; readonly claims: SessionClaims }
+  | { readonly ok: false; readonly reason: "expired" | "unusable" };
+
+/** Check a presented token's signature, issuer, audience, and expiry. */
 export async function verifySessionToken(
   token: string,
   secret: string,
-): Promise<SessionClaims | null> {
+): Promise<SessionTokenCheck> {
   try {
     const { payload } = await jwtVerify(token, secretKey(secret), {
       // Closed to the one algorithm we sign with. Left open, `alg: none` and
@@ -95,10 +104,16 @@ export async function verifySessionToken(
     });
     const sessionId = payload.jti;
     const accountId = payload.sub;
-    if (sessionId === undefined || accountId === undefined) return null;
-    return { sessionId, accountId };
-  } catch {
-    return null;
+    if (sessionId === undefined || accountId === undefined) {
+      return { ok: false, reason: "unusable" };
+    }
+    return { ok: true, claims: { sessionId, accountId } };
+  } catch (thrown) {
+    // Only `exp` earns the expired answer. A token that fails the signature
+    // and happens to also be past its own `exp` is not an expired session, it
+    // is a forgery, and telling the app to sign in again would be wrong.
+    if (thrown instanceof errors.JWTExpired) return { ok: false, reason: "expired" };
+    return { ok: false, reason: "unusable" };
   }
 }
 

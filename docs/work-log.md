@@ -536,6 +536,61 @@ concurrent first sign-in and the `POST /sessions` route end to end. Allowing
 `HS256`, dropping the relay checks, and removing the race guard each fail
 exactly the tests that assert them and nothing else.
 
+### Issue 14: session middleware and ownership checks
+
+Both halves live in one place, `server/src/auth/session-gate.ts`, and
+`registerRoutes` runs them for every endpoint the contract marks
+`auth: "session"`.
+A handler that forgot either one would not be a broken feature, it would be a
+way to read or change somebody else's challenge, so neither is something a
+handler can be trusted to remember.
+
+The ownership answer is `not_found` and never `forbidden`.
+A 403 for someone else's task and a 404 for a task that does not exist are
+distinguishable, and that difference is an oracle: anyone holding a valid
+session could walk identifiers and learn which ones name real tasks.
+The acceptance test therefore compares the two response bodies to each other
+rather than checking each against a status code.
+
+Ownership rules are keyed by the contract's own path parameter name, and a
+parameter with no rule is refused as `internal_error` rather than waved
+through.
+That turns "somebody added an addressed resource and forgot to say who owns
+it" from a silent hole into a failing request, and a test walks the registry to
+assert every session endpoint's parameters are covered today.
+
+Two refusals happen at mount time rather than per request: an endpoint needing
+a session cannot be mounted without a gate, and the payment webhook cannot be
+mounted until issue 25 supplies something that checks a signature.
+A deployment that forgot to configure authentication now fails to start instead
+of serving every command to anyone until somebody notices.
+
+Authentication runs before validation.
+A caller with no usable credential is told exactly that and learns nothing
+about which fields the command takes.
+Within authentication the signature is checked before the database, so a flood
+of forged tokens costs one HMAC each and never reaches a connection, which is
+the reason the token is signed as well as stored.
+
+`verifySessionToken` now returns a result rather than `SessionClaims | null`,
+because expiry is the one refusal the app can act on: `session_expired` means
+sign in again and carry on, while `unauthenticated` means the credential was
+never ours.
+Only a `JWTExpired` earns the expired answer, so a forgery that happens to also
+be past its own `exp` is not mistaken for a lapsed session.
+The row remains the authority on expiry, since a session can be cut short and
+the token's own `exp` cannot be edited to follow.
+
+23 tests: 9 unit tests over mounting, ordering, and rule coverage, and 14
+integration tests over real rows including the acceptance boundary.
+Neutering `assertOwnership` fails exactly the two ownership refusals, removing
+the session row lookup fails exactly the deleted-row test, and removing the
+row's expiry check fails exactly the expiry test.
+
+The composition root is still absent, as noted under issue 13: the Lambda entry
+point composes `createApp` with no handlers, so the gate is live in tests and
+not yet in a deployed function.
+
 ## Handed back
 
 ### Issue 3: step accuracy spike

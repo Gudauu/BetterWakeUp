@@ -77,9 +77,12 @@ describe("sign-in", () => {
     expect(row?.tokenHash).not.toBe(response.session.token);
 
     // The issued token verifies, and its `jti` is the row that authorizes it,
-    // which is what issue 14's middleware will look up.
-    const claims = await verifySessionToken(response.session.token, keys.config.sessionSecret);
-    expect(claims).toEqual({ accountId: response.account.id, sessionId: row?.id });
+    // which is what the session gate looks up.
+    const checked = await verifySessionToken(response.session.token, keys.config.sessionSecret);
+    expect(checked).toEqual({
+      ok: true,
+      claims: { accountId: response.account.id, sessionId: row?.id },
+    });
   });
 
   it("returns the same account on a second sign-in and issues a second session", async () => {
