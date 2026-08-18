@@ -9,10 +9,8 @@
  */
 
 import { loadAuthConfig } from "../auth/config.ts";
-import { createAuthHandlers } from "../auth/handlers.ts";
 import { createProviderTokenVerifier } from "../auth/provider-tokens.ts";
 import { createSessionGate } from "../auth/session-gate.ts";
-import { createChallengeHandlers } from "../challenges/handlers.ts";
 import { parameterStoreSource } from "../config/parameter-store.ts";
 import { SECRET_PREFIX_VARIABLE, type SecretName, secretParameterName } from "../config/secrets.ts";
 import { createDatabase } from "../db/client.ts";
@@ -21,6 +19,7 @@ import { createLogger } from "../observability/logger.ts";
 import { createRateLimiter } from "../rate-limit/service.ts";
 import { createSweep } from "../sweep/run-sweep.ts";
 import { createHandler, type LambdaContext } from "./handler.ts";
+import { createHandlerSet } from "./handler-set.ts";
 
 const RUNTIME_SECRET_NAMES = [
   "databaseUrl",
@@ -57,18 +56,15 @@ async function composeRuntime(): Promise<RuntimeHandler> {
   const verifier = createProviderTokenVerifier({ providers: auth.providers });
   const sessionGate = createSessionGate({ db: database.db, sessionSecret: auth.sessionSecret });
   const rateLimiter = createRateLimiter({ db: database.db });
-  const handlers = {
-    ...createAuthHandlers({
-      db: database.db,
-      verifier,
-      sessionSecret: auth.sessionSecret,
-      sessionTtlSeconds: auth.sessionTtlSeconds,
-    }),
-    // No payment provider is supplied yet. The handler set therefore mounts
-    // projection, zero-deposit creation, reading, and lifecycle commands while
-    // leaving the funded door absent rather than pretending Stripe is wired.
-    ...createChallengeHandlers({ db: database.db }),
-  };
+  // No payment provider is supplied yet. The handler set therefore mounts
+  // every endpoint the app can call except the two funded doors, which stay
+  // absent rather than pretending Stripe is wired.
+  const handlers = createHandlerSet({
+    db: database.db,
+    verifier,
+    sessionSecret: auth.sessionSecret,
+    sessionTtlSeconds: auth.sessionTtlSeconds,
+  });
   const app = createApp({ handlers, logger, rateLimiter, sessionGate });
 
   return createHandler({ app, logger, sweep: createSweep({ db: database.db }) });

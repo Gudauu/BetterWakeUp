@@ -9,9 +9,9 @@
  */
 
 import {
+  type ClientEndpointName,
   ENDPOINTS,
   type EndpointDefinition,
-  type EndpointName,
   errorResponse,
   type ParamsOf,
   type RequestOf,
@@ -23,10 +23,11 @@ import { ApiError } from "./errors.ts";
 
 /**
  * Every endpoint except the payment webhook, which the provider calls and the
- * app never does. Excluding it here is what keeps it uncallable rather than
- * merely unused.
+ * app never does. The contract owns the set, because the deployment checks its
+ * mounted handlers against the same list; re-exported here because this module
+ * is where the app's callers reach for it.
  */
-export type ClientEndpointName = Exclude<EndpointName, "receivePaymentWebhook">;
+export type { ClientEndpointName };
 
 type ParamsPart<Name extends ClientEndpointName> = [ParamsOf<Name>] extends [null]
   ? { params?: never }

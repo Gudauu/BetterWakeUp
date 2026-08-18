@@ -213,6 +213,22 @@ export type EndpointName = keyof typeof ENDPOINTS;
 
 export const ENDPOINT_NAMES = Object.keys(ENDPOINTS) as EndpointName[];
 
+/**
+ * The endpoints a client of this API calls.
+ *
+ * Everything except the payment webhook, which the payment provider delivers
+ * to and no client ever calls. Naming the set here rather than in the app is
+ * what lets a deployment prove it serves the whole surface the app can reach:
+ * the client builds its request types from this list and the server checks its
+ * mounted handlers against it, so an endpoint the app can call and the server
+ * never mounted is a failing test rather than a 404 on a device.
+ */
+export type ClientEndpointName = Exclude<EndpointName, "receivePaymentWebhook">;
+
+export const CLIENT_ENDPOINT_NAMES = ENDPOINT_NAMES.filter(
+  (name) => ENDPOINTS[name].auth !== "signature",
+) as ClientEndpointName[];
+
 /** The request body type of one endpoint, or `null` where it takes no body. */
 export type RequestOf<Name extends EndpointName> =
   (typeof ENDPOINTS)[Name]["request"] extends z.ZodType

@@ -52,6 +52,8 @@ export { createApp } from "./http/app.ts";
 export type { ScheduledEvent } from "./lambda/events.ts";
 export { isHttpEvent, isScheduledEvent } from "./lambda/events.ts";
 export { createHandler } from "./lambda/handler.ts";
+export type { HandlerSetDependencies } from "./lambda/handler-set.ts";
+export { createHandlerSet } from "./lambda/handler-set.ts";
 export { handler } from "./lambda/runtime.ts";
 export type { BacklogMeasurement, MeasureBacklogOptions } from "./observability/backlog.ts";
 export {

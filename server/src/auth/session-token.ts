@@ -88,13 +88,25 @@ export type SessionTokenCheck =
   | { readonly ok: true; readonly claims: SessionClaims }
   | { readonly ok: false; readonly reason: "expired" | "unusable" };
 
+export interface VerifyOptions {
+  /**
+   * The instant `exp` is judged against. Injected by the session gate, which
+   * checks the row's expiry against a clock of its own: left to the wall clock,
+   * the two halves of one check would read two different times, and a test that
+   * states the moment would mint tokens it could not then present.
+   */
+  readonly now?: Date | undefined;
+}
+
 /** Check a presented token's signature, issuer, audience, and expiry. */
 export async function verifySessionToken(
   token: string,
   secret: string,
+  options: VerifyOptions = {},
 ): Promise<SessionTokenCheck> {
   try {
     const { payload } = await jwtVerify(token, secretKey(secret), {
+      ...(options.now === undefined ? {} : { currentDate: options.now }),
       // Closed to the one algorithm we sign with. Left open, `alg: none` and
       // an asymmetric algorithm with an attacker-chosen key both become
       // acceptable ways to mint a session.

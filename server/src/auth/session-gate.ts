@@ -98,7 +98,7 @@ export function createSessionGate(deps: SessionGateDependencies): SessionGate {
       // The signature first, and only then the database. A flood of forged
       // tokens costs one HMAC each and never reaches a connection, which is
       // the whole reason the token is signed as well as stored.
-      const checked = await verifySessionToken(token, deps.sessionSecret);
+      const checked = await verifySessionToken(token, deps.sessionSecret, { now: now() });
       if (!checked.ok) {
         throw checked.reason === "expired"
           ? new AppError("session_expired", "This session has expired. Sign in again.")
