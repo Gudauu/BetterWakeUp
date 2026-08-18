@@ -35,6 +35,8 @@ export interface DailyCompletionScreenProps {
   readonly now?: () => Date;
   /** Called when the server acknowledges, so the caller can re-read the challenge. */
   readonly onAcknowledged?: () => void;
+  /** Offered as a way back when a caller put this screen on top of another. */
+  readonly onBack?: () => void;
 }
 
 /** How often the screen re-reads the clock, for the deadline warning. */
@@ -128,6 +130,7 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
   if (task === null) {
     return (
       <View style={[styles.container, { paddingTop: insets.top }]} testID="no-task-today">
+        <Back onBack={props.onBack} />
         <Text style={styles.title}>Nothing due</Text>
         <Text style={styles.body}>There is no open task right now.</Text>
       </View>
@@ -139,6 +142,7 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
       testID="daily-completion"
       contentContainerStyle={[styles.container, { paddingTop: insets.top }]}
     >
+      <Back onBack={props.onBack} />
       <Text style={styles.title}>{task.date}</Text>
       <Text style={styles.note} testID="deadline">
         Deadline {new Date(task.deadline).toISOString()}
@@ -250,6 +254,17 @@ function CheckRow(props: { testID: string; label: string; check: CheckState }) {
   );
 }
 
+function Back({ onBack }: { onBack: (() => void) | undefined }) {
+  if (onBack === undefined) {
+    return null;
+  }
+  return (
+    <Pressable accessibilityRole="button" testID="daily-back" onPress={onBack}>
+      <Text style={styles.backLabel}>Back to home</Text>
+    </Pressable>
+  );
+}
+
 function Action(props: {
   testID: string;
   label: string;
@@ -278,6 +293,7 @@ const styles = StyleSheet.create({
   body: { fontSize: 15, lineHeight: 21, flexShrink: 1 },
   label: { fontSize: 15, flexShrink: 1 },
   note: { fontSize: 13, opacity: 0.6, lineHeight: 18 },
+  backLabel: { fontSize: 15, opacity: 0.7 },
   warning: { fontSize: 14, color: "#8a5300", lineHeight: 20 },
   error: { fontSize: 14, color: "#b00020", lineHeight: 20 },
   row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },

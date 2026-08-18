@@ -17,11 +17,24 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCurrentChallenge } from "../challenges/current-challenge.ts";
 import { formatMoney } from "../challenges/draft.ts";
+import {
+  type CompletionRuntimeFactory,
+  type CompletionRuntimeState,
+  createNativeCompletionRuntime,
+  useCompletionRuntime,
+} from "../completions/runtime.ts";
 import { useSession } from "../session/session-context.tsx";
 import { CreateChallengeScreen } from "./create-challenge-screen.tsx";
+import { DailyCompletionScreen } from "./daily-completion-screen.tsx";
 
 export interface HomeScreenProps {
   readonly onSignOut?: () => void;
+  /**
+   * How the store, sync and movement capture behind today's task are built.
+   * Substituted in tests and by a development build, so that reaching the task
+   * screen does not require a device with a step counter.
+   */
+  readonly createRuntime?: CompletionRuntimeFactory;
 }
 
 /**
@@ -37,11 +50,16 @@ const STATUS_HEADLINE: Readonly<Record<ChallengeStatus, string>> = {
   recovery_pending: "One missed day is waiting on you",
 };
 
-export function HomeScreen({ onSignOut }: HomeScreenProps) {
+export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
   const { api } = useSession();
   const insets = useSafeAreaInsets();
   const { state, reload } = useCurrentChallenge(api);
   const [creating, setCreating] = useState(false);
+  const [viewingTask, setViewingTask] = useState(false);
+  // Held for as long as home is on screen rather than only while the task is
+  // open: opening it is what sends a completion recorded on a day with no
+  // network, and that must not wait for the user to tap anything.
+  const runtime = useCompletionRuntime(api, createRuntime ?? createNativeCompletionRuntime);
 
   if (creating) {
     return (
@@ -78,6 +96,22 @@ export function HomeScreen({ onSignOut }: HomeScreenProps) {
     );
   }
 
+  if (viewingTask && state.challenge !== null) {
+    return (
+      <TodayTask
+        challenge={state.challenge}
+        runtime={runtime}
+        onBack={() => {
+          // Read back on the way out rather than on every acknowledgement: a
+          // reload while the task is open would put home's loading state over
+          // the screen the user is still working in.
+          setViewingTask(false);
+          reload();
+        }}
+      />
+    );
+  }
+
   return (
     <ScrollView
       testID="home"
@@ -98,7 +132,7 @@ export function HomeScreen({ onSignOut }: HomeScreenProps) {
           />
         </View>
       ) : (
-        <ChallengeCard challenge={state.challenge} />
+        <ChallengeCard challenge={state.challenge} onOpenTask={() => setViewingTask(true)} />
       )}
 
       <Pressable accessibilityRole="button" testID="home-refresh" onPress={reload}>
@@ -110,7 +144,13 @@ export function HomeScreen({ onSignOut }: HomeScreenProps) {
   );
 }
 
-function ChallengeCard({ challenge }: { challenge: ChallengeView }) {
+function ChallengeCard({
+  challenge,
+  onOpenTask,
+}: {
+  challenge: ChallengeView;
+  onOpenTask: () => void;
+}) {
   const paused = challenge.pause.pausedAt !== null;
   const { progress, configuration, currentTask } = challenge;
   const remaining = Math.max(
@@ -154,6 +194,7 @@ function ChallengeCard({ challenge }: { challenge: ChallengeView }) {
           <Text style={styles.note} testID="home-task-deadline">
             Deadline {formatDeadline(currentTask.deadline, configuration.timeZone)}
           </Text>
+          <Action testID="home-open-task" label="Open today's task" onPress={onOpenTask} />
         </View>
       )}
 
@@ -170,6 +211,58 @@ function ChallengeCard({ challenge }: { challenge: ChallengeView }) {
         </Text>
       )}
     </View>
+  );
+}
+
+/**
+ * Today's task, once the pieces it needs exist.
+ *
+ * The runtime is asynchronous - a database has to open - so this stands in for
+ * the task screen until it is ready, and says so rather than showing a screen
+ * whose buttons could not record anything.
+ */
+function TodayTask({
+  challenge,
+  runtime,
+  onBack,
+}: {
+  challenge: ChallengeView;
+  runtime: CompletionRuntimeState;
+  onBack: () => void;
+}) {
+  if (runtime.status === "loading") {
+    return (
+      <View style={styles.centered} testID="home-task-loading">
+        <ActivityIndicator accessibilityLabel="Opening today's task" />
+        <Pressable accessibilityRole="button" testID="home-task-back" onPress={onBack}>
+          <Text style={styles.secondaryLabel}>Back to home</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (runtime.status === "failed") {
+    return (
+      <View style={styles.centered} testID="home-task-unavailable">
+        <Text style={styles.error} accessibilityRole="alert">
+          {runtime.message}
+        </Text>
+        <Pressable accessibilityRole="button" testID="home-task-back" onPress={onBack}>
+          <Text style={styles.secondaryLabel}>Back to home</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  return (
+    <DailyCompletionScreen
+      challenge={challenge}
+      capture={runtime.runtime.capture}
+      sync={runtime.runtime.sync}
+      store={runtime.runtime.store}
+      appVersion={runtime.runtime.appVersion}
+      onBack={onBack}
+    />
   );
 }
 
@@ -266,7 +359,7 @@ const styles = StyleSheet.create({
   warning: { fontSize: 14, color: "#8a5300", lineHeight: 20 },
   error: { fontSize: 14, color: "#b00020", textAlign: "center", lineHeight: 20 },
   row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  taskRow: { gap: 4 },
+  taskRow: { gap: 10 },
   track: {
     backgroundColor: "#ededed",
     borderRadius: 999,

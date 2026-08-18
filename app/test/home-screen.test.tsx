@@ -12,6 +12,10 @@ import { HomeScreen } from "../src/screens/home-screen.tsx";
 import { SessionProvider } from "../src/session/session-context.tsx";
 import { createMemorySessionStore } from "../src/session/session-store.ts";
 import { challengeView, type FakeApi, fakeApi, taskView } from "./support/fake-api.ts";
+import {
+  type FakeCompletionRuntime,
+  fakeCompletionRuntimeFactory,
+} from "./support/fake-completion-runtime.ts";
 import { fakeProviders } from "./support/fake-providers.ts";
 
 const SESSION = {
@@ -25,7 +29,18 @@ const METRICS = {
   insets: { top: 47, left: 0, right: 0, bottom: 34 },
 };
 
-async function renderHome(api: ApiClient, onSignOut?: () => void) {
+async function renderHome(
+  api: ApiClient,
+  options: {
+    onSignOut?: () => void;
+    onRuntimeOpened?: (runtime: FakeCompletionRuntime) => void;
+  } = {},
+) {
+  // Home holds a completion runtime for as long as it is on screen, so every
+  // one of these tests gets one with no device under it.
+  const createRuntime = fakeCompletionRuntimeFactory(
+    options.onRuntimeOpened === undefined ? {} : { onOpened: options.onRuntimeOpened },
+  );
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <SessionProvider
@@ -33,7 +48,10 @@ async function renderHome(api: ApiClient, onSignOut?: () => void) {
         createClient={() => api}
         providers={fakeProviders()}
       >
-        <HomeScreen {...(onSignOut === undefined ? {} : { onSignOut })} />
+        <HomeScreen
+          createRuntime={createRuntime}
+          {...(options.onSignOut === undefined ? {} : { onSignOut: options.onSignOut })}
+        />
       </SessionProvider>
     </SafeAreaProvider>,
   );
@@ -185,6 +203,65 @@ describe("home is the door to creating a challenge", () => {
 
     expect(await screen.findByTestId("home-no-challenge")).toBeOnTheScreen();
     expect(api.names()).not.toContain("createChallenge");
+  });
+});
+
+describe("home is the door to today's task", () => {
+  it("opens the task screen for the task home is showing", async () => {
+    // Before this route existed the completion screen was unreachable from the
+    // running app, so this is the test that says the app can record a day.
+    await renderHome(
+      fakeApi({ getCurrentChallenge: { challenge: challengeView({ currentTask: taskView() }) } }),
+    );
+    await userEvent.press(await screen.findByTestId("home-open-task"));
+
+    expect(await screen.findByTestId("daily-completion")).toBeOnTheScreen();
+    expect(screen.getByTestId("start-capture")).toBeOnTheScreen();
+  });
+
+  it("offers no way in when nothing is due", async () => {
+    await renderHome(fakeApi({ getCurrentChallenge: { challenge: challengeView() } }));
+
+    expect(await screen.findByTestId("home-no-task")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-open-task")).toBeNull();
+  });
+
+  it("comes back to home and re-reads the challenge", async () => {
+    const api = fakeApi({
+      getCurrentChallenge: { challenge: challengeView({ currentTask: taskView() }) },
+    });
+
+    await renderHome(api);
+    await userEvent.press(await screen.findByTestId("home-open-task"));
+    await screen.findByTestId("daily-completion");
+    const before = api.names().filter((name) => name === "getCurrentChallenge").length;
+
+    await userEvent.press(screen.getByTestId("daily-back"));
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(api.names().filter((name) => name === "getCurrentChallenge").length).toBe(before + 1);
+  });
+
+  it("hands the task screen a live runtime and disposes it on the way out", async () => {
+    // A runtime left open would hold a database handle and a foreground
+    // listener nothing can reach, so the tear-down is part of the contract.
+    let opened: FakeCompletionRuntime | null = null;
+    const api = fakeApi({ getCurrentChallenge: { challenge: null } });
+
+    await renderHome(api, {
+      onRuntimeOpened: (runtime) => {
+        opened = runtime;
+      },
+    });
+    await screen.findByTestId("home-no-challenge");
+
+    await waitFor(() => expect(opened).not.toBeNull());
+    const runtime = opened as unknown as FakeCompletionRuntime;
+    expect(runtime.disposals()).toBe(0);
+
+    screen.unmount();
+
+    await waitFor(() => expect(runtime.disposals()).toBe(1));
   });
 });
 
