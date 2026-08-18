@@ -17,13 +17,25 @@
     },
     "android": {
       "package": "com.betterwakeup.app",
-      "permissions": ["android.permission.ACTIVITY_RECOGNITION"]
+      "permissions": [
+        "android.permission.ACTIVITY_RECOGNITION"
+      ]
     },
-    "plugins": ["expo-router", "expo-status-bar", "expo-secure-store", "expo-apple-authentication"],
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      "expo-secure-store",
+      "expo-apple-authentication"
+    ],
     "extra": {
-      "apiBaseUrl": "http://localhost:3000",
+      "apiBaseUrl": "https://v2lss2uehl656cxcweqxjezyxi0pvqxw.lambda-url.us-east-2.on.aws",
       "googleWebClientId": "879900379164-ho5rifv7vlriov7vmoen4tq8h219ejol.apps.googleusercontent.com",
-      "googleIosClientId": "879900379164-qk8t2idvljam7sss22emvakgntl6fqva.apps.googleusercontent.com"
-    }
+      "googleIosClientId": "879900379164-qk8t2idvljam7sss22emvakgntl6fqva.apps.googleusercontent.com",
+      "router": {},
+      "eas": {
+        "projectId": "80267c97-d7a6-46ad-95a3-cafba4bd3d55"
+      }
+    },
+    "owner": "taylorrubanovich"
   }
 }

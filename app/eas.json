@@ -12,7 +12,7 @@
         "simulator": false
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "http://localhost:3000"
+        "EXPO_PUBLIC_API_BASE_URL": "https://v2lss2uehl656cxcweqxjezyxi0pvqxw.lambda-url.us-east-2.on.aws"
       }
     },
     "preview": {
