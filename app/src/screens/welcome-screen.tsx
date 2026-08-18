@@ -16,6 +16,7 @@ import type { IdentityProvider } from "@betterwakeup/contract";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import type { CompletionRuntimeFactory } from "../completions/runtime.ts";
 import { useSession } from "../session/session-context.tsx";
 import { HomeScreen } from "./home-screen.tsx";
 
@@ -24,7 +25,16 @@ const LABELS: Readonly<Record<IdentityProvider, string>> = {
   google: "Continue with Google",
 };
 
-export function WelcomeScreen() {
+export interface WelcomeScreenProps {
+  /**
+   * Handed straight to home, which is the screen that holds it. It is here so
+   * that a test can drive the whole app from sign-in without a device under
+   * today's task; a build passes nothing and home builds its own.
+   */
+  readonly createRuntime?: CompletionRuntimeFactory;
+}
+
+export function WelcomeScreen({ createRuntime }: WelcomeScreenProps = {}) {
   const { state, availability, signIn, signOut } = useSession();
   const insets = useSafeAreaInsets();
   const [busy, setBusy] = useState<IdentityProvider | null>(null);
@@ -58,7 +68,10 @@ export function WelcomeScreen() {
     // whether it already holds a challenge and this screen has not asked.
     return (
       <View style={styles.fill} testID="welcome-signed-in">
-        <HomeScreen onSignOut={() => void signOut()} />
+        <HomeScreen
+          onSignOut={() => void signOut()}
+          {...(createRuntime === undefined ? {} : { createRuntime })}
+        />
       </View>
     );
   }

@@ -159,8 +159,15 @@ describe("the two checks", () => {
     await waitFor(() => expect(onAcknowledged).toHaveBeenCalled());
     expect(await given.store.list()).toHaveLength(0);
 
-    // The parent re-reads the challenge, which is the only thing that can
-    // move the screen into its acknowledged state.
+    // The acknowledgement carried the server's own task view, so the screen is
+    // already in its acknowledged state: the record has left the store, and
+    // without that view the screen would read as not done yet and offer to
+    // start the day a second time.
+    expect(screen.getByTestId("progression")).toHaveTextContent("Done. Both checks passed");
+    expect(screen.queryByTestId("start-capture")).toBeNull();
+
+    // And it stays there once the parent re-reads the challenge and hands down
+    // the same task from a fresh read.
     await act(async () => {
       screen.rerender(
         tree(

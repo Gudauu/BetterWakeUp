@@ -11,7 +11,7 @@
  * asks the movement capture and the completion sync to do the work.
  */
 
-import type { ChallengeView } from "@betterwakeup/contract";
+import type { ChallengeView, TaskView } from "@betterwakeup/contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -63,8 +63,21 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
   const [clock, setClock] = useState<Date>(readClock);
   const clockRef = useRef(readClock);
   clockRef.current = readClock;
+  /**
+   * The task as the server described it when it acknowledged the completion.
+   * The challenge this screen was handed was read before the walk, so its copy
+   * of the task still says `scheduled`; without this the screen would fall back
+   * to "not done yet" the moment the record left the store, and offer to start
+   * the day again. It is the server's own answer rather than a local guess,
+   * which is the only evidence `dailyCompletionState` accepts.
+   */
+  const [acknowledgedTask, setAcknowledgedTask] = useState<TaskView | null>(null);
 
-  const task = challenge.currentTask;
+  const current = challenge.currentTask;
+  const task =
+    acknowledgedTask !== null && current !== null && acknowledgedTask.id === current.id
+      ? acknowledgedTask
+      : current;
 
   const reload = useCallback(async () => {
     setRecords(await store.list());
@@ -77,6 +90,7 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
     return sync.subscribe((event) => {
       void reload();
       if (event.type === "acknowledged") {
+        setAcknowledgedTask(event.response.task);
         props.onAcknowledged?.();
       }
     });

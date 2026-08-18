@@ -12,6 +12,7 @@ import type { CompletionRuntime, CompletionRuntimeFactory } from "../../src/comp
 import { openPendingCompletionStore } from "../../src/completions/store.ts";
 import { createCompletionSync } from "../../src/completions/sync.ts";
 import { createMovementCapture } from "../../src/movement/capture.ts";
+import { createSimulatedMovement } from "../../src/movement/simulated-pedometer.ts";
 import { createFakeForeground, createFakePedometer } from "./fake-pedometer.ts";
 import { createMemoryDatabase } from "./node-sqlite.ts";
 
@@ -77,5 +78,50 @@ export async function openFakeCompletionRuntime(
       sync.stop();
       await store.close();
     },
+  };
+}
+
+/**
+ * The runtime a development build assembles, for a test that drives today's
+ * task the way a person does: through the screen's own simulated movement
+ * controls rather than by pushing readings into a fake pedometer.
+ *
+ * Everything but the movement and the database file is the shipped code, and
+ * the record IDs are real UUIDs because they are also the idempotency keys the
+ * contract validates.
+ */
+export function simulatedCompletionRuntimeFactory(
+  options: { readonly now?: () => Date } = {},
+): CompletionRuntimeFactory {
+  return async (api: ApiClient) => {
+    const now = options.now ?? (() => new Date());
+    let counter = 0;
+    const store = await openPendingCompletionStore({
+      database: createMemoryDatabase(),
+      newRecordId: () => {
+        counter += 1;
+        return `66666666-0000-4000-8000-${String(counter).padStart(12, "0")}`;
+      },
+      now,
+    });
+    const movement = createSimulatedMovement();
+    const sync = createCompletionSync({ store, client: api });
+
+    return {
+      store,
+      sync,
+      capture: createMovementCapture({
+        pedometer: movement.pedometer,
+        foreground: movement.foreground,
+        platform: "ios",
+        now,
+      }),
+      appVersion: "1.0.0-test",
+      simulation: movement.simulation,
+      async dispose() {
+        sync.stop();
+        await store.close();
+      },
+    };
   };
 }
