@@ -115,6 +115,9 @@ const DEFAULTS: Partial<Record<ClientEndpointName, unknown>> = {
   createChallengeProjection: PROJECTION,
   createChallenge: { challenge: challengeView() },
   createFundingIntent: FUNDING_INTENT,
+  // An account with no challenge: the state a new one is in, and the one that
+  // leaves a test about something else free of a challenge it did not set up.
+  getCurrentChallenge: { challenge: null },
   deleteSession: {},
   deleteAccount: {},
   pauseChallenge: {

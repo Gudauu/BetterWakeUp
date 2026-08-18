@@ -12,6 +12,7 @@
  */
 
 import {
+  type ChallengeView,
   type CreateProjectionResponse,
   disclosuresFor,
   type Weekday,
@@ -49,9 +50,22 @@ export interface CreateChallengeScreenProps {
   /** Injected in tests so the zone is not the machine running them. */
   readonly initialDraft?: ChallengeDraft;
   readonly onSignOut?: () => void;
+  /**
+   * Called once the server has created the challenge, so a caller that owns a
+   * view of the account can read it back. Absent when this screen is the whole
+   * app, in which case it reports the outcome itself.
+   */
+  readonly onCreated?: (challenge: ChallengeView) => void;
+  /** Called when the user leaves the form without creating anything. */
+  readonly onCancel?: () => void;
 }
 
-export function CreateChallengeScreen({ initialDraft, onSignOut }: CreateChallengeScreenProps) {
+export function CreateChallengeScreen({
+  initialDraft,
+  onSignOut,
+  onCreated,
+  onCancel,
+}: CreateChallengeScreenProps) {
   const { api } = useSession();
   const insets = useSafeAreaInsets();
   const [draft, dispatch] = useReducer(draftReducer, initialDraft ?? null, (given) =>
@@ -99,11 +113,15 @@ export function CreateChallengeScreen({ initialDraft, onSignOut }: CreateChallen
   const onStart = useCallback(async () => {
     setBusy(true);
     try {
-      setOutcome(await startChallenge({ api, draft, projection }));
+      const result = await startChallenge({ api, draft, projection });
+      setOutcome(result);
+      if (result.status === "created") {
+        onCreated?.(result.challenge);
+      }
     } finally {
       setBusy(false);
     }
-  }, [api, draft, projection]);
+  }, [api, draft, projection, onCreated]);
 
   if (outcome?.status === "created") {
     return (
@@ -284,6 +302,17 @@ export function CreateChallengeScreen({ initialDraft, onSignOut }: CreateChallen
           {outcome.message}
         </Text>
       ) : null}
+
+      {onCancel === undefined ? null : (
+        <Pressable
+          accessibilityRole="button"
+          testID="cancel-create"
+          style={styles.secondary}
+          onPress={onCancel}
+        >
+          <Text style={styles.secondaryLabel}>Not now</Text>
+        </Pressable>
+      )}
 
       {onSignOut === undefined ? null : (
         <Pressable accessibilityRole="button" style={styles.secondary} onPress={onSignOut}>

@@ -1,5 +1,9 @@
 /**
- * The first screen, and for now the only one.
+ * The first screen: who is signed in, and nothing else.
+ *
+ * A signed-in account is handed to `HomeScreen`, which is where what the
+ * account is actually doing gets read. Sign-in is the whole of this screen's
+ * job, so that question is asked in one place.
  *
  * It renders one of the three session states, and in the signed-out one offers
  * whichever providers this device and build can actually use. A provider that
@@ -13,7 +17,7 @@ import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSession } from "../session/session-context.tsx";
-import { CreateChallengeScreen } from "./create-challenge-screen.tsx";
+import { HomeScreen } from "./home-screen.tsx";
 
 const LABELS: Readonly<Record<IdentityProvider, string>> = {
   apple: "Sign in with Apple",
@@ -50,11 +54,11 @@ export function WelcomeScreen() {
   }
 
   if (state.status === "signedIn") {
-    // A signed-in account with no challenge has exactly one thing to do, so
-    // setting one up is the screen rather than something behind a menu.
+    // Home decides what a signed-in account sees, because that depends on
+    // whether it already holds a challenge and this screen has not asked.
     return (
       <View style={styles.fill} testID="welcome-signed-in">
-        <CreateChallengeScreen onSignOut={() => void signOut()} />
+        <HomeScreen onSignOut={() => void signOut()} />
       </View>
     );
   }
