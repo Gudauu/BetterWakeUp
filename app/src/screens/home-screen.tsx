@@ -20,7 +20,7 @@ import { formatMoney } from "../challenges/draft.ts";
 import {
   type CompletionRuntimeFactory,
   type CompletionRuntimeState,
-  createNativeCompletionRuntime,
+  createConfiguredCompletionRuntime,
   useCompletionRuntime,
 } from "../completions/runtime.ts";
 import { useSession } from "../session/session-context.tsx";
@@ -78,7 +78,7 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
   // Held for as long as home is on screen rather than only while the task is
   // open: opening it is what sends a completion recorded on a day with no
   // network, and that must not wait for the user to tap anything.
-  const runtime = useCompletionRuntime(api, createRuntime ?? createNativeCompletionRuntime);
+  const runtime = useCompletionRuntime(api, createRuntime ?? createConfiguredCompletionRuntime);
 
   if (route === "create") {
     return (
@@ -341,6 +341,7 @@ function TodayTask({
       sync={runtime.runtime.sync}
       store={runtime.runtime.store}
       appVersion={runtime.runtime.appVersion}
+      simulation={runtime.runtime.simulation}
       onBack={onBack}
     />
   );

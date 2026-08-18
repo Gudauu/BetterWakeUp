@@ -14,6 +14,7 @@ const VARIABLES = [
   "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID",
   "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID",
   "EXPO_PUBLIC_SENTRY_DSN",
+  "EXPO_PUBLIC_SIMULATE_MOVEMENT",
 ] as const;
 
 const saved = new Map<string, string | undefined>();
@@ -70,5 +71,29 @@ describe("the Sentry DSN", () => {
     process.env.EXPO_PUBLIC_SENTRY_DSN = "https://key@o0.ingest.example.test/1";
 
     expect(loadAppConfig().sentryDsn).toBe("https://key@o0.ingest.example.test/1");
+  });
+});
+
+describe("movement simulation", () => {
+  it("is off in a build that said nothing about it, which is every store build", () => {
+    expect(loadAppConfig().simulateMovement).toBe(false);
+  });
+
+  it("is on for the two spellings a build profile can turn it on with", () => {
+    process.env.EXPO_PUBLIC_SIMULATE_MOVEMENT = "true";
+    expect(loadAppConfig().simulateMovement).toBe(true);
+
+    process.env.EXPO_PUBLIC_SIMULATE_MOVEMENT = "1";
+    expect(loadAppConfig().simulateMovement).toBe(true);
+  });
+
+  it("stays off for a variable that spells out being off", () => {
+    // The trap this exists for: an environment variable is a string, so a
+    // truthiness check would read "false" as on.
+    process.env.EXPO_PUBLIC_SIMULATE_MOVEMENT = "false";
+    expect(loadAppConfig().simulateMovement).toBe(false);
+
+    process.env.EXPO_PUBLIC_SIMULATE_MOVEMENT = "0";
+    expect(loadAppConfig().simulateMovement).toBe(false);
   });
 });

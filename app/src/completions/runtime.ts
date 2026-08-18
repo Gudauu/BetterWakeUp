@@ -24,6 +24,7 @@ import { useEffect, useState } from "react";
 import type { ApiClient } from "../api/client.ts";
 import { loadAppConfig } from "../config.ts";
 import type { MovementCapture } from "../movement/capture.ts";
+import type { MovementSimulation } from "../movement/simulated-pedometer.ts";
 import { openPendingCompletionStore, type PendingCompletionStore } from "./store.ts";
 import { type CompletionSync, createCompletionSync } from "./sync.ts";
 
@@ -33,6 +34,11 @@ export interface CompletionRuntime {
   readonly capture: MovementCapture;
   /** Sent with every completion, so a bad client build can be identified. */
   readonly appVersion: string;
+  /**
+   * Present only in a build whose movement is simulated. The task screen shows
+   * its controls, and says so, when it is here.
+   */
+  readonly simulation?: MovementSimulation | undefined;
   /** Stop listening for sync triggers and close the database. */
   dispose(): Promise<void>;
 }
@@ -51,11 +57,20 @@ export type CompletionRuntimeState =
 const FAILED_MESSAGE =
   "Today's task cannot be opened on this device right now. Restart the app and try again.";
 
-export async function createNativeCompletionRuntime(api: ApiClient): Promise<CompletionRuntime> {
-  const [
-    { foregroundTrigger, openNativeDatabase, reconnectTrigger },
-    { createNativeMovementCapture },
-  ] = await Promise.all([import("./native-store.ts"), import("../movement/native-pedometer.ts")]);
+/**
+ * Everything but the movement, which is the only part a build varies.
+ *
+ * The database, the sync and the version are the real ones in every build,
+ * including the simulated one: a development build that also faked storage or
+ * the network would prove nothing about the flow it exists to exercise.
+ */
+async function openRuntime(
+  api: ApiClient,
+  movement: { capture: MovementCapture; simulation: MovementSimulation | undefined },
+): Promise<CompletionRuntime> {
+  const { foregroundTrigger, openNativeDatabase, reconnectTrigger } = await import(
+    "./native-store.ts"
+  );
 
   const store = await openPendingCompletionStore({ database: await openNativeDatabase() });
   const sync = createCompletionSync({
@@ -71,13 +86,55 @@ export async function createNativeCompletionRuntime(api: ApiClient): Promise<Com
   return {
     store,
     sync,
-    capture: createNativeMovementCapture(),
+    capture: movement.capture,
+    simulation: movement.simulation,
     appVersion: loadAppConfig().appVersion,
     async dispose() {
       sync.stop();
       await store.close();
     },
   };
+}
+
+export async function createNativeCompletionRuntime(api: ApiClient): Promise<CompletionRuntime> {
+  const { createNativeMovementCapture } = await import("../movement/native-pedometer.ts");
+  return openRuntime(api, { capture: createNativeMovementCapture(), simulation: undefined });
+}
+
+/**
+ * A runtime whose steps are typed in rather than walked.
+ *
+ * `Platform.OS` is still what the observation's source is derived from, because
+ * the code really is running on that platform and the alternative - naming a
+ * source of our own - would put a value on the server that no real device can
+ * produce. What makes these completions identifiable is the build: nothing
+ * reaches here unless it was built with movement simulation turned on.
+ */
+export async function createSimulatedCompletionRuntime(api: ApiClient): Promise<CompletionRuntime> {
+  const [{ createMovementCapture }, { createSimulatedMovement }, { Platform }] = await Promise.all([
+    import("../movement/capture.ts"),
+    import("../movement/simulated-pedometer.ts"),
+    import("react-native"),
+  ]);
+
+  const movement = createSimulatedMovement();
+  return openRuntime(api, {
+    capture: createMovementCapture({
+      pedometer: movement.pedometer,
+      foreground: movement.foreground,
+      platform: Platform.OS,
+    }),
+    simulation: movement.simulation,
+  });
+}
+
+/** The runtime this build asked for. One read of the config decides it. */
+export async function createConfiguredCompletionRuntime(
+  api: ApiClient,
+): Promise<CompletionRuntime> {
+  return loadAppConfig().simulateMovement
+    ? createSimulatedCompletionRuntime(api)
+    : createNativeCompletionRuntime(api);
 }
 
 /**

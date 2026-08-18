@@ -24,6 +24,7 @@ import { VERIFICATION_POLICY_VERSION } from "../completions/policy.ts";
 import type { PendingCompletionRecord, PendingCompletionStore } from "../completions/store.ts";
 import type { CompletionSync } from "../completions/sync.ts";
 import type { CaptureState, MovementCapture } from "../movement/capture.ts";
+import type { MovementSimulation } from "../movement/simulated-pedometer.ts";
 import { BackLink } from "./back-link.tsx";
 
 export interface DailyCompletionScreenProps {
@@ -32,6 +33,11 @@ export interface DailyCompletionScreenProps {
   readonly sync: CompletionSync;
   readonly store: PendingCompletionStore;
   readonly appVersion: string;
+  /**
+   * Present only in a build whose steps are typed in rather than walked. It
+   * carries its own banner, so a screen counting invented steps always says so.
+   */
+  readonly simulation?: MovementSimulation | undefined;
   /** Injected in tests so the deadline warning is not the clock of the machine. */
   readonly now?: () => Date;
   /** Called when the server acknowledges, so the caller can re-read the challenge. */
@@ -197,6 +203,18 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
         <Action testID="start-capture" label="Start moving" busy={busy} onPress={onStart} />
       ) : null}
 
+      {props.simulation === undefined ? null : (
+        <SimulationPanel
+          simulation={props.simulation}
+          recording={captureState.status === "recording"}
+          remaining={
+            captureState.status === "recording"
+              ? Math.max(0, challenge.configuration.stepTarget - captureState.steps)
+              : challenge.configuration.stepTarget
+          }
+        />
+      )}
+
       {state.status === "syncPending" ? (
         <Action testID="retry-sync" label="Try to send it again" busy={busy} onPress={onRetry} />
       ) : null}
@@ -240,6 +258,58 @@ const CHECK_MARK: Readonly<Record<CheckState, string>> = {
   passed: "passed",
   failed: "failed",
 };
+
+/**
+ * The controls a simulated build steps with.
+ *
+ * The banner is unconditional and the buttons are not: a build like this must
+ * announce itself even before a window is open, but steps can only be added to
+ * a window that is open, and a button that did nothing would read as a bug.
+ *
+ * Two sizes rather than one. A small push is how the shortfall path is reached
+ * - start, add a little, stop - and the exact remainder is how the day is
+ * finished without counting presses.
+ */
+function SimulationPanel(props: {
+  simulation: MovementSimulation;
+  recording: boolean;
+  remaining: number;
+}) {
+  return (
+    <View style={styles.section} testID="simulated-movement">
+      <Text style={styles.note} testID="simulated-movement-banner">
+        This build simulates movement. No step counter is being read.
+      </Text>
+      {props.recording ? (
+        <View style={styles.row}>
+          <SimulateButton
+            testID="simulate-some-steps"
+            label="+100 steps"
+            onPress={() => props.simulation.addSteps(100)}
+          />
+          <SimulateButton
+            testID="simulate-enough-steps"
+            label={`+${props.remaining} to target`}
+            onPress={() => props.simulation.addSteps(props.remaining)}
+          />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function SimulateButton(props: { testID: string; label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      testID={props.testID}
+      style={styles.simulateButton}
+      onPress={props.onPress}
+    >
+      <Text style={styles.simulateLabel}>{props.label}</Text>
+    </Pressable>
+  );
+}
 
 function CheckRow(props: { testID: string; label: string; check: CheckState }) {
   return (
@@ -295,4 +365,14 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.4 },
   buttonLabel: { color: "#ffffff", fontSize: 16, fontWeight: "600" },
+  simulateButton: {
+    alignItems: "center",
+    borderColor: "#8a5300",
+    borderRadius: 10,
+    borderWidth: 1,
+    flexGrow: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  simulateLabel: { color: "#8a5300", fontSize: 14, fontWeight: "600" },
 });

@@ -27,7 +27,8 @@ expects Jest. See "Toolchain" in `docs/architecture.md`.
   acknowledges them, the pass that sends them, and the four-state view of
   today's task the screen renders.
 - `src/movement/` the pedometer behind one port, the normalization every
-  reading passes through, and the foreground-only capture.
+  reading passes through, the foreground-only capture, and the simulated step
+  counter a development build drives by hand.
 - `src/reporting/` the crash and synchronization reporting port, the scrubbing
   every payload passes through, what a sync failure reports, and the one module
   that imports Sentry.
@@ -44,6 +45,23 @@ own bundle identifier, which the API's audience check rejects. `eas.json` holds
 the `development` profile that produces the build to run against instead. It
 needs an Expo account and platform credentials, which is recorded under "Handed
 back" in `docs/work-log.md`.
+
+## Exercising today's task without a walk
+
+Today's task is the one screen a device is normally required for: it counts real
+steps, and reaching the step target costs a walk per attempt and is impossible
+on a simulator. A build started with `EXPO_PUBLIC_SIMULATE_MOVEMENT=1` swaps the
+pedometer for one whose steps are typed in:
+
+```sh
+EXPO_PUBLIC_SIMULATE_MOVEMENT=1 pnpm --filter @betterwakeup/app run start
+```
+
+Everything else stays real - the same capture, the same on-device database, the
+same sync, the same server - so the flow being exercised is the shipped one.
+The task screen says the build simulates movement, and offers `+100 steps` for
+the shortfall path and `+N to target` to finish the day in one press. The flag
+is off unless a build asks for it, so no store build can render the controls.
 
 ## Build configuration
 
@@ -66,6 +84,7 @@ and fails if the two lists ever disagree.
 | `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` | falls back to `extra.googleIosClientId` in `app.json` |
 | `EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME` | derived from `extra.googleIosClientId`; the plugin is left out only if that is absent too |
 | `EXPO_PUBLIC_SENTRY_DSN` | crash and synchronization reporting is inactive and the SDK is never initialized |
+| `EXPO_PUBLIC_SIMULATE_MOVEMENT` | the real pedometer is used; only `1` and `true` turn simulated movement on |
 
 Working rules for this package are under "The mobile app" in
 `CONTRIBUTING.md`.

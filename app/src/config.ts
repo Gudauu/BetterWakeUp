@@ -28,6 +28,12 @@ export interface AppConfig {
    * Sentry project, which makes reporting inactive rather than broken.
    */
   readonly sentryDsn: string | undefined;
+  /**
+   * Whether today's task counts typed-in steps instead of walked ones. Off
+   * unless a build asks for it, because a store build that invented movement
+   * would make the deposit meaningless.
+   */
+  readonly simulateMovement: boolean;
 }
 
 function readApiBaseUrl(): string {
@@ -70,6 +76,21 @@ function readOptional(
   return undefined;
 }
 
+/**
+ * A switch a build can throw, read the same two ways everything else is.
+ *
+ * Only "1" and "true" turn it on: an environment variable is a string, so any
+ * other spelling - including "false" and "0" - is treated as off rather than as
+ * a non-empty and therefore truthy value.
+ */
+function readFlag(fromEnvironment: string | undefined, manifestKey: string): boolean {
+  const value = fromEnvironment ?? Constants.expoConfig?.extra?.[manifestKey];
+  if (typeof value === "boolean") {
+    return value;
+  }
+  return value === "1" || value === "true";
+}
+
 export function loadAppConfig(): AppConfig {
   return {
     apiBaseUrl: readApiBaseUrl(),
@@ -81,5 +102,6 @@ export function loadAppConfig(): AppConfig {
     // A DSN is a public identifier like a client ID, so it travels the same
     // two ways and is never a secret in the repository.
     sentryDsn: readOptional(process.env.EXPO_PUBLIC_SENTRY_DSN, "sentryDsn"),
+    simulateMovement: readFlag(process.env.EXPO_PUBLIC_SIMULATE_MOVEMENT, "simulateMovement"),
   };
 }
