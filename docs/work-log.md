@@ -2488,16 +2488,21 @@ This is the same account and hardware blocker as issues 3, 27, and 28, and issue
 
 "Sign-in, sign-out, and session expiry are exercised on a device" cannot be met
 here. Apple's sheet and Google's activity need a development build on hardware,
-and that needs the accounts issue 27 already handed back, plus two more things:
-an Apple Sign In capability on the App ID for `com.betterwakeup.app`, and a
-Google Cloud OAuth client giving a web client ID, an iOS client ID, and the
-reversed iOS client ID for `EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME`.
+and that needs the accounts issue 27 already handed back, plus an Apple Sign In
+capability on the App ID for `com.betterwakeup.app`.
 
-Until the Google client IDs exist, the app hides the Google button and
-`app.config.ts` leaves out its config plugin, so a build without them is coherent
-rather than broken. Everything above `ProviderSignIn` is covered by tests; the
-two SDK wrappers are the only code a device build would exercise for the first
-time.
+The Google half is no longer blocked. The Cloud project exists, and its web and
+iOS client IDs are now in `app.json`'s `extra` and in `infra/src/audiences.ts`,
+which is what puts `GOOGLE_AUDIENCES` and `APPLE_AUDIENCES` into the function's
+environment. The reversed iOS client ID is derived from the iOS one rather than
+written out again, so `EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME` is now an override
+rather than a requirement, and `infra/test/audiences.test.ts` reads `app.json`
+and fails if the app's clients and the server's audiences ever disagree. The
+Android client is still absent: it needs the keystore fingerprint EAS prints on
+the first Android build.
+
+Everything above `ProviderSignIn` is covered by tests; the two SDK wrappers are
+the only code a device build would exercise for the first time.
 
 ### Issue 27: the app on real hardware
 

@@ -14,6 +14,13 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
 import type { Construct } from "constructs";
 import { OperationalAlarms } from "./alarms.ts";
+import {
+  APPLE_AUDIENCE_VARIABLE,
+  APPLE_AUDIENCES,
+  audienceList,
+  GOOGLE_AUDIENCE_VARIABLE,
+  GOOGLE_AUDIENCES,
+} from "./audiences.ts";
 import { CostBudget } from "./budget.ts";
 import type { StackConfiguration } from "./config.ts";
 import { LAMBDA_RESERVED_CONCURRENCY } from "./index.ts";
@@ -105,6 +112,10 @@ export class ApiStack extends Stack {
         STAGE: configuration.stage,
         NODE_OPTIONS: "--enable-source-maps",
         [SECRET_PREFIX_VARIABLE]: this.secrets.prefix,
+        // Public client identifiers, and a check rather than a grant: they say
+        // which tokens are ours, and the server refuses to start without them.
+        [APPLE_AUDIENCE_VARIABLE]: audienceList(APPLE_AUDIENCES),
+        [GOOGLE_AUDIENCE_VARIABLE]: audienceList(GOOGLE_AUDIENCES),
       },
     });
 

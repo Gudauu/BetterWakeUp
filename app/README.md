@@ -47,16 +47,24 @@ back" in `docs/work-log.md`.
 
 ## Build configuration
 
-`app.json` holds everything static. `app.config.ts` adds what depends on the
-build, which today is Google's config plugin, included only when
-`EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME` names a reversed iOS client ID.
+`app.json` holds everything static, including the Google client IDs, which are
+public identifiers rather than secrets. `app.config.ts` adds what depends on
+the build, which today is Google's config plugin, included only when a reversed
+iOS client ID is available. That scheme is derived from `extra.googleIosClientId`
+rather than written out again, so there is one copy of the identifier and no
+hand-flipped second one to drift; `EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME` still
+overrides it for a build pointed at another Google project.
+
+The server has to accept the same client IDs as audiences. Those live in
+`infra/src/audiences.ts`, and `infra/test/audiences.test.ts` reads `app.json`
+and fails if the two lists ever disagree.
 
 | Variable | Effect when absent |
 | --- | --- |
 | `EXPO_PUBLIC_API_BASE_URL` | falls back to `extra.apiBaseUrl` in `app.json` |
-| `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` | Google Sign-In reports itself unavailable and its button is not shown |
-| `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` | Google Sign-In falls back to the web client ID on iOS |
-| `EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME` | Google's config plugin is left out of the build |
+| `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` | falls back to `extra.googleWebClientId` in `app.json` |
+| `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` | falls back to `extra.googleIosClientId` in `app.json` |
+| `EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME` | derived from `extra.googleIosClientId`; the plugin is left out only if that is absent too |
 | `EXPO_PUBLIC_SENTRY_DSN` | crash and synchronization reporting is inactive and the SDK is never initialized |
 
 Working rules for this package are under "The mobile app" in

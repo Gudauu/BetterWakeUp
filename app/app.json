@@ -21,7 +21,9 @@
     },
     "plugins": ["expo-router", "expo-status-bar", "expo-secure-store", "expo-apple-authentication"],
     "extra": {
-      "apiBaseUrl": "http://localhost:3000"
+      "apiBaseUrl": "http://localhost:3000",
+      "googleWebClientId": "879900379164-ho5rifv7vlriov7vmoen4tq8h219ejol.apps.googleusercontent.com",
+      "googleIosClientId": "879900379164-qk8t2idvljam7sss22emvakgntl6fqva.apps.googleusercontent.com"
     }
   }
 }

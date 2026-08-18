@@ -81,3 +81,10 @@ override.tf.json
 
 # temp files
 gnhf
+
+# Personal reference notes, never committed
+*.local.md
+
+# Provider credential downloads. The client IDs inside are public and are
+# checked in where they belong; the OAuth client secret beside them is not.
+credentials/
