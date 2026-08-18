@@ -6,7 +6,9 @@
  * this handler is built around records every request it is asked to route.
  */
 
+import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AppEnv } from "../src/http/app.ts";
 import { isHttpEvent, isScheduledEvent } from "../src/lambda/events.ts";
 import { createHandler } from "../src/lambda/handler.ts";
 import type { Logger } from "../src/observability/logger.ts";
@@ -119,6 +121,18 @@ describe("the Lambda handler", () => {
       errorClassification: "internal",
       invocation: "scheduled",
     });
+  });
+
+  it("uses the composed HTTP application supplied by the deployed runtime", async () => {
+    const app = new Hono<AppEnv>();
+    app.get("/composed", (context) => context.json({ mounted: true }));
+
+    const response = (await createHandler({ app })(
+      functionUrlEvent({ method: "GET", path: "/composed" }),
+    )) as { statusCode: number; body: string };
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({ mounted: true });
   });
 
   it("routes an HTTP event through Hono and answers with the error model", async () => {

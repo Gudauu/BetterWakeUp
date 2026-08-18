@@ -8,17 +8,19 @@
 
 import type { LambdaEvent } from "hono/aws-lambda";
 import { handle } from "hono/aws-lambda";
-import { createApp } from "../http/app.ts";
+import { type App, createApp } from "../http/app.ts";
 import { createLogger } from "../observability/logger.ts";
 import { type SweepRunner, unconfiguredSweep } from "../sweep/run-sweep.ts";
 import { isHttpEvent, isScheduledEvent } from "./events.ts";
 
-interface LambdaContext {
+export interface LambdaContext {
   readonly awsRequestId?: string;
 }
 
 export interface CreateHandlerOptions {
   readonly logger?: ReturnType<typeof createLogger>;
+  /** A fully composed HTTP application. Tests and the deployed runtime supply one. */
+  readonly app?: App;
   /**
    * What a scheduled event is answered by.
    *
@@ -33,7 +35,7 @@ export interface CreateHandlerOptions {
 export function createHandler(options: CreateHandlerOptions = {}) {
   const logger = options.logger ?? createLogger();
   const sweep = options.sweep ?? unconfiguredSweep;
-  const httpHandler = handle(createApp({ logger }));
+  const httpHandler = handle(options.app ?? createApp({ logger }));
 
   return async (event: unknown, context?: LambdaContext): Promise<unknown> => {
     const requestId = context?.awsRequestId;
@@ -54,5 +56,8 @@ export function createHandler(options: CreateHandlerOptions = {}) {
   };
 }
 
-/** The handler AWS invokes. */
-export const handler = createHandler();
+/**
+ * The skeleton remains useful to tests and local probes. The deployed export
+ * lives in `runtime.ts`, where asynchronous SSM and database setup can finish
+ * before an invocation is dispatched.
+ */
