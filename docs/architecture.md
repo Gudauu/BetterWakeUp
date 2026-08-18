@@ -819,7 +819,7 @@ Use automated interface tests only for critical challenge setup, completion, pau
 - Rate-limit session, completion, pause, and payment endpoints with counters in PostgreSQL, since there is no gateway layer doing it.
   In-process counters would not work: Lambda instances share no memory, so each one would enforce its own limit and concurrency would multiply the ceiling.
   Client-side throttling is not a substitute either, because an abusive caller does not run our client. It is still worth having as backoff, which is a different problem.
-- Set reserved concurrency on the Lambda as a cost ceiling that holds even if the counters are bypassed.
+- Set reserved concurrency on the production Lambda as a cost ceiling that holds even if the counters are bypassed. Development leaves it unset so a fresh AWS account with a ten-execution account quota can deploy; that account quota is already the development ceiling.
 - Request only movement permissions required by the selected verification method.
 - Do not request location merely to infer a time zone.
 - Store normalized movement summaries rather than raw sensor or location history.

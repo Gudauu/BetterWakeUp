@@ -103,7 +103,13 @@ export class ApiStack extends Stack {
       timeout: LAMBDA_TIMEOUT,
       // The cost ceiling of issue 15, which holds where the database counters
       // do not. It is also a floor, so this function cannot be starved.
-      reservedConcurrentExecutions: LAMBDA_RESERVED_CONCURRENCY,
+      // Fresh AWS accounts can have an account-wide concurrency quota of ten.
+      // Reserving all ten is rejected because Lambda must retain ten unreserved
+      // executions. Development already inherits that account-wide ceiling;
+      // production gets the explicit per-function limit.
+      ...(configuration.stage === "prod"
+        ? { reservedConcurrentExecutions: LAMBDA_RESERVED_CONCURRENCY }
+        : {}),
       logGroup: this.logGroup,
       // Every value here is a routing or reporting decision. Nothing that
       // grants access appears in this map, and a test runs the synthesized map

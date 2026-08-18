@@ -45,10 +45,18 @@ describe("the API stack", () => {
     });
   });
 
-  it("caps concurrency, so the bill is bounded even where a counter is not", () => {
-    synthesize().hasResourceProperties("AWS::Lambda::Function", {
-      ReservedConcurrentExecutions: LAMBDA_RESERVED_CONCURRENCY,
-    });
+  it("uses the fresh account's concurrency ceiling in development", () => {
+    const functions = synthesize().findResources("AWS::Lambda::Function");
+    for (const resource of Object.values(functions)) {
+      expect(resource.Properties?.ReservedConcurrentExecutions).toBeUndefined();
+    }
+  });
+
+  it("caps production concurrency even where a rate-limit counter is bypassed", () => {
+    synthesize({ stage: "prod", alertEmail: "alerts@example.com" }).hasResourceProperties(
+      "AWS::Lambda::Function",
+      { ReservedConcurrentExecutions: LAMBDA_RESERVED_CONCURRENCY },
+    );
   });
 
   it("puts the function in no VPC, because Neon is reached publicly", () => {
