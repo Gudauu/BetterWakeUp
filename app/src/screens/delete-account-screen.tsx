@@ -13,6 +13,7 @@ import { ScrollView, StyleSheet, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { ApiClient } from "../api/client.ts";
 import { deleteAccount, deletionBlocker } from "../challenges/lifecycle-commands.ts";
+import { BackLink } from "./back-link.tsx";
 import { ConfirmAction } from "./confirm-action.tsx";
 
 export interface DeleteAccountScreenProps {
@@ -20,6 +21,8 @@ export interface DeleteAccountScreenProps {
   /** The account's current challenge, or null when it holds none. */
   readonly challenge: ChallengeView | null;
   readonly onDeleted?: () => void;
+  /** Offered as a way back when a caller put this screen on top of another. */
+  readonly onBack?: () => void;
 }
 
 export const DELETION_PERMANENCE =
@@ -53,6 +56,7 @@ export function DeleteAccountScreen(props: DeleteAccountScreenProps) {
       testID="delete-account-screen"
       contentContainerStyle={[styles.container, { paddingTop: insets.top }]}
     >
+      <BackLink testID="delete-back" onBack={props.onBack} />
       <Text style={styles.title} accessibilityRole="header">
         Delete your account
       </Text>

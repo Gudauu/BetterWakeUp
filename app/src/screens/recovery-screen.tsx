@@ -15,6 +15,7 @@ import { Pressable, ScrollView, StyleSheet, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { ApiClient } from "../api/client.ts";
 import { acceptRecovery } from "../challenges/lifecycle-commands.ts";
+import { BackLink } from "./back-link.tsx";
 import { ConfirmAction } from "./confirm-action.tsx";
 
 export interface RecoveryScreenProps {
@@ -24,6 +25,8 @@ export interface RecoveryScreenProps {
   readonly onAccepted?: (challenge: ChallengeView) => void;
   /** Called when the user chooses to keep the allowance and let the deposit settle. */
   readonly onDeclined?: () => void;
+  /** Offered as a way back when a caller put this screen on top of another. */
+  readonly onBack?: () => void;
 }
 
 export const RECOVERY_PERMANENCE =
@@ -64,6 +67,7 @@ export function RecoveryScreen(props: RecoveryScreenProps) {
         testID="recovery-screen"
         contentContainerStyle={[styles.container, { paddingTop: insets.top }]}
       >
+        <BackLink testID="recovery-back" onBack={props.onBack} />
         <Text style={styles.title} accessibilityRole="header">
           No recovery offer
         </Text>
@@ -77,6 +81,7 @@ export function RecoveryScreen(props: RecoveryScreenProps) {
       testID="recovery-screen"
       contentContainerStyle={[styles.container, { paddingTop: insets.top }]}
     >
+      <BackLink testID="recovery-back" onBack={props.onBack} />
       <Text style={styles.title} accessibilityRole="header">
         Spend your one Emergency Recovery?
       </Text>

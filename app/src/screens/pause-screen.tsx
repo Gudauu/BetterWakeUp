@@ -19,6 +19,7 @@ import {
   resumeChallenge,
 } from "../challenges/lifecycle-commands.ts";
 import { pauseExpirySentence, pausePresentation } from "../challenges/pause.ts";
+import { BackLink } from "./back-link.tsx";
 import { ConfirmAction } from "./confirm-action.tsx";
 
 export interface PauseScreenProps {
@@ -28,6 +29,8 @@ export interface PauseScreenProps {
   readonly now?: () => Date;
   /** Called with the challenge the command returned, so the caller can re-read it. */
   readonly onChanged?: (challenge: ChallengeView) => void;
+  /** Offered as a way back when a caller put this screen on top of another. */
+  readonly onBack?: () => void;
 }
 
 export function PauseScreen(props: PauseScreenProps) {
@@ -71,6 +74,8 @@ export function PauseScreen(props: PauseScreenProps) {
       testID="pause-screen"
       contentContainerStyle={[styles.container, { paddingTop: insets.top }]}
     >
+      <BackLink testID="pause-back" onBack={props.onBack} />
+
       <Text style={styles.title} accessibilityRole="header" testID="pause-status">
         {view.running ? "Your challenge is running" : "Your challenge is paused"}
       </Text>

@@ -11,7 +11,14 @@ import { ApiError } from "../src/api/errors.ts";
 import { HomeScreen } from "../src/screens/home-screen.tsx";
 import { SessionProvider } from "../src/session/session-context.tsx";
 import { createMemorySessionStore } from "../src/session/session-store.ts";
-import { challengeView, type FakeApi, fakeApi, taskView } from "./support/fake-api.ts";
+import {
+  challengeView,
+  type FakeApi,
+  fakeApi,
+  PAUSE_EXPIRES_AT,
+  PAUSED_AT,
+  taskView,
+} from "./support/fake-api.ts";
 import {
   type FakeCompletionRuntime,
   fakeCompletionRuntimeFactory,
@@ -262,6 +269,162 @@ describe("home is the door to today's task", () => {
     screen.unmount();
 
     await waitFor(() => expect(runtime.disposals()).toBe(1));
+  });
+});
+
+describe("home is the door to pausing", () => {
+  it("opens the pause screen for a running challenge", async () => {
+    await renderHome(fakeApi({ getCurrentChallenge: { challenge: challengeView() } }));
+    await userEvent.press(await screen.findByTestId("home-open-pause"));
+
+    expect(await screen.findByTestId("pause-screen")).toBeOnTheScreen();
+    expect(screen.getByTestId("pause-status")).toHaveTextContent("Your challenge is running");
+  });
+
+  it("names the action for what it does to a paused challenge", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: challengeView({ pause: { pausedAt: PAUSED_AT, expiresAt: PAUSE_EXPIRES_AT } }),
+        },
+      }),
+    );
+
+    expect(await screen.findByTestId("home-open-pause")).toHaveTextContent("Resume the challenge");
+  });
+
+  it("offers no pause for a challenge that has already ended", async () => {
+    // Pausing a finished challenge is a press the server refuses, so it is not
+    // offered rather than offered and rejected.
+    await renderHome(
+      fakeApi({ getCurrentChallenge: { challenge: challengeView({ status: "succeeded" }) } }),
+    );
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-open-pause")).toBeNull();
+  });
+
+  it("comes back and re-reads the challenge once a pause went through", async () => {
+    const api = fakeApi({ getCurrentChallenge: { challenge: challengeView() } });
+
+    await renderHome(api);
+    await userEvent.press(await screen.findByTestId("home-open-pause"));
+    const before = api.names().filter((name) => name === "getCurrentChallenge").length;
+
+    await userEvent.press(screen.getByTestId("pause"));
+    await userEvent.press(await screen.findByTestId("pause-confirm"));
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(api.names()).toContain("pauseChallenge");
+    expect(api.names().filter((name) => name === "getCurrentChallenge").length).toBe(before + 1);
+  });
+
+  it("comes back without asking again when the screen is only left", async () => {
+    const api = fakeApi({ getCurrentChallenge: { challenge: challengeView() } });
+
+    await renderHome(api);
+    await userEvent.press(await screen.findByTestId("home-open-pause"));
+    const before = api.names().filter((name) => name === "getCurrentChallenge").length;
+
+    await userEvent.press(screen.getByTestId("pause-back"));
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(api.names()).not.toContain("pauseChallenge");
+    expect(api.names().filter((name) => name === "getCurrentChallenge").length).toBe(before);
+  });
+});
+
+describe("home is the door to the recovery offer", () => {
+  const OFFERED = challengeView({
+    status: "recovery_pending",
+    recoveryOffer: {
+      taskId: "44444444-4444-4444-8444-444444444444",
+      offeredAt: "2026-09-01T15:00:00.000Z",
+      expiresAt: "2026-09-02T15:00:00.000Z",
+    },
+  });
+
+  it("opens the decision from the alert that raised it", async () => {
+    await renderHome(fakeApi({ getCurrentChallenge: { challenge: OFFERED } }));
+    await userEvent.press(await screen.findByTestId("home-open-recovery"));
+
+    expect(await screen.findByTestId("recovery-screen")).toBeOnTheScreen();
+    expect(screen.getByTestId("recovery-permanence")).toBeOnTheScreen();
+  });
+
+  it("offers no way in when nothing is waiting on a decision", async () => {
+    await renderHome(fakeApi({ getCurrentChallenge: { challenge: challengeView() } }));
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-open-recovery")).toBeNull();
+  });
+
+  it("comes back and re-reads the challenge once the recovery was spent", async () => {
+    const api = fakeApi({ getCurrentChallenge: { challenge: OFFERED } });
+
+    await renderHome(api);
+    await userEvent.press(await screen.findByTestId("home-open-recovery"));
+    const before = api.names().filter((name) => name === "getCurrentChallenge").length;
+
+    await userEvent.press(screen.getByTestId("accept-recovery"));
+    await userEvent.press(await screen.findByTestId("accept-recovery-confirm"));
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(api.names()).toContain("acceptRecovery");
+    expect(api.names().filter((name) => name === "getCurrentChallenge").length).toBe(before + 1);
+  });
+
+  it("comes back spending nothing when the allowance is kept", async () => {
+    const api = fakeApi({ getCurrentChallenge: { challenge: OFFERED } });
+
+    await renderHome(api);
+    await userEvent.press(await screen.findByTestId("home-open-recovery"));
+    await userEvent.press(screen.getByTestId("decline-recovery"));
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(api.names()).not.toContain("acceptRecovery");
+  });
+});
+
+describe("home is the door to deleting the account", () => {
+  it("is reachable for an account holding no challenge", async () => {
+    // The App Store requires deletion from inside the app, and an account with
+    // nothing running is exactly the one most likely to want it.
+    await renderHome(fakeApi({ getCurrentChallenge: { challenge: null } }));
+    await userEvent.press(await screen.findByTestId("home-delete-account"));
+
+    expect(await screen.findByTestId("delete-account-screen")).toBeOnTheScreen();
+    expect(screen.getByTestId("delete-account")).toBeOnTheScreen();
+  });
+
+  it("hands the screen the live challenge, so a funded one blocks deletion", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: challengeView({
+            configuration: {
+              ...challengeView().configuration,
+              deposit: { amount: 5000, currency: "USD" },
+            },
+          }),
+        },
+      }),
+    );
+    await userEvent.press(await screen.findByTestId("home-delete-account"));
+
+    expect(await screen.findByTestId("deletion-blocked")).toBeOnTheScreen();
+    expect(screen.queryByTestId("delete-account")).toBeNull();
+  });
+
+  it("comes back to home when the screen is left", async () => {
+    const api = fakeApi({ getCurrentChallenge: { challenge: null } });
+
+    await renderHome(api);
+    await userEvent.press(await screen.findByTestId("home-delete-account"));
+    await userEvent.press(screen.getByTestId("delete-back"));
+
+    expect(await screen.findByTestId("home-no-challenge")).toBeOnTheScreen();
+    expect(api.names()).not.toContain("deleteAccount");
   });
 });
 

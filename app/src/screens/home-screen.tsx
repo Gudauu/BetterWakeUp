@@ -26,6 +26,9 @@ import {
 import { useSession } from "../session/session-context.tsx";
 import { CreateChallengeScreen } from "./create-challenge-screen.tsx";
 import { DailyCompletionScreen } from "./daily-completion-screen.tsx";
+import { DeleteAccountScreen } from "./delete-account-screen.tsx";
+import { PauseScreen } from "./pause-screen.tsx";
+import { RecoveryScreen } from "./recovery-screen.tsx";
 
 export interface HomeScreenProps {
   readonly onSignOut?: () => void;
@@ -36,6 +39,13 @@ export interface HomeScreenProps {
    */
   readonly createRuntime?: CompletionRuntimeFactory;
 }
+
+/**
+ * Where the user is. Home is a stack one screen deep: everything it opens
+ * returns here, and nothing opens anything else, so one name is the whole of
+ * the navigation state. A router arrives when a screen needs to open a third.
+ */
+type Route = "home" | "create" | "task" | "pause" | "recovery" | "delete";
 
 /**
  * The headline states, worded as the user's situation rather than as the
@@ -51,26 +61,32 @@ const STATUS_HEADLINE: Readonly<Record<ChallengeStatus, string>> = {
 };
 
 export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
-  const { api } = useSession();
+  const { api, signOut } = useSession();
   const insets = useSafeAreaInsets();
   const { state, reload } = useCurrentChallenge(api);
-  const [creating, setCreating] = useState(false);
-  const [viewingTask, setViewingTask] = useState(false);
+  const [route, setRoute] = useState<Route>("home");
+  // The way back from everything home opens. A command that changed the
+  // challenge reads it again from here rather than while its screen is still
+  // up: `reload` puts home into its loading state, which would pull that screen
+  // out from under the user mid-use.
+  const goHome = (changed: boolean) => {
+    setRoute("home");
+    if (changed) {
+      reload();
+    }
+  };
   // Held for as long as home is on screen rather than only while the task is
   // open: opening it is what sends a completion recorded on a day with no
   // network, and that must not wait for the user to tap anything.
   const runtime = useCompletionRuntime(api, createRuntime ?? createNativeCompletionRuntime);
 
-  if (creating) {
+  if (route === "create") {
     return (
       <CreateChallengeScreen
-        onCancel={() => setCreating(false)}
-        onCreated={() => {
-          // The server is the record of what exists, so the new challenge is
-          // read back rather than trusted from the response the form held.
-          setCreating(false);
-          reload();
-        }}
+        onCancel={() => goHome(false)}
+        // The server is the record of what exists, so the new challenge is read
+        // back rather than trusted from the response the form held.
+        onCreated={() => goHome(true)}
       />
     );
   }
@@ -96,20 +112,48 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
     );
   }
 
-  if (viewingTask && state.challenge !== null) {
+  if (route === "delete") {
     return (
-      <TodayTask
+      <DeleteAccountScreen
+        api={api}
         challenge={state.challenge}
-        runtime={runtime}
-        onBack={() => {
-          // Read back on the way out rather than on every acknowledgement: a
-          // reload while the task is open would put home's loading state over
-          // the screen the user is still working in.
-          setViewingTask(false);
-          reload();
-        }}
+        onBack={() => goHome(false)}
+        // Nothing is left to read: the account this screen was reading is gone,
+        // so the only honest next screen is the signed-out one.
+        onDeleted={() => void signOut()}
       />
     );
+  }
+
+  if (state.challenge !== null) {
+    if (route === "task") {
+      return (
+        <TodayTask challenge={state.challenge} runtime={runtime} onBack={() => goHome(true)} />
+      );
+    }
+    if (route === "pause") {
+      return (
+        <PauseScreen
+          api={api}
+          challenge={state.challenge}
+          onBack={() => goHome(false)}
+          onChanged={() => goHome(true)}
+        />
+      );
+    }
+    if (route === "recovery") {
+      return (
+        <RecoveryScreen
+          api={api}
+          challenge={state.challenge}
+          onBack={() => goHome(false)}
+          onAccepted={() => goHome(true)}
+          // Declining spends nothing and changes nothing at the server, so
+          // there is nothing to read back.
+          onDeclined={() => goHome(false)}
+        />
+      );
+    }
   }
 
   return (
@@ -128,11 +172,16 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
           <Action
             testID="home-create-challenge"
             label="Start a challenge"
-            onPress={() => setCreating(true)}
+            onPress={() => setRoute("create")}
           />
         </View>
       ) : (
-        <ChallengeCard challenge={state.challenge} onOpenTask={() => setViewingTask(true)} />
+        <ChallengeCard
+          challenge={state.challenge}
+          onOpenTask={() => setRoute("task")}
+          onOpenPause={() => setRoute("pause")}
+          onOpenRecovery={() => setRoute("recovery")}
+        />
       )}
 
       <Pressable accessibilityRole="button" testID="home-refresh" onPress={reload}>
@@ -140,6 +189,16 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
       </Pressable>
 
       <SignOut onSignOut={onSignOut} />
+
+      {/* Deletion is account-level rather than challenge-level, so it sits
+          outside the card and stays reachable for an account holding none. */}
+      <Pressable
+        accessibilityRole="button"
+        testID="home-delete-account"
+        onPress={() => setRoute("delete")}
+      >
+        <Text style={styles.dangerLabel}>Delete account</Text>
+      </Pressable>
     </ScrollView>
   );
 }
@@ -147,9 +206,13 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
 function ChallengeCard({
   challenge,
   onOpenTask,
+  onOpenPause,
+  onOpenRecovery,
 }: {
   challenge: ChallengeView;
   onOpenTask: () => void;
+  onOpenPause: () => void;
+  onOpenRecovery: () => void;
 }) {
   const paused = challenge.pause.pausedAt !== null;
   const { progress, configuration, currentTask } = challenge;
@@ -205,11 +268,28 @@ function ChallengeCard({
       )}
 
       {challenge.recoveryOffer === null ? null : (
-        <Text style={styles.warning} testID="home-recovery-offer" accessibilityRole="alert">
-          You missed a day. Your one Emergency Recovery can forgive it until{" "}
-          {formatDeadline(challenge.recoveryOffer.expiresAt, configuration.timeZone)}.
-        </Text>
+        <View style={styles.taskRow} testID="home-recovery-offer">
+          <Text style={styles.warning} accessibilityRole="alert">
+            You missed a day. Your one Emergency Recovery can forgive it until{" "}
+            {formatDeadline(challenge.recoveryOffer.expiresAt, configuration.timeZone)}.
+          </Text>
+          <Action
+            testID="home-open-recovery"
+            label="Decide on your recovery"
+            onPress={onOpenRecovery}
+          />
+        </View>
       )}
+
+      {/* Pausing belongs to a challenge that can still run. A finished one has
+          nothing to pause, and offering it would be a press the server refuses. */}
+      {challenge.status === "active" ? (
+        <Pressable accessibilityRole="button" testID="home-open-pause" onPress={onOpenPause}>
+          <Text style={styles.secondaryLabel}>
+            {paused ? "Resume the challenge" : "Pause the challenge"}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -377,4 +457,5 @@ const styles = StyleSheet.create({
   },
   buttonLabel: { color: "#ffffff", fontSize: 16, fontWeight: "600" },
   secondaryLabel: { fontSize: 15, opacity: 0.7, textAlign: "center" },
+  dangerLabel: { fontSize: 15, color: "#b00020", textAlign: "center", opacity: 0.8 },
 });
