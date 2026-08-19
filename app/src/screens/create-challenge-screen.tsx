@@ -49,6 +49,7 @@ import {
   readinessOf,
   WEEKDAY_ORDER,
 } from "../challenges/draft.ts";
+import { firstMorningReading } from "../challenges/first-morning.ts";
 import {
   awaitFundedChallenge,
   type FundedChallengeOutcome,
@@ -265,6 +266,17 @@ export function CreateChallengeScreen({
   // waits for a projection before it is offered on a funded challenge.
   const withinDuration = !funded || projection?.withinMaximumDuration === true;
   const applicable = disclosuresFor(draft.depositMinorUnits);
+  // The one number the summary was missing: the time the first morning is
+  // actually due, and how soon that is from the moment being read.
+  const firstMorning =
+    projection === null
+      ? null
+      : firstMorningReading({
+          projection,
+          timeZone: draft.timeZone,
+          noRegretMinutes: draft.noRegretMinutes,
+          now: clock,
+        });
 
   // The projection is asked for again whenever the configuration changes, and
   // only then: acknowledging a disclosure or confirming the time zone changes
@@ -773,13 +785,44 @@ export function CreateChallengeScreen({
               value={scheduleSentence(draft.schedule)}
               testID="projection-schedule"
             />
-            <DetailRow label="First morning" value={formatDay(projection.firstTaskDate)} />
+            <DetailRow
+              label="First morning"
+              value={firstMorning?.due ?? formatDay(projection.firstTaskDate)}
+              testID="projection-first-morning"
+            />
+            {/* How soon that is, which is what turns a date into a decision. */}
+            {firstMorning === null ? null : (
+              <AppText
+                variant="small"
+                tone={firstMorning.urgency === "ample" ? "muted" : "warning"}
+                testID="projection-first-countdown"
+              >
+                {firstMorning.countdown}
+              </AppText>
+            )}
             <DetailRow label="Projected end" value={formatDay(projection.projectedEndDate)} />
             <DetailRow
               label="At stake"
               value={funded ? formatMoney(draft.depositMinorUnits) : "Nothing but the habit"}
             />
           </View>
+        )}
+        {/* A first deadline too close for the phone to wake anybody, or a plan
+            the schedule engine would no longer make. Neither corrects itself:
+            the projection is only re-asked when the configuration changes. */}
+        {firstMorning?.caution == null ? null : (
+          <Banner
+            tone={firstMorning.urgency === "stale" ? "danger" : "warning"}
+            testID="projection-first-caution"
+          >
+            <AppText
+              variant="small"
+              tone={firstMorning.urgency === "stale" ? "danger" : "warning"}
+              accessibilityRole="alert"
+            >
+              {firstMorning.caution}
+            </AppText>
+          </Banner>
         )}
         {funded && projection !== null && !projection.withinMaximumDuration ? (
           <Banner tone="danger" testID="maximum-duration">

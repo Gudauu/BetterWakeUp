@@ -43,6 +43,13 @@ const METRICS = {
 
 const ZONE = "America/Los_Angeles";
 
+/**
+ * Fourteen hours before the fixture projection's first deadline, so what the
+ * plan summary says about the first morning is a fact of the suite rather than
+ * of the day it is run on.
+ */
+const NOW = new Date("2026-09-01T00:00:00.000Z");
+
 function draftWith(overrides: Partial<ChallengeDraft> = {}): ChallengeDraft {
   return { ...createDraft(ZONE), ...overrides };
 }
@@ -84,7 +91,7 @@ async function renderScreen(
           paymentSheet={paymentSheet}
           movementDevice={movementDevice}
           settings={settings}
-          {...(outcome.now === undefined ? {} : { now: outcome.now })}
+          now={outcome.now ?? (() => NOW)}
           {...(outcome.onCreated === undefined ? {} : { onCreated: outcome.onCreated })}
         />
       </SessionProvider>
@@ -337,6 +344,54 @@ describe("what the screen shows about the plan", () => {
     expect(projection).toHaveTextContent(new RegExp(formatDay(PROJECTION.firstTaskDate)));
     // The dates the server speaks are never shown to the user as it speaks them.
     expect(projection).not.toHaveTextContent(new RegExp(PROJECTION.projectedEndDate));
+  });
+
+  it("names the time the first morning is due and how soon that is", async () => {
+    await renderScreen(readyDraft());
+
+    // 14:00Z read in the challenge's own zone, beside the day it falls on.
+    expect(screen.getByTestId("projection-first-morning")).toHaveTextContent(/7:00/);
+    expect(screen.getByTestId("projection-first-countdown")).toHaveTextContent(
+      /That is 14 hours from now/,
+    );
+    expect(screen.queryByTestId("projection-first-caution")).toBeNull();
+  });
+
+  it("warns when the first deadline is too close for the phone to wake anyone", async () => {
+    await renderScreen(
+      { ...readyDraft(), noRegretMinutes: 0 },
+      fakeApi(),
+      fakePaymentSheet(),
+      createFakePedometer(),
+      fakeSettings(),
+      true,
+      { now: () => new Date("2026-09-01T13:30:00.000Z") },
+    );
+
+    expect(screen.getByTestId("projection-first-caution")).toHaveTextContent(
+      /nothing will wake you for it/,
+    );
+  });
+
+  it("warns that the plan has gone stale once its first cutoff has passed", async () => {
+    // The draft's own No Regret Time is eight hours, so an hour before the
+    // deadline the schedule engine would already have moved to the next morning.
+    await renderScreen(
+      readyDraft(),
+      fakeApi(),
+      fakePaymentSheet(),
+      createFakePedometer(),
+      fakeSettings(),
+      true,
+      { now: () => new Date("2026-09-01T13:00:00.000Z") },
+    );
+
+    expect(screen.getByTestId("projection-first-caution")).toHaveTextContent(
+      /inside your No Regret Time/,
+    );
+    expect(screen.getByTestId("projection-first-countdown")).toHaveTextContent(
+      /only 1 hour from now/,
+    );
   });
 
   it("reads the mornings back as the arrangement they add up to", async () => {

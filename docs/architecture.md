@@ -840,6 +840,20 @@ Unavailable names the failure, separates no connection from a server that answer
 What the failure costs is stated with it, because it differs by deposit.
 An unfunded challenge starts without an end date and only loses the summary; a funded one cannot be deposited against until the projection lands, and the not-ready banner says so in the same words rather than going quiet.
 
+### How soon the first morning is
+
+The projection carries `firstTaskDeadline` for the reason its own contract comment gives - "so the app can show a real time" - and the summary drew the plain date beside it and dropped the instant.
+"First morning: Tuesday, September 1" reads exactly the same whether the deadline is fourteen hours away or twenty minutes away, and those are opposite decisions about whether to press Start.
+
+`app/src/challenges/first-morning.ts` reads that instant against the clock the screen already holds, and answers three things: the morning as the day and the time it is due in the challenge's own zone, how far off that is, and the one thing worth saying before the press.
+
+Two cases are worth saying something about.
+Inside `ALARM_LEAD_MINUTES` the phone has no time left to set the alarm it would otherwise set, so the challenge would begin with a morning nothing but the user's own attention can meet; the boundary is the alarm's own lead here for the same reason it is everywhere else in the app.
+Inside the No Regret cutoff the plan on screen has stopped describing what the server would make at all: the schedule engine takes the first morning whose cutoff is still ahead, so it would start the challenge on the next morning the schedule holds and both the first date and the end date would move.
+That second case cannot correct itself, because the projection is only re-asked when the configuration changes and nothing about sitting on the form changes it - the same reason the failed read above needed a press of its own.
+
+The reading is null when the instant cannot be read, and the summary keeps the plain date it always had: a countdown to nothing is worse than a date without a time.
+
 ### Whether this phone can sign in at all
 
 Both sign-in buttons depend on a native module answering a question asynchronously, and that question has three answers rather than two: the provider works here, it does not, or the check itself threw.
