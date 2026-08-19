@@ -342,6 +342,16 @@ interface MovementObservation {
 The server cannot audit a completion or enforce the foreground-only rule if it cannot distinguish movement observed while the app was open from movement backfilled out of the operating system's history.
 The API rejects any observation whose `provenance` is not `live-foreground` while that rule stands.
 
+#### The walk as the user experiences it
+
+The foreground-only rule is enforced by the capture and explained by `app/src/movement/walk-progress.ts`, which reads a `CaptureState` and answers the two things the capture does not state: whether the open window has already met the step target, and whether the last window closed without the user asking it to.
+
+Both exist because the capture answers an abandoned walk and a finished walk with the same `stopped` state.
+Without the second, a user who glanced at a message mid-walk came back to a screen offering to "Start moving", identical to the one they left, with the counted steps gone and nobody having said so.
+The screen now names what ended the walk and how many steps it cost, and the start button reads "Start the walk again".
+
+The first is the other half of the same rule: while a window is open the screen says how many steps are left and that leaving the app ends the walk, and the moment the target is met it says so and turns the button into "Save my walk", because the walk is earned at that step and every second after it is a second the window can still be lost.
+
 ### Pending completion store
 
 The app writes a pending completion to SQLite before displaying the local check.

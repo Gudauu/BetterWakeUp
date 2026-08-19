@@ -57,6 +57,7 @@ interface Harness {
   readonly sync: CompletionSync;
   readonly capture: MovementCapture;
   readonly pedometer: ReturnType<typeof createFakePedometer>;
+  readonly foreground: ReturnType<typeof createFakeForeground>;
 }
 
 async function harness(api: FakeApi = fakeApi({ createCompletion: COMPLETION_RESPONSE })) {
@@ -72,17 +73,19 @@ async function harness(api: FakeApi = fakeApi({ createCompletion: COMPLETION_RES
     now: () => NOW,
   });
   const pedometer = createFakePedometer();
+  const foreground = createFakeForeground();
   return {
     api,
     store,
     sync: createCompletionSync({ store, client: api }),
     capture: createMovementCapture({
       pedometer,
-      foreground: createFakeForeground(),
+      foreground,
       platform: "ios",
       now: () => NOW,
     }),
     pedometer,
+    foreground,
   } satisfies Harness;
 }
 
@@ -238,6 +241,90 @@ describe("what the screen says to do", () => {
       now: 100,
     });
     expect(screen.getByTestId("capture-steps")).toHaveTextContent("100 steps so far, target 250.");
+  });
+});
+
+describe("the walk itself", () => {
+  it("says the walk depends on the screen staying open, and how far there is to go", async () => {
+    const given = await harness();
+    await renderScreen(given);
+    const user = userEvent.setup();
+
+    await user.press(screen.getByTestId("start-capture"));
+    await act(async () => {
+      given.pedometer.deliver(100);
+    });
+
+    expect(screen.getByTestId("capture-hint")).toHaveTextContent(
+      /150 to go\. Keep this screen open - leaving the app ends the walk\./,
+    );
+  });
+
+  it("marks the target as reached and turns the button into saving it", async () => {
+    const given = await harness();
+    await renderScreen(given);
+    const user = userEvent.setup();
+
+    await user.press(screen.getByTestId("start-capture"));
+    await act(async () => {
+      given.pedometer.deliver(249);
+    });
+    expect(screen.getByTestId("capture")).toHaveTextContent(/WALK IN PROGRESS/);
+    expect(screen.getByTestId("stop-capture")).toHaveTextContent(/Stop and check/);
+
+    await act(async () => {
+      given.pedometer.deliver(250);
+    });
+
+    expect(screen.getByTestId("capture")).toHaveTextContent(/TARGET REACHED/);
+    expect(screen.getByTestId("capture-hint")).toHaveTextContent(
+      /That is the walk\. Save it and the morning is yours\./,
+    );
+    expect(screen.getByTestId("stop-capture")).toHaveTextContent(/Save my walk/);
+  });
+
+  it("explains a walk the app itself ended rather than offering a fresh start", async () => {
+    const given = await harness();
+    await renderScreen(given);
+    const user = userEvent.setup();
+
+    await user.press(screen.getByTestId("start-capture"));
+    await act(async () => {
+      given.pedometer.deliver(120);
+    });
+
+    // The user glances at a message. The capture rule closes the window, and
+    // without this the screen would look exactly as it did before they walked.
+    await act(async () => {
+      given.foreground.set(false);
+    });
+
+    await waitFor(() => expect(screen.queryByTestId("walk-interrupted")).not.toBeNull());
+    expect(screen.getByTestId("walk-interrupted")).toHaveTextContent(
+      /the 120 steps it had counted were not saved/,
+    );
+    expect(screen.getByTestId("start-capture")).toHaveTextContent(/Start the walk again/);
+    expect(screen.queryByTestId("capture")).toBeNull();
+  });
+
+  it("puts the explanation down once the walk is started again", async () => {
+    const given = await harness();
+    await renderScreen(given);
+    const user = userEvent.setup();
+
+    await user.press(screen.getByTestId("start-capture"));
+    await act(async () => {
+      given.foreground.set(false);
+    });
+    await waitFor(() => expect(screen.queryByTestId("walk-interrupted")).not.toBeNull());
+
+    await act(async () => {
+      given.foreground.set(true);
+    });
+    await user.press(screen.getByTestId("start-capture"));
+
+    expect(screen.queryByTestId("walk-interrupted")).toBeNull();
+    expect(screen.getByTestId("capture")).toBeTruthy();
   });
 });
 

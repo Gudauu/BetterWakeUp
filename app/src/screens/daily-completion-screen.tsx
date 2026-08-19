@@ -30,6 +30,7 @@ import type { PendingCompletionRecord, PendingCompletionStore } from "../complet
 import type { CompletionSync } from "../completions/sync.ts";
 import type { CaptureState, MovementCapture } from "../movement/capture.ts";
 import type { MovementSimulation } from "../movement/simulated-pedometer.ts";
+import { interruptionText, walkProgress } from "../movement/walk-progress.ts";
 import {
   AppText,
   Banner,
@@ -197,8 +198,9 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
     );
   }
 
-  const recording = captureState.status === "recording";
-  const steps = recording ? captureState.steps : 0;
+  const walk = walkProgress(captureState, target);
+  const recording = walk.recording;
+  const steps = walk.steps;
 
   return (
     <Screen testID="daily-completion">
@@ -299,12 +301,25 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
         </Banner>
       )}
 
+      {walk.interruption === null ? null : (
+        <Banner tone="danger">
+          <AppText
+            variant="small"
+            tone="danger"
+            testID="walk-interrupted"
+            accessibilityRole="alert"
+          >
+            {interruptionText(walk.interruption)}
+          </AppText>
+        </Banner>
+      )}
+
       {recording ? (
         <Card testID="capture">
-          <AppText variant="caption" tone="accent">
-            WALK IN PROGRESS
+          <AppText variant="caption" tone={walk.reachedTarget ? "success" : "accent"}>
+            {walk.reachedTarget ? "TARGET REACHED" : "WALK IN PROGRESS"}
           </AppText>
-          <AppText variant="display">
+          <AppText variant="display" tone={walk.reachedTarget ? "success" : "default"}>
             {steps}
             <AppText variant="headline" tone="muted">
               {" "}
@@ -315,12 +330,33 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
           <AppText variant="small" tone="muted" testID="capture-steps">
             {steps} steps so far, target {target}.
           </AppText>
-          <Button testID="stop-capture" label="Stop and check" busy={busy} onPress={onStop} />
+          {/* The one thing a walking user cannot guess: the window closes if
+              they leave, so the hint stands until the target makes it moot. */}
+          <AppText
+            variant="small"
+            tone={walk.reachedTarget ? "success" : "warning"}
+            testID="capture-hint"
+          >
+            {walk.reachedTarget
+              ? "That is the walk. Save it and the morning is yours."
+              : `${walk.remaining} to go. Keep this screen open - leaving the app ends the walk.`}
+          </AppText>
+          <Button
+            testID="stop-capture"
+            label={walk.reachedTarget ? "Save my walk" : "Stop and check"}
+            busy={busy}
+            onPress={onStop}
+          />
         </Card>
       ) : null}
 
       {state.status === "incomplete" && !recording ? (
-        <Button testID="start-capture" label="Start moving" busy={busy} onPress={onStart} />
+        <Button
+          testID="start-capture"
+          label={walk.interruption === null ? "Start moving" : "Start the walk again"}
+          busy={busy}
+          onPress={onStart}
+        />
       ) : null}
 
       {props.simulation === undefined ? null : (
