@@ -597,7 +597,7 @@ describe("the completion that ends the whole challenge", () => {
     expect(screen.getByTestId("daily-status")).toHaveTextContent(
       /That was the last day this challenge needed\./,
     );
-    expect(screen.getByTestId("daily-status")).not.toHaveTextContent(/until tomorrow/);
+    expect(screen.getByTestId("daily-advice")).not.toHaveTextContent(/next morning/);
   });
 
   it("says the staked deposit was never charged", async () => {
@@ -621,7 +621,76 @@ describe("the completion that ends the whole challenge", () => {
       expect(screen.getByTestId("progression")).toHaveTextContent("Done. Both checks passed"),
     );
     expect(screen.queryByTestId("challenge-finished")).toBeNull();
-    expect(screen.getByTestId("daily-status")).toHaveTextContent(/until tomorrow/);
+    expect(screen.getByTestId("daily-advice")).toHaveTextContent(/The next morning is tomorrow/);
+  });
+});
+
+describe("a day that is in the bank", () => {
+  /** A challenge whose calendar and schedule agree about the morning after. */
+  function view(overrides: Partial<ChallengeView["configuration"]> = {}) {
+    return challengeView({
+      currentTask: task(),
+      configuration: {
+        ...challengeView().configuration,
+        schedule: [{ weekday: "wednesday", deadline: "07:30" }],
+        ...overrides,
+      },
+    });
+  }
+
+  it("names the next morning the challenge holds, with the time it is due", async () => {
+    const given = await harness();
+    await renderScreen(given, view());
+
+    await completeLocally(given);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("progression")).toHaveTextContent("Done. Both checks passed"),
+    );
+    expect(screen.getByTestId("daily-advice")).toHaveTextContent(
+      "This day is yours. The next morning is tomorrow, Wednesday, September 2, by 7:30 AM.",
+    );
+  });
+
+  /**
+   * The defect: a weekday challenge kept on its last active day of the week was
+   * told to expect a walk tomorrow, when the challenge holds nothing until the
+   * Friday its own calendar names.
+   */
+  it("does not call a morning four days out tomorrow", async () => {
+    const given = await harness();
+    await renderScreen(
+      given,
+      challengeView({
+        currentTask: task(),
+        days: [
+          { date: "2026-09-01", status: "scheduled" },
+          { date: "2026-09-04", status: "scheduled" },
+        ],
+      }),
+    );
+
+    await completeLocally(given);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("daily-advice")).toHaveTextContent(
+        /Nothing is due until Friday, September 4/,
+      ),
+    );
+    expect(screen.getByTestId("daily-advice")).not.toHaveTextContent(/tomorrow/);
+  });
+
+  it("states the instant the server accepted the walk", async () => {
+    const given = await harness();
+    await renderScreen(given, view());
+    expect(screen.queryByTestId("acknowledged-at")).toBeNull();
+
+    await completeLocally(given);
+
+    await waitFor(() => expect(screen.queryByTestId("acknowledged-at")).not.toBeNull());
+    expect(screen.getByTestId("acknowledged-at")).toHaveTextContent(
+      "The server accepted this walk at 6:00 AM.",
+    );
   });
 });
 

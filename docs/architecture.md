@@ -674,6 +674,22 @@ The same module answers what home says when no task is open.
 It is searched strictly forward from today, because this state means today's morning is either not scheduled or already behind the user, and naming today would read as an invitation to walk for a day that is closed.
 A runtime that cannot read the zone falls back to the sentence home always said, for the same reason the walk window does.
 
+#### The morning that just counted
+
+`app/src/completions/kept-morning.ts` says what the task screen says once the server has acknowledged a walk.
+
+The acknowledged state is the moment the product exists for, and it was two fixed sentences: "Done. Both checks passed" and "This day is yours. Nothing else to do until tomorrow."
+The second one is a guess.
+A challenge is a weekly schedule, so a morning kept on the last active day of the week is followed by nothing at all for days, and the app was telling its owner to expect a walk the next morning - the same wrong-fact shape as the No Regret Time hint, on the sentence a user reads after every single walk.
+
+The challenge's own `days` answer which morning comes next, not the schedule.
+Every day is materialized when a challenge activates, so the first day still `scheduled` after the one just kept is the next morning whatever pauses, skips and appended replacement mornings have done to the calendar since; deriving it from the weekly schedule instead would re-implement the server's materialization rule in the client and disagree with it the first time a recovery appended a day.
+The schedule is then asked only for the deadline that day is due at, and when the two disagree - a `days` entry whose weekday carries no deadline - the time is left out rather than replaced by the nearest one, because a time invented for a morning is worse than a morning with no time.
+"Tomorrow" is said as a word only when the next morning is genuinely the day after, and the sentence otherwise leads with the day it is, since "nothing is due until Monday" is the fact a user is deciding their evening around.
+
+The same module states the instant the server accepted the walk, read in the challenge's own time zone.
+`taskView.acknowledgedAt` was the last field on the task the app read and never showed: `dailyCompletionState` tests it for null to decide that the second check passed and then dropped it, so the two check rows said "passed" and the one fact that would settle an argument about whether a walk landed before the deadline reached no screen.
+
 #### What one missed morning would cost
 
 `app/src/challenges/miss-cost.ts` states, on the challenge card, what would happen if the user slept through tomorrow.

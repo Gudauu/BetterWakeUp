@@ -319,7 +319,7 @@ describe("one account's life through the app's own screens", () => {
     expect(screen.getByTestId("challenge-finished-days")).toHaveTextContent(
       /That was the day this challenge asked for/,
     );
-    expect(screen.getByTestId("daily-status")).not.toHaveTextContent(/until tomorrow/);
+    expect(screen.getByTestId("daily-advice")).not.toHaveTextContent(/next morning/);
 
     // Home has nothing left to read, and still opens with the finish rather
     // than with the empty state.

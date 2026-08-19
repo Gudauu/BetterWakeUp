@@ -76,7 +76,7 @@ export function walkWindow(challenge: ChallengeView, now: Date): WalkWindow | nu
 }
 
 /** The date after a plain calendar date, read and rebuilt in UTC so no zone shifts it. */
-function dayAfter(date: string): string {
+export function dayAfter(date: string): string {
   const parsed = Date.parse(`${date}T00:00:00.000Z`);
   if (Number.isNaN(parsed)) {
     return date;

@@ -134,6 +134,29 @@ export function nextMorningText(nextMorning: string | null): string {
   return `Nothing is due right now. Your next morning is ${nextMorning}.`;
 }
 
+/**
+ * The wall-clock deadline the schedule sets for a plain calendar date, as the
+ * configuration's own `07:00`, or null when that date's weekday carries no
+ * deadline at all.
+ *
+ * The challenge's `days` are the authority on which mornings it holds and the
+ * schedule is the authority on when they are due; when the two disagree the
+ * answer is null rather than the nearest deadline, because a time invented for
+ * a morning is the one thing worse than no time.
+ */
+export function deadlineForDate(
+  schedule: readonly ScheduledWeekday[],
+  date: string,
+): string | null {
+  // Read at midnight UTC so a plain date names the same weekday everywhere.
+  const index = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+  if (Number.isNaN(index)) {
+    return null;
+  }
+  const weekday = weekdayOfIndex(index);
+  return schedule.find((day) => day.weekday === weekday)?.deadline ?? null;
+}
+
 /** `getUTCDay` counts from Sunday; the product counts from Monday. */
 function weekdayOfIndex(index: number): Weekday {
   const fromSunday: readonly Weekday[] = [

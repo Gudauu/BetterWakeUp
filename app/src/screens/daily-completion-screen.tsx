@@ -25,6 +25,11 @@ import {
   type DailyCompletionState,
   dailyCompletionState,
 } from "../completions/daily-state.ts";
+import {
+  acknowledgedAtText,
+  keptMorningText,
+  nextMorningAfter,
+} from "../completions/kept-morning.ts";
 import { VERIFICATION_POLICY_VERSION } from "../completions/policy.ts";
 import { refusalReading } from "../completions/refusal.ts";
 import type { PendingCompletionRecord, PendingCompletionStore } from "../completions/store.ts";
@@ -129,7 +134,7 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
   /**
    * Whether the acknowledgment that just landed ended the whole challenge.
    * Without it the screen would tell someone who has just finished a month of
-   * mornings that there is "nothing else to do until tomorrow", and the
+   * mornings that the challenge holds another morning, and the
    * challenge would then vanish from home with no one having said so.
    */
   const [finished, setFinished] = useState(false);
@@ -285,6 +290,22 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
   // form. Walking again buys nothing once the deadline has gone, and nothing at
   // all once the day is settled, so the invitation is gated on both.
   const walkAgain = (refusal?.canWalkAgain ?? false) && !state.deadlinePassed;
+  // What to do next, in order of what outranks what: the challenge being over
+  // outranks the day that ended it, a closed window outranks the invitation to
+  // walk, and a kept day names the morning the challenge actually holds next
+  // rather than assuming there is one tomorrow.
+  const advice = finished
+    ? FINISHED_ADVICE
+    : missed
+      ? MISSED_ADVICE
+      : state.status === "acknowledged"
+        ? keptMorningText(nextMorningAfter(challenge, task))
+        : STATUS_ADVICE[state.status];
+  // The receipt on the walk, drawn only where there is one to draw.
+  const acceptedAt =
+    state.status === "acknowledged"
+      ? acknowledgedAtText(task, challenge.configuration.timeZone)
+      : null;
 
   return (
     <Screen testID="daily-completion">
@@ -351,9 +372,14 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
         >
           {PROGRESSION_HEADLINE[state.status]}
         </AppText>
-        <AppText variant="small" tone="muted">
-          {finished ? FINISHED_ADVICE : missed ? MISSED_ADVICE : STATUS_ADVICE[state.status]}
+        <AppText variant="small" tone="muted" testID="daily-advice">
+          {advice}
         </AppText>
+        {acceptedAt === null ? null : (
+          <AppText variant="small" tone="muted" testID="acknowledged-at">
+            {acceptedAt}
+          </AppText>
+        )}
 
         <Divider />
 
@@ -572,17 +598,23 @@ const PROGRESSION_HEADLINE: Readonly<Record<DailyCompletionState["status"], stri
   rejected: "The server refused this one. Action needed",
 };
 
-/** What to do about each state, which the headline alone does not say. */
-const STATUS_ADVICE: Readonly<Record<DailyCompletionState["status"], string>> = {
+/**
+ * What to do about each state, which the headline alone does not say. The
+ * acknowledged state is absent on purpose: what comes after a kept morning
+ * depends on the challenge's own calendar, so `keptMorningText` says it.
+ */
+const STATUS_ADVICE: Readonly<
+  Record<Exclude<DailyCompletionState["status"], "acknowledged">, string>
+> = {
   incomplete: "Start the walk when you are up. The steps are counted while this screen is open.",
   syncPending: "Your walk is saved on this phone. Keep the app open until the server has it.",
-  acknowledged: "This day is yours. Nothing else to do until tomorrow.",
   rejected: "This walk was not accepted. The reason is below.",
 };
 
 /**
- * What replaces the acknowledged advice on the last day. "Until tomorrow" is
- * false once the challenge is over, and it is the wrong note to end a month on.
+ * What replaces the acknowledged advice on the last day. Naming a next morning
+ * is false once the challenge is over, and it is the wrong note to end a month
+ * on.
  */
 const FINISHED_ADVICE = "That was the last day this challenge needed.";
 
