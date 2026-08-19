@@ -401,6 +401,61 @@ describe("the form the user fills in", () => {
     expect(screen.getByTestId("deposit-and-start")).toHaveTextContent(/Deposit \$12\.50 and start/);
   });
 
+  it("reads the deposit back under the box, so twenty is visibly not twenty cents", async () => {
+    await renderScreen(readyDraft(2000));
+
+    await fireEvent.changeText(screen.getByTestId("field-deposit"), "20");
+
+    expect(screen.getByTestId("field-deposit-reading")).toHaveTextContent(
+      /That is \$20\.00 held on your card/,
+    );
+  });
+
+  it("names what is wrong beside the deposit rather than in a banner of schema words", async () => {
+    await renderScreen(readyDraft(2000));
+
+    await fireEvent.changeText(screen.getByTestId("field-deposit"), "0.50");
+
+    expect(screen.getByTestId("field-deposit-problem")).toHaveTextContent(/at least \$1\.00/);
+    expect(screen.getByTestId("create-challenge")).not.toHaveTextContent(/minor units/);
+  });
+
+  it("will not start a challenge against a deposit the user is midway through replacing", async () => {
+    await renderScreen(readyDraft(2000));
+
+    // The old behaviour: unreadable text became `0`, so the form quietly
+    // offered to start the challenge with nothing at stake.
+    await fireEvent.changeText(screen.getByTestId("field-deposit"), "2o");
+
+    expect(screen.queryByTestId("deposit-and-start")).toBeNull();
+    expect(screen.queryByTestId("start-challenge")).toBeNull();
+    expect(screen.getByTestId("not-ready")).toHaveTextContent(/deposit is not an amount yet/);
+
+    await fireEvent.changeText(screen.getByTestId("field-deposit"), "20");
+
+    expect(screen.getByTestId("deposit-and-start")).toHaveTextContent(/Deposit \$20\.00 and start/);
+  });
+
+  it("lets the box be cleared back to a challenge with nothing at stake", async () => {
+    await renderScreen(readyDraft(2000));
+
+    await fireEvent.changeText(screen.getByTestId("field-deposit"), "");
+
+    expect(screen.getByTestId("start-challenge")).toBeOnTheScreen();
+  });
+
+  it("says a large deposit back out loud, because 200 and 20 are one keystroke apart", async () => {
+    await renderScreen(readyDraft(2000));
+
+    await fireEvent.changeText(screen.getByTestId("field-deposit"), "200");
+
+    expect(screen.getByTestId("field-deposit-caution")).toHaveTextContent(
+      /\$200\.00 held on your card.*Check that is the amount you meant/,
+    );
+    // A caution and not a bar: the app has no maximum to enforce.
+    expect(screen.getByTestId("deposit-and-start")).toBeOnTheScreen();
+  });
+
   it("takes a deadline typed the way a person says it, not only as HH:MM", async () => {
     const api = await renderScreen(readyDraft());
 

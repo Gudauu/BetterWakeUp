@@ -37,6 +37,7 @@ import {
   type StartChallengeOutcome,
   startChallenge,
 } from "../challenges/create-challenge.ts";
+import { readDeposit } from "../challenges/deposit.ts";
 import {
   type ChallengeDraft,
   createDraft,
@@ -185,6 +186,11 @@ export function CreateChallengeScreen({
   // draft holds the last number that read as one, so an emptied or half-typed
   // box is remembered here rather than being written down as a zero.
   const [unreadableCounts, setUnreadableCounts] = useState<readonly string[]>([]);
+  // And the same rule for the money. Kept apart from the counts because what it
+  // says when it is broken is a different sentence: an amount is not a number
+  // that was left out, and the draft's fallback here is "no deposit at all",
+  // which is a challenge the user did not ask for rather than a missing field.
+  const [depositReadable, setDepositReadable] = useState(true);
   // Built once for as long as the screen lives, so the effect that presents it
   // is not re-run by a new object on every render.
   const [sheet] = useState<PaymentSheet>(() => paymentSheet ?? createConfiguredPaymentSheet());
@@ -617,7 +623,12 @@ export function CreateChallengeScreen({
         <SectionTitle title="What's at stake" step={3} />
         <DepositField
           minorUnits={draft.depositMinorUnits}
-          onChange={(minorUnits) => dispatch({ type: "setDeposit", minorUnits })}
+          onChange={(minorUnits) => {
+            setDepositReadable(minorUnits !== null);
+            if (minorUnits !== null) {
+              dispatch({ type: "setDeposit", minorUnits });
+            }
+          }}
         />
         {readiness.configuration.ok ? null : (
           <Banner tone="warning" testID="configuration-problems">
@@ -706,7 +717,12 @@ export function CreateChallengeScreen({
         </Banner>
       ) : null}
 
-      {readiness.ready && withinDuration && phoneCanWalk && deadlinesReadable && countsReadable ? (
+      {readiness.ready &&
+      withinDuration &&
+      phoneCanWalk &&
+      deadlinesReadable &&
+      countsReadable &&
+      depositReadable ? (
         <Button
           testID={funded ? "deposit-and-start" : "start-challenge"}
           label={funded ? `Deposit ${formatMoney(draft.depositMinorUnits)} and start` : "Start"}
@@ -716,7 +732,14 @@ export function CreateChallengeScreen({
       ) : (
         <Banner tone="info">
           <AppText variant="small" testID="not-ready">
-            {nextStep(readiness, withinDuration, phoneCanWalk, deadlinesReadable, countsReadable)}
+            {nextStep(
+              readiness,
+              withinDuration,
+              phoneCanWalk,
+              deadlinesReadable,
+              countsReadable,
+              depositReadable,
+            )}
           </AppText>
         </Banner>
       )}
@@ -781,16 +804,20 @@ function DeadlineField({
  * The draft stores minor units, but a form that asks for cents invites a user
  * meaning twenty dollars to type `20` and stake twenty cents. The typed text is
  * held here so a half-written `12.` survives the keystroke that would otherwise
- * round it away, and the draft only ever sees whole minor units.
+ * round it away, and the draft is told only about text that reads as an amount
+ * - which is why an unreadable field is reported upward rather than written
+ * down as nothing at all, since a challenge must not be started against a
+ * deposit the user is halfway through replacing.
  */
 function DepositField({
   minorUnits,
   onChange,
 }: {
   minorUnits: number;
-  onChange: (minorUnits: number) => void;
+  onChange: (minorUnits: number | null) => void;
 }) {
   const [text, setText] = useState(() => (minorUnits === 0 ? "" : (minorUnits / 100).toFixed(2)));
+  const reading = readDeposit(text);
   return (
     <Field
       label="Deposit"
@@ -799,19 +826,15 @@ function DepositField({
       keyboardType="decimal-pad"
       prefix="$"
       value={text}
+      {...(reading.problem === null ? {} : { problem: reading.problem })}
+      {...(reading.caution === null ? {} : { caution: reading.caution })}
+      {...(reading.reading === null ? {} : { reading: reading.reading })}
       onChangeText={(next) => {
-        const cleaned = money(next);
-        setText(cleaned);
-        onChange(Math.round((Number.parseFloat(cleaned) || 0) * 100));
+        setText(next);
+        onChange(readDeposit(next).minorUnits);
       }}
     />
   );
-}
-
-/** Digits and at most one decimal point, at most two places after it. */
-function money(text: string): string {
-  const [whole = "", ...rest] = text.replace(/[^0-9.]/g, "").split(".");
-  return rest.length === 0 ? whole : `${whole}.${rest.join("").slice(0, 2)}`;
 }
 
 /**
@@ -887,6 +910,7 @@ function nextStep(
   phoneCanWalk: boolean,
   deadlinesReadable: boolean,
   countsReadable: boolean,
+  depositReadable: boolean,
 ): string {
   // First, because nothing else about the draft matters on a phone that could
   // never complete a day of it.
@@ -901,6 +925,12 @@ function nextStep(
   // For the same reason: the draft still holds the last number that read as one.
   if (!countsReadable) {
     return "One of your numbers is not filled in yet. Fix it to continue.";
+  }
+  // And again: an unreadable deposit leaves the draft holding the last amount
+  // that read as one, so the form would otherwise start a funded challenge
+  // against a number nobody typed.
+  if (!depositReadable) {
+    return "Your deposit is not an amount yet. Fix it, or clear the box to run the challenge for nothing but the habit.";
   }
   if (!readiness.configuration.ok) {
     return "Check the days, deadlines, and deposit above.";

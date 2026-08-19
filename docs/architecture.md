@@ -254,6 +254,20 @@ A number below its field's minimum is read but refused, and the sentence naming 
 
 `configurationOf` states its remaining complaints in the same words. A path into the request body is the right thing to log and the wrong thing to show, so the schema's issues are mapped to sentences, sharing the fields' own wording so the banner and the line under the box cannot disagree.
 
+### The money being typed
+
+The deposit is the last field to be read this way and the only one where a misreading costs money, so `app/src/challenges/deposit.ts` owns it.
+
+It was previously read by stripping every character that was not a digit or a point and multiplying `parseFloat` by a hundred with `|| 0` behind it.
+That made two failures silent. Text the field could not read became "no deposit at all", so a challenge could be started with nothing at stake against a box the user believed held twenty dollars. And the one complaint about the amount - that a funded deposit is at least the processor's minimum - was left to the configuration banner, phrased in the contract's words rather than under the box that caused it.
+
+The deposit differs from the other fields in two ways, and both are product rules rather than parsing ones.
+An empty box is a real answer: every other field refuses one, because a challenge with no step target is not a challenge, while a challenge with no deposit is the product's own default.
+And a large amount is not refused: there is no maximum in the contract and the app has no business inventing one.
+
+What a large amount gets instead is a caution. `200` and `20` are one keystroke apart and only one of them is a hold the user meant to authorize, so past `LARGE_DEPOSIT_MINOR_UNITS` the amount is read back in the warning tone with a request to check it, and the action that commits is still offered.
+`Field` therefore ranks three footnotes into its one slot: a complaint about what was typed outranks a caution about what it comes to, and both outrank the plain read-back.
+
 ### The keyboard as part of the screen
 
 A software keyboard is not drawn over the app, it takes half of it, and the setup form is taller than a phone before the keyboard opens.

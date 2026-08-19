@@ -168,6 +168,45 @@ describe("the form controls", () => {
     expect(input.props.submitBehavior).toBe("blurAndSubmit");
   });
 
+  it("draws one footnote under a field, ranked complaint before caution before reading", async () => {
+    // A field has room for one sentence. A complaint about what was typed
+    // outranks a caution about what it comes to, and both outrank the plain
+    // read-back, whose value is the least urgent of the three.
+    await draw(
+      <Field
+        label="Deposit"
+        testID="deposit"
+        value="200"
+        onChangeText={() => {}}
+        problem="Type an amount."
+        caution="That is $200.00."
+        reading="That is $200.00."
+      />,
+    );
+
+    expect(screen.getByTestId("deposit-problem")).toBeOnTheScreen();
+    expect(screen.queryByTestId("deposit-caution")).toBeNull();
+    expect(screen.queryByTestId("deposit-reading")).toBeNull();
+  });
+
+  it("says a caution out loud and paints it as a warning rather than as a complaint", async () => {
+    await draw(
+      <Field
+        label="Deposit"
+        testID="deposit"
+        value="200"
+        onChangeText={() => {}}
+        caution="That is $200.00. Check that is the amount you meant."
+        reading="That is $200.00."
+      />,
+    );
+
+    const caution = screen.getByTestId("deposit-caution");
+    expect(caution.props.accessibilityRole).toBe("alert");
+    expect(flatStyle("deposit-caution")).toMatchObject({ color: lightTheme.colors.warning });
+    expect(screen.queryByTestId("deposit-reading")).toBeNull();
+  });
+
   it("report a chip as selected rather than only painting it", async () => {
     const pressed = jest.fn();
     await draw(<Chip testID="mon" label="Mon" selected onPress={pressed} />);

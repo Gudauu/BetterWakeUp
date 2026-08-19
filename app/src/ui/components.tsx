@@ -500,6 +500,13 @@ export interface FieldProps {
    * reading of an unaccepted value is nothing to state.
    */
   readonly reading?: string;
+  /**
+   * A reading worth a second look, drawn in the warning tone where the plain
+   * one would be. For a value the field accepts and would rather the user
+   * confirmed - a deposit large enough that a slipped keystroke costs real
+   * money. Suppressed by a problem, and never drawn beside a plain reading.
+   */
+  readonly caution?: string;
   /** Drawn inside the box after the value, for a unit the user should not type. */
   readonly suffix?: string;
   /** Drawn inside the box before the value, for a currency symbol. */
@@ -527,6 +534,7 @@ export function Field({
   hint,
   problem,
   reading,
+  caution,
   suffix,
   prefix,
   keyboardType,
@@ -542,6 +550,15 @@ export function Field({
         testID={`${testID}-problem`}
       >
         {problem}
+      </AppText>
+    ) : caution !== undefined ? (
+      <AppText
+        variant="caption"
+        tone="warning"
+        accessibilityRole="alert"
+        testID={`${testID}-caution`}
+      >
+        {caution}
       </AppText>
     ) : reading !== undefined ? (
       <AppText variant="caption" tone="muted" testID={`${testID}-reading`}>
