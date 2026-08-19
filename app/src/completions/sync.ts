@@ -201,13 +201,22 @@ export function createCompletionSync(options: CompletionSyncOptions): Completion
           : // Anything that is not an ApiError is a defect in the client rather
             // than an answer from the server, so the record stays pending.
             new ApiError("internal_error", "The completion could not be sent.", { cause });
+      // A null status is the client's way of saying nothing came back, which is
+      // the only place the difference between "no signal here" and "the server
+      // could not answer" survives: both are raised as `internal_error`.
+      const reachedServer = error.status !== null;
       if (error.disposition === "reject") {
-        await options.store.markRejected(record.id, { code: error.code, message: error.message });
+        await options.store.markRejected(record.id, {
+          code: error.code,
+          message: error.message,
+          reachedServer,
+        });
         return { type: "rejected", record, error };
       }
       await options.store.noteAttemptFailed(record.id, {
         code: error.code,
         message: error.message,
+        reachedServer,
       });
       return { type: "deferred", record, error };
     } finally {

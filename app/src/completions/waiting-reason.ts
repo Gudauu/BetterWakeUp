@@ -15,11 +15,14 @@
  * why it has not landed, and what (if anything) the person holding the phone
  * can do about it.
  *
- * One ambiguity is deliberately not papered over. The API client raises a
- * request that never left the phone and a server that answered 500 with the
- * same contract code, `internal_error`, because the contract has no code for
- * "no network" - so that reading has to be worded to be true either way rather
- * than guessing which of the two happened.
+ * The contract has no code for "no network", so the client raises a request
+ * that never left the phone and a server that answered 500 as the same
+ * `internal_error`. The store now writes down whether the server answered at
+ * all, which is the one fact that tells those two apart, and the two answers
+ * want opposite things from the person holding the phone: one is worth moving
+ * for and the other is not. A record whose failure was written down before that
+ * was recorded still gets the wording that is true either way rather than a
+ * guess.
  */
 
 import type { PendingCompletionRecord } from "./store.ts";
@@ -29,7 +32,14 @@ import { RETRY_ATTEMPT_LIMIT } from "./sync.ts";
 export type WaitingCause =
   /** No attempt has failed yet: the first send is still in the air. */
   | "sending"
-  /** The attempt did not get through - no signal here, or none at the server. */
+  /** The request never left the phone: there is no usable connection here. */
+  | "offline"
+  /** The server was reached and could not take the walk just then. */
+  | "server-trouble"
+  /**
+   * The attempt did not get through and which end was at fault is unknown,
+   * which is the state of a record whose failure predates that being recorded.
+   */
   | "unreached"
   /** The server is limiting how often this phone may send. */
   | "throttled"
@@ -57,6 +67,14 @@ const UNREACHED_REASON =
   "The last attempt did not get through - either this phone could not reach " +
   "BetterWakeUp or the server could not take it just then.";
 
+const OFFLINE_REASON =
+  "The last attempt never left this phone, so there is no connection it can " +
+  "send the walk over right now.";
+
+const SERVER_TROUBLE_REASON =
+  "BetterWakeUp was reached and could not take the walk just then. The walk is " +
+  "safe on this phone and nothing here is wrong.";
+
 const THROTTLED_REASON =
   "BetterWakeUp is limiting how often this phone can send right now, so the " +
   "walk is queued rather than stuck. Nothing here is wrong.";
@@ -68,6 +86,10 @@ const IN_PROGRESS_REASON =
 const SIGNAL_ADVICE =
   "Keep the app open where there is signal - it keeps trying to send it by itself.";
 
+const OFFLINE_ADVICE =
+  "Get this phone back onto Wi-Fi or mobile data and keep the app open - the " +
+  "walk goes out on its own once there is a connection.";
+
 const WAIT_ADVICE =
   "Keep the app open - it sends the walk again by itself, and there is nothing to fix on this phone.";
 
@@ -75,8 +97,8 @@ const TRIGGER_ADVICE =
   "It is no longer retrying on its own clock, so open the app again, or get back " +
   "on a connection, and it goes out straight away.";
 
-function causeOf(code: string | null): WaitingCause {
-  switch (code) {
+function causeOf(record: PendingCompletionRecord): WaitingCause {
+  switch (record.lastErrorCode) {
     case null:
       return "sending";
     case "rate_limited":
@@ -86,10 +108,34 @@ function causeOf(code: string | null): WaitingCause {
     default:
       // Every other code that leaves a record pending is `internal_error`,
       // which the client raises both for a request that never left the phone
-      // and for a server that could not answer it.
-      return "unreached";
+      // and for a server that could not answer it. Whether anything came back
+      // is the only thing that separates them, and a record that never had it
+      // written down keeps the reading that is true either way.
+      return record.lastErrorReachedServer === null
+        ? "unreached"
+        : record.lastErrorReachedServer
+          ? "server-trouble"
+          : "offline";
   }
 }
+
+const REASONS: Record<Exclude<WaitingCause, "sending">, string> = {
+  offline: OFFLINE_REASON,
+  "server-trouble": SERVER_TROUBLE_REASON,
+  unreached: UNREACHED_REASON,
+  throttled: THROTTLED_REASON,
+  "in-progress": IN_PROGRESS_REASON,
+};
+
+const ADVICE: Record<Exclude<WaitingCause, "sending">, string> = {
+  offline: OFFLINE_ADVICE,
+  // Nothing on this phone is wrong, so it gets the same advice as a walk the
+  // server deferred deliberately: wait, and do not walk again.
+  "server-trouble": WAIT_ADVICE,
+  unreached: SIGNAL_ADVICE,
+  throttled: WAIT_ADVICE,
+  "in-progress": WAIT_ADVICE,
+};
 
 /**
  * How the walk this device is holding is getting on, or null when the record
@@ -100,7 +146,7 @@ export function waitingReading(record: PendingCompletionRecord): WaitingReading 
   if (record.status !== "pending") {
     return null;
   }
-  const cause = causeOf(record.lastErrorCode);
+  const cause = causeOf(record);
   // The record's own count is the number of attempts already made, which is
   // the same number the retry clock reads when it decides to give up.
   const retryingItself = cause === "sending" || record.attempts < RETRY_ATTEMPT_LIMIT;
@@ -109,18 +155,12 @@ export function waitingReading(record: PendingCompletionRecord): WaitingReading 
     return { cause, reason: null, advice: SIGNAL_ADVICE, retryingItself };
   }
 
-  const reason =
-    cause === "throttled"
-      ? THROTTLED_REASON
-      : cause === "in-progress"
-        ? IN_PROGRESS_REASON
-        : UNREACHED_REASON;
-  const advice = !retryingItself
-    ? TRIGGER_ADVICE
-    : cause === "unreached"
-      ? SIGNAL_ADVICE
-      : WAIT_ADVICE;
-  return { cause, reason, advice, retryingItself };
+  return {
+    cause,
+    reason: REASONS[cause],
+    advice: retryingItself ? ADVICE[cause] : TRIGGER_ADVICE,
+    retryingItself,
+  };
 }
 
 /**

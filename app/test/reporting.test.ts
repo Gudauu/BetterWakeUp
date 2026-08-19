@@ -246,6 +246,7 @@ describe("what a sync event reports", () => {
           attempts: STALLED_AFTER_ATTEMPTS - 1,
           lastErrorCode: null,
           lastErrorMessage: null,
+          lastErrorReachedServer: null,
         },
         response: {
           task: {

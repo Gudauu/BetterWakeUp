@@ -30,6 +30,9 @@ function record(overrides: Partial<PendingCompletionRecord> = {}): PendingComple
     attempts: 1,
     lastErrorCode: null,
     lastErrorMessage: null,
+    // Unknown by default, which is what a failure written down by an older
+    // version of the app looks like on disk.
+    lastErrorReachedServer: null,
     ...overrides,
   };
 }
@@ -55,6 +58,33 @@ describe("why a saved walk has not landed", () => {
     expect(reading?.reason).toMatch(/did not get through/);
     expect(reading?.reason).toMatch(/either this phone could not reach/);
     expect(reading?.advice).toMatch(/where there is signal/);
+  });
+
+  it("says the request never left the phone when nothing came back at all", () => {
+    const reading = waitingReading(
+      record({ lastErrorCode: "internal_error", lastErrorReachedServer: false }),
+    );
+    expect(reading?.cause).toBe("offline");
+    expect(reading?.reason).toMatch(/never left this phone/);
+    expect(reading?.advice).toMatch(/back onto Wi-Fi or mobile data/);
+  });
+
+  it("stops sending the user looking for signal when the server answered and failed", () => {
+    const reading = waitingReading(
+      record({ lastErrorCode: "internal_error", lastErrorReachedServer: true }),
+    );
+    expect(reading?.cause).toBe("server-trouble");
+    expect(reading?.reason).toMatch(/was reached and could not take the walk/);
+    expect(reading?.advice).not.toMatch(/signal|Wi-Fi/);
+    expect(reading?.advice).toMatch(/nothing to fix on this phone/);
+  });
+
+  it("keeps the either-way wording for a failure recorded before that was known", () => {
+    const reading = waitingReading(
+      record({ lastErrorCode: "internal_error", lastErrorReachedServer: null }),
+    );
+    expect(reading?.cause).toBe("unreached");
+    expect(reading?.reason).toMatch(/either this phone could not reach/);
   });
 
   it("stops blaming the signal when the server is the one holding the walk back", () => {

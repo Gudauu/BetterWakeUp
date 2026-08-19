@@ -322,6 +322,7 @@ describe("how long before the next pass", () => {
       attempts,
       lastErrorCode: retryAfterSeconds === undefined ? null : "rate_limited",
       lastErrorMessage: null,
+      lastErrorReachedServer: retryAfterSeconds === undefined ? null : true,
     };
   }
 

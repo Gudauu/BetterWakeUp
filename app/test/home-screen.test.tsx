@@ -792,6 +792,42 @@ describe("home says what this device is still holding", () => {
     expect(screen.getByTestId("home-task-waiting")).toHaveTextContent(/where there is signal/);
   });
 
+  it("tells a phone with no connection that is what is holding the walk up", async () => {
+    await renderHome(runningWithTask, {
+      seed: [
+        {
+          input: walk(TASK_ID),
+          failed: {
+            code: "internal_error",
+            message: "The request did not reach the server.",
+            reachedServer: false,
+          },
+        },
+      ],
+    });
+
+    expect(await screen.findByTestId("home-task-waiting-reason")).toHaveTextContent(
+      /never left this phone/,
+    );
+    expect(screen.getByTestId("home-task-waiting")).toHaveTextContent(/back onto Wi-Fi/);
+  });
+
+  it("does not blame the connection when the server answered and could not take the walk", async () => {
+    await renderHome(runningWithTask, {
+      seed: [
+        {
+          input: walk(TASK_ID),
+          failed: { code: "internal_error", message: "Something broke.", reachedServer: true },
+        },
+      ],
+    });
+
+    expect(await screen.findByTestId("home-task-waiting-reason")).toHaveTextContent(
+      /was reached and could not take the walk/,
+    );
+    expect(screen.getByTestId("home-task-waiting")).not.toHaveTextContent(/signal|Wi-Fi/);
+  });
+
   it("stops sending the user to find signal for a walk the server itself deferred", async () => {
     await renderHome(runningWithTask, {
       seed: [

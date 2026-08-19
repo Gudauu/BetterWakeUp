@@ -239,12 +239,12 @@ describe("what the screen says to do", () => {
 
     await waitFor(() =>
       expect(screen.getByTestId("daily-status")).toHaveTextContent(
-        /saved on this phone\. Keep the app open/,
+        /saved on this phone\. Get this phone back onto Wi-Fi/,
       ),
     );
   });
 
-  it("says what stopped the walk reaching the server, not only that it has not", async () => {
+  it("says the attempt never left the phone when nothing came back at all", async () => {
     const given = await harness(
       fakeApi({ createCompletion: new TypeError("Network request failed") }),
     );
@@ -253,8 +253,26 @@ describe("what the screen says to do", () => {
     await completeLocally(given);
 
     await waitFor(() =>
-      expect(screen.getByTestId("waiting-reason")).toHaveTextContent(/did not get through/),
+      expect(screen.getByTestId("waiting-reason")).toHaveTextContent(/never left this phone/),
     );
+  });
+
+  it("blames the server rather than the signal when the server answered and failed", async () => {
+    const given = await harness(
+      fakeApi({
+        createCompletion: new ApiError("internal_error", "Something broke.", { status: 500 }),
+      }),
+    );
+    await renderScreen(given);
+
+    await completeLocally(given);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("waiting-reason")).toHaveTextContent(
+        /was reached and could not take the walk/,
+      ),
+    );
+    expect(screen.getByTestId("daily-status")).not.toHaveTextContent(/Wi-Fi/);
   });
 
   it("does not send the user looking for signal when the server deferred the walk", async () => {

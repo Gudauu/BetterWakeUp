@@ -45,6 +45,7 @@ function record(overrides: Partial<PendingCompletionRecord> = {}): PendingComple
     attempts: 1,
     lastErrorCode: null,
     lastErrorMessage: null,
+    lastErrorReachedServer: null,
     ...overrides,
   };
 }

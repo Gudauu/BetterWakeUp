@@ -154,12 +154,105 @@ describe("pending completion store", () => {
     expect(await store.listRejected()).toMatchObject([{ id: first.id }]);
   });
 
+  it("writes down whether the last failure was an answer from the server", async () => {
+    const offline = await store.record(INPUT);
+    const answered = await store.record(INPUT);
+
+    await store.noteAttemptFailed(offline.id, {
+      code: "internal_error",
+      message: "no network",
+      reachedServer: false,
+    });
+    await store.noteAttemptFailed(answered.id, {
+      code: "internal_error",
+      message: "server broke",
+      reachedServer: true,
+    });
+
+    expect(await store.listPending()).toMatchObject([
+      { id: offline.id, lastErrorReachedServer: false },
+      { id: answered.id, lastErrorReachedServer: true },
+    ]);
+  });
+
+  it("says nothing about a failure written down without it", async () => {
+    const record = await store.record(INPUT);
+
+    await store.noteAttemptFailed(record.id, { code: "internal_error", message: "no network" });
+
+    expect(await store.listPending()).toMatchObject([
+      { id: record.id, lastErrorReachedServer: null },
+    ]);
+  });
+
   it("opens over an existing database without disturbing what is stored", async () => {
     const record = await store.record(INPUT);
 
     const reopened = await openPendingCompletionStore({ database });
 
     expect(await reopened.list()).toMatchObject([{ id: record.id, status: "pending" }]);
+  });
+});
+
+describe("a table an older version of the app created", () => {
+  /** Version 1's table, before anything recorded whether the server answered. */
+  const VERSION_ONE = `
+CREATE TABLE pending_completions (
+  id TEXT PRIMARY KEY NOT NULL,
+  challenge_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  completed_at TEXT NOT NULL,
+  observation TEXT NOT NULL,
+  app_version TEXT NOT NULL,
+  verification_policy_version TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'rejected')),
+  created_at TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_error_code TEXT,
+  last_error_message TEXT
+);
+`;
+
+  it("keeps the walk it was holding and takes the column it was missing", async () => {
+    const database = createMemoryDatabase();
+    await database.execAsync(VERSION_ONE);
+    await database.runAsync(
+      `INSERT INTO pending_completions (
+         id, challenge_id, task_id, completed_at, observation, app_version,
+         verification_policy_version, status, created_at, attempts, last_error_code
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, 3, 'internal_error')`,
+      [
+        "00000000-0000-4000-8000-00000000000a",
+        INPUT.challengeId,
+        INPUT.taskId,
+        INPUT.completedAt,
+        JSON.stringify(OBSERVATION),
+        INPUT.appVersion,
+        INPUT.verificationPolicyVersion,
+        INPUT.completedAt,
+      ],
+    );
+
+    const store = await openPendingCompletionStore({ database, newRecordId: ids() });
+
+    // The walk survives, and the app does not invent an answer about a failure
+    // that happened before it was recording one.
+    expect(await store.listPending()).toMatchObject([
+      { attempts: 3, observation: OBSERVATION, lastErrorReachedServer: null },
+    ]);
+
+    // The column is really there: the next failure can be written down.
+    const record = await store.record(INPUT);
+    await store.noteAttemptFailed(record.id, {
+      code: "internal_error",
+      message: "no network",
+      reachedServer: false,
+    });
+    expect(await store.listPending()).toMatchObject([
+      { lastErrorReachedServer: null },
+      { id: record.id, lastErrorReachedServer: false },
+    ]);
+    await store.close();
   });
 });
 

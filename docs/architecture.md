@@ -1030,9 +1030,14 @@ A walk the server itself deferred, on a rate limit or on a command it is still w
 `app/src/completions/waiting-reason.ts` reads the record into a cause, the sentence for it, and the advice that follows.
 A rate limit says the server is limiting how often this phone may send and that nothing here is wrong; an in-progress command says the server already has this walk and the app is waiting for its answer rather than sending it twice.
 
-One ambiguity is deliberately not papered over.
-The contract has no error code for "this request never left the phone", so the API client raises both that and a server that answered 500 as `internal_error`, and the record cannot tell them apart after the fact.
-That reading is therefore worded to be true either way - the attempt did not get through, either because this phone could not reach BetterWakeUp or because the server could not take it - rather than guessing which happened and being confidently wrong half the time.
+The contract has no error code for "this request never left the phone", so the API client raises both that and a server that answered 500 as `internal_error`.
+The code alone therefore cannot say which happened, and the two want opposite things from the person holding the phone: a request that never left is worth moving for, and a server that could not answer is not.
+What separates them is `ApiError.status`, which is null exactly when nothing came back, so the store keeps it as `last_error_reached_server` and the record reports `lastErrorReachedServer`.
+An attempt that never left the phone says so and asks for Wi-Fi or mobile data; one the server answered and failed says the walk is safe here and there is nothing on this phone to fix.
+
+That column is nullable and nothing backfills it.
+A record whose last failure was written down by an earlier version of the app genuinely does not know the answer, so it keeps the wording that is true either way - the attempt did not get through, either because this phone could not reach BetterWakeUp or because the server could not take it - rather than being given a fact about itself that was never observed.
+The table is migrated in place on open: `ADDED_COLUMNS` in the store lists every column added since version 1, the columns already present are read from `pragma_table_info`, and only the missing ones are added, because SQLite has no `ADD COLUMN IF NOT EXISTS` and a phone that already holds a walk must not lose it to a schema change.
 
 The advice also follows the retry clock.
 Inside the eight attempts sync keeps a timer for, "keep the app open" is a true description of what will send the walk.

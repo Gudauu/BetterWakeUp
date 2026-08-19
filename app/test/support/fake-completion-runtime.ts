@@ -41,7 +41,13 @@ export interface FakeRuntimeOptions {
   readonly seed?: readonly {
     readonly input: PendingCompletionInput;
     readonly rejected?: { code: string; message: string };
-    readonly failed?: { code: string; message: string; times?: number };
+    readonly failed?: {
+      code: string;
+      message: string;
+      times?: number;
+      /** Left unset for a failure written down without it, as an older app did. */
+      reachedServer?: boolean;
+    };
   }[];
 }
 
@@ -88,6 +94,9 @@ export async function openFakeCompletionRuntime(
         await store.noteAttemptFailed(record.id, {
           code: seeded.failed.code,
           message: seeded.failed.message,
+          ...(seeded.failed.reachedServer === undefined
+            ? {}
+            : { reachedServer: seeded.failed.reachedServer }),
         });
       }
     }
