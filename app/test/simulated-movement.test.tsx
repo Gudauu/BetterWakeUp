@@ -80,6 +80,7 @@ interface Harness {
 async function harness(): Promise<Harness> {
   let counter = 0;
   const store = await openPendingCompletionStore({
+    owner: "account-1",
     database: createMemoryDatabase(),
     newRecordId: () => {
       counter += 1;

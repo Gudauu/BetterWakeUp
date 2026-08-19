@@ -113,6 +113,21 @@ export interface PendingCompletionStore {
 
 export interface PendingCompletionStoreOptions {
   readonly database: SqliteDatabase;
+  /**
+   * The account whose walks this store holds.
+   *
+   * A phone is not one person's for ever: a device handed on, a shared tablet,
+   * or a household second phone can be signed into one account and then
+   * another. Every record names a challenge and a task that belong to the
+   * account that walked it, so opening the same database under a different
+   * account has to start empty - otherwise the first sync pass sends one
+   * person's walks with another person's session, and the screens report the
+   * refusals as though the new account had walked and been turned away.
+   *
+   * Stated on open rather than stored per record, because a record that cannot
+   * be sent is not worth keeping and there is no second account to keep it for.
+   */
+  readonly owner: string;
   readonly newRecordId?: () => string;
   readonly now?: () => Date;
 }
@@ -140,6 +155,11 @@ CREATE TABLE IF NOT EXISTS pending_completions (
   last_error_code TEXT,
   last_error_message TEXT,
   last_error_reached_server INTEGER CHECK (last_error_reached_server IN (0, 1))
+);
+
+CREATE TABLE IF NOT EXISTS store_owner (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  account_id TEXT NOT NULL
 );
 `;
 
@@ -242,6 +262,33 @@ async function addMissingColumns(database: SqliteDatabase): Promise<void> {
   }
 }
 
+/**
+ * Hand the database to the account that is signed in now.
+ *
+ * The first open on a phone - and the first after an update that added this
+ * table - finds no owner and simply writes one down: the records already there
+ * were written by whoever is signed in, since that is the only account the app
+ * has ever had a session for on this device. A different owner is the case this
+ * exists for, and everything the previous account left goes, rejected records
+ * included: they are refusals about tasks the new account cannot see.
+ */
+async function claimForOwner(database: SqliteDatabase, owner: string): Promise<void> {
+  const rows = await database.getAllAsync<{ account_id: string }>(
+    "SELECT account_id FROM store_owner WHERE id = 1",
+    [],
+  );
+  const held = rows[0];
+  if (held === undefined) {
+    await database.runAsync("INSERT INTO store_owner (id, account_id) VALUES (1, ?)", [owner]);
+    return;
+  }
+  if (held.account_id === owner) {
+    return;
+  }
+  await database.runAsync("DELETE FROM pending_completions", []);
+  await database.runAsync("UPDATE store_owner SET account_id = ? WHERE id = 1", [owner]);
+}
+
 export async function openPendingCompletionStore(
   options: PendingCompletionStoreOptions,
 ): Promise<PendingCompletionStore> {
@@ -251,6 +298,7 @@ export async function openPendingCompletionStore(
 
   await database.execAsync(SCHEMA);
   await addMissingColumns(database);
+  await claimForOwner(database, options.owner);
 
   async function select(where: string, params: readonly SqliteValue[]): Promise<Row[]> {
     return database.getAllAsync<Row>(

@@ -360,7 +360,16 @@ export function HomeScreen({
   // Held for as long as home is on screen rather than only while the task is
   // open: opening it is what sends a completion recorded on a day with no
   // network, and that must not wait for the user to tap anything.
-  const runtime = useCompletionRuntime(api, createRuntime ?? createConfiguredCompletionRuntime);
+  // Which account's walks the phone is holding. Home is only ever rendered
+  // under a signed-in session, so the null is a type's answer rather than a
+  // state a user reaches - but it is the honest one: with nobody signed in
+  // there is no account to open a store for.
+  const walkOwner = session.status === "signedIn" ? session.session.accountId : null;
+  const runtime = useCompletionRuntime(
+    api,
+    walkOwner,
+    createRuntime ?? createConfiguredCompletionRuntime,
+  );
   // The account is gone from the server, and home is the last component still
   // holding the phone's own copy of it. Every stored walk names a challenge and
   // a task that no longer exist, so none of them can ever be sent; they are

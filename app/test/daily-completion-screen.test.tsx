@@ -67,6 +67,7 @@ interface Harness {
 async function harness(api: FakeApi = fakeApi({ createCompletion: COMPLETION_RESPONSE })) {
   let counter = 0;
   const store = await openPendingCompletionStore({
+    owner: "account-1",
     database: createMemoryDatabase(),
     // expo-crypto's randomUUID does not bind under jest, so the ID generator
     // is supplied here rather than left to the default.

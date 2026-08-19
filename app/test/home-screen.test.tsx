@@ -11,6 +11,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import type { ApiClient } from "../src/api/client.ts";
 import { ApiError } from "../src/api/errors.ts";
 import type { AppReturnTrigger } from "../src/challenges/app-return.ts";
+import type { CompletionRuntimeFactory } from "../src/completions/runtime.ts";
 import type { BackPressTrigger } from "../src/device/back-press.ts";
 import type { ReminderTapTrigger } from "../src/reminders/reminder-taps.ts";
 import { HomeScreen } from "../src/screens/home-screen.tsx";
@@ -132,16 +133,26 @@ async function renderHome(
      * worth mentioning" case every other test is about.
      */
     session?: { accountId: string; token: string; expiresAt: string };
+    /**
+     * Told which account the phone's store of walks was opened for. The walks
+     * on a device belong to whoever walked them, so this is what a test about a
+     * second account signing in reads.
+     */
+    onRuntimeOwner?: (owner: string) => void;
   } = {},
 ) {
   const stated = options.now;
   const readClock = typeof stated === "function" ? stated : () => stated ?? NOW;
   // Home holds a completion runtime for as long as it is on screen, so every
   // one of these tests gets one with no device under it.
-  const createRuntime = fakeCompletionRuntimeFactory({
+  const openRuntime = fakeCompletionRuntimeFactory({
     ...(options.onRuntimeOpened === undefined ? {} : { onOpened: options.onRuntimeOpened }),
     ...(options.seed === undefined ? {} : { seed: options.seed }),
   });
+  const createRuntime: CompletionRuntimeFactory = (client, owner) => {
+    options.onRuntimeOwner?.(owner);
+    return openRuntime(client, owner);
+  };
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <SessionProvider
@@ -1509,7 +1520,10 @@ describe("home is the door to deleting the account", () => {
     await userEvent.press(await screen.findByTestId("delete-account-confirm"));
 
     expect(api.names()).toContain("deleteAccount");
-    await waitFor(async () => expect(await runtime.store.list()).toEqual([]));
+    // The sign-out that follows the deletion takes the runtime with it, so what
+    // the phone was left holding is read as the store was closed.
+    await waitFor(() => expect(runtime.disposals()).toBeGreaterThan(0));
+    expect(runtime.leftHolding()).toEqual([]);
   });
 
   it("comes back to home when the screen is left", async () => {
@@ -2498,5 +2512,23 @@ describe("saying which screen home has opened", () => {
     await screen.findByTestId("daily-completion");
 
     expect(reader.said()).toEqual(["Today's walk. Back to home is at the top of the screen."]);
+  });
+});
+
+describe("whose walks the phone is holding", () => {
+  it("opens the store for the account that is signed in", async () => {
+    // A phone is not one person's for ever. The store is opened in the name of
+    // the account whose session the app is using, so a second account signing
+    // in on the same device does not inherit the first one's unsent walks and
+    // does not send them under its own session.
+    const owners: string[] = [];
+    await renderHome(fakeApi({ getCurrentChallenge: runningChallenge() }), {
+      onRuntimeOwner: (owner) => {
+        owners.push(owner);
+      },
+    });
+    await screen.findByTestId("home-challenge");
+
+    expect(owners).toEqual([SESSION.accountId]);
   });
 });

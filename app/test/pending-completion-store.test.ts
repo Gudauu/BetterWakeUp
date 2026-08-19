@@ -40,7 +40,7 @@ function ids(): () => string {
 }
 
 async function openStore(database: SqliteDatabase): Promise<PendingCompletionStore> {
-  return openPendingCompletionStore({ database, newRecordId: ids() });
+  return openPendingCompletionStore({ owner: "account-1", database, newRecordId: ids() });
 }
 
 describe("pending completion store", () => {
@@ -188,7 +188,7 @@ describe("pending completion store", () => {
   it("opens over an existing database without disturbing what is stored", async () => {
     const record = await store.record(INPUT);
 
-    const reopened = await openPendingCompletionStore({ database });
+    const reopened = await openPendingCompletionStore({ owner: "account-1", database });
 
     expect(await reopened.list()).toMatchObject([{ id: record.id, status: "pending" }]);
   });
@@ -233,7 +233,11 @@ CREATE TABLE pending_completions (
       ],
     );
 
-    const store = await openPendingCompletionStore({ database, newRecordId: ids() });
+    const store = await openPendingCompletionStore({
+      owner: "account-1",
+      database,
+      newRecordId: ids(),
+    });
 
     // The walk survives, and the app does not invent an answer about a failure
     // that happened before it was recording one.
@@ -256,16 +260,82 @@ CREATE TABLE pending_completions (
   });
 });
 
+describe("a phone signed into a second account", () => {
+  async function heldByFirstAccount(database: SqliteDatabase): Promise<void> {
+    const first = await openPendingCompletionStore({
+      owner: "account-1",
+      database,
+      newRecordId: ids(),
+    });
+    const walked = await first.record(INPUT);
+    const refused = await first.record({
+      ...INPUT,
+      taskId: "33333333-3333-4333-8333-333333333333",
+    });
+    await first.markRejected(refused.id, { code: "not_found", message: "no such task" });
+    expect(await first.list()).toHaveLength(2);
+    expect(walked.status).toBe("pending");
+    // Not closed: one in-memory database stands in for the file the app
+    // reopens, and closing the handle would take the data with it.
+  }
+
+  it("starts empty rather than sending one person's walks with another's session", async () => {
+    const database = createMemoryDatabase();
+    await heldByFirstAccount(database);
+
+    const second = await openPendingCompletionStore({ owner: "account-2", database });
+
+    // The refusal goes with the walk: it is an answer about a task the new
+    // account cannot see, and reporting it would tell them they were turned
+    // away from a morning they never walked.
+    expect(await second.list()).toEqual([]);
+    await second.close();
+  });
+
+  it("still holds the walks when the same account signs back in", async () => {
+    const database = createMemoryDatabase();
+    await heldByFirstAccount(database);
+
+    const again = await openPendingCompletionStore({ owner: "account-1", database });
+
+    expect(await again.list()).toHaveLength(2);
+    await again.close();
+  });
+
+  it("adopts a database whose owner was never written down", async () => {
+    const database = createMemoryDatabase();
+    await heldByFirstAccount(database);
+    // What an update finds: the table of walks, and no record of whose they
+    // are, because the version that wrote them had nowhere to say so.
+    await database.runAsync("DELETE FROM store_owner", []);
+
+    const updated = await openPendingCompletionStore({ owner: "account-1", database });
+    expect(await updated.list()).toHaveLength(2);
+
+    // And having adopted them, it knows to let them go for the next account.
+    const other = await openPendingCompletionStore({ owner: "account-2", database });
+    expect(await other.list()).toEqual([]);
+    await other.close();
+  });
+});
+
 describe("pending completion store on disk", () => {
   it("keeps a record across a process that never came back", async () => {
     const file = createTestDatabaseFile();
     try {
-      const first = await openPendingCompletionStore({ database: file.open(), newRecordId: ids() });
+      const first = await openPendingCompletionStore({
+        owner: "account-1",
+        database: file.open(),
+        newRecordId: ids(),
+      });
       const record = await first.record(INPUT);
       // No acknowledgment, no clean shutdown: the app was killed here.
       await first.close();
 
-      const relaunched = await openPendingCompletionStore({ database: file.open() });
+      const relaunched = await openPendingCompletionStore({
+        owner: "account-1",
+        database: file.open(),
+      });
 
       expect(await relaunched.listPending()).toMatchObject([
         { id: record.id, taskId: INPUT.taskId, observation: OBSERVATION, status: "pending" },

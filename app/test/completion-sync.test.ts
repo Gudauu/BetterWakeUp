@@ -105,6 +105,7 @@ describe("completion sync", () => {
 
   beforeEach(async () => {
     store = await openPendingCompletionStore({
+      owner: "account-1",
       database: createMemoryDatabase(),
       newRecordId: ids(),
     });
@@ -251,7 +252,11 @@ describe("completion sync", () => {
 
   it("rejects a record whose stored observation is unreadable without sending it", async () => {
     const database = createMemoryDatabase();
-    const damaged = await openPendingCompletionStore({ database, newRecordId: ids() });
+    const damaged = await openPendingCompletionStore({
+      owner: "account-1",
+      database,
+      newRecordId: ids(),
+    });
     const record = await damaged.record(INPUT);
     await database.runAsync("UPDATE pending_completions SET observation = 'null' WHERE id = ?", [
       record.id,
@@ -402,6 +407,7 @@ describe("completion sync retrying on its own", () => {
 
   beforeEach(async () => {
     store = await openPendingCompletionStore({
+      owner: "account-1",
       database: createMemoryDatabase(),
       newRecordId: ids(),
     });
@@ -502,6 +508,7 @@ describe("completion sync across a killed app", () => {
     const file = createTestDatabaseFile();
     try {
       const before = await openPendingCompletionStore({
+        owner: "account-1",
         database: file.open(),
         newRecordId: ids(),
       });
@@ -517,7 +524,7 @@ describe("completion sync across a killed app", () => {
       await before.close();
 
       const client = createFakeClient();
-      const after = await openPendingCompletionStore({ database: file.open() });
+      const after = await openPendingCompletionStore({ owner: "account-1", database: file.open() });
       const result = await createCompletionSync({ store: after, client }).start();
 
       expect(result).toEqual({ acknowledged: 1, rejected: 0, deferred: 0 });

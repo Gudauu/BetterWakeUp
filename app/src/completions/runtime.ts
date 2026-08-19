@@ -52,7 +52,10 @@ export interface CompletionRuntime {
  * How a runtime is built. Substituted in tests, and the seam a development
  * build uses to drive the task screen without a real pedometer.
  */
-export type CompletionRuntimeFactory = (api: ApiClient) => Promise<CompletionRuntime>;
+export type CompletionRuntimeFactory = (
+  api: ApiClient,
+  owner: string,
+) => Promise<CompletionRuntime>;
 
 export type CompletionRuntimeState =
   | { readonly status: "loading" }
@@ -71,6 +74,7 @@ const FAILED_MESSAGE =
  */
 async function openRuntime(
   api: ApiClient,
+  owner: string,
   movement: {
     capture: MovementCapture;
     simulation: MovementSimulation | undefined;
@@ -81,7 +85,7 @@ async function openRuntime(
     "./native-store.ts"
   );
 
-  const store = await openPendingCompletionStore({ database: await openNativeDatabase() });
+  const store = await openPendingCompletionStore({ database: await openNativeDatabase(), owner });
   const sync = createCompletionSync({
     store,
     client: api,
@@ -114,9 +118,12 @@ async function openRuntime(
   };
 }
 
-export async function createNativeCompletionRuntime(api: ApiClient): Promise<CompletionRuntime> {
+export async function createNativeCompletionRuntime(
+  api: ApiClient,
+  owner: string,
+): Promise<CompletionRuntime> {
   const { createNativeMovementCapture } = await import("../movement/native-pedometer.ts");
-  return openRuntime(api, { capture: createNativeMovementCapture(), simulation: undefined });
+  return openRuntime(api, owner, { capture: createNativeMovementCapture(), simulation: undefined });
 }
 
 /**
@@ -128,7 +135,10 @@ export async function createNativeCompletionRuntime(api: ApiClient): Promise<Com
  * produce. What makes these completions identifiable is the build: nothing
  * reaches here unless it was built with movement simulation turned on.
  */
-export async function createSimulatedCompletionRuntime(api: ApiClient): Promise<CompletionRuntime> {
+export async function createSimulatedCompletionRuntime(
+  api: ApiClient,
+  owner: string,
+): Promise<CompletionRuntime> {
   const [{ createMovementCapture }, { createSimulatedMovement }, { Platform }] = await Promise.all([
     import("../movement/capture.ts"),
     import("../movement/simulated-pedometer.ts"),
@@ -136,7 +146,7 @@ export async function createSimulatedCompletionRuntime(api: ApiClient): Promise<
   ]);
 
   const movement = createSimulatedMovement();
-  return openRuntime(api, {
+  return openRuntime(api, owner, {
     capture: createMovementCapture({
       pedometer: movement.pedometer,
       foreground: movement.foreground,
@@ -149,10 +159,11 @@ export async function createSimulatedCompletionRuntime(api: ApiClient): Promise<
 /** The runtime this build asked for. One read of the config decides it. */
 export async function createConfiguredCompletionRuntime(
   api: ApiClient,
+  owner: string,
 ): Promise<CompletionRuntime> {
   return loadAppConfig().simulateMovement
-    ? createSimulatedCompletionRuntime(api)
-    : createNativeCompletionRuntime(api);
+    ? createSimulatedCompletionRuntime(api, owner)
+    : createNativeCompletionRuntime(api, owner);
 }
 
 /**
@@ -161,9 +172,15 @@ export async function createConfiguredCompletionRuntime(
  * A runtime that finishes opening after the component has gone is disposed
  * rather than kept: leaving it would hold a database handle and a foreground
  * listener that nothing can ever reach again.
+ *
+ * `owner` is the account the walks belong to. It is part of the effect's
+ * dependencies, so a phone signed into a second account opens the store again
+ * for that account rather than carrying on with the first one's records; `null`
+ * means nobody is signed in, which is not a database to open at all.
  */
 export function useCompletionRuntime(
   api: ApiClient,
+  owner: string | null,
   create: CompletionRuntimeFactory,
 ): CompletionRuntimeState {
   const [state, setState] = useState<CompletionRuntimeState>({ status: "loading" });
@@ -173,7 +190,10 @@ export function useCompletionRuntime(
     let opened: CompletionRuntime | null = null;
 
     setState({ status: "loading" });
-    void create(api).then(
+    if (owner === null) {
+      return;
+    }
+    void create(api, owner).then(
       (runtime) => {
         if (!active) {
           void runtime.dispose();
@@ -196,7 +216,7 @@ export function useCompletionRuntime(
       active = false;
       void opened?.dispose();
     };
-  }, [api, create]);
+  }, [api, create, owner]);
 
   return state;
 }

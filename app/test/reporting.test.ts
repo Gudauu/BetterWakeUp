@@ -162,6 +162,7 @@ describe("what a sync event reports", () => {
 
   beforeEach(async () => {
     store = await openPendingCompletionStore({
+      owner: "account-1",
       database: createMemoryDatabase(),
       newRecordId: ids(),
     });

@@ -903,6 +903,7 @@ On `expired` the welcome screen leads with what happened and drops the three how
 The notice says the one thing that changes what the user does next: being signed out is not a pause.
 The challenge keeps running, its deadlines keep counting, and only a walk taken in the app can meet one, so signing back in is urgent rather than housekeeping.
 It also says that a walk already saved on this phone is still there, because the pending completion store is never cleared by a sign-out and would otherwise look lost.
+It is cleared by a _different_ account signing in on the same phone, which is the walk's owner leaving rather than being thrown out; see "Whose walks the phone is holding".
 
 The two ways a session dies share one reason on purpose: the user experienced the same thing either way, and the difference is only in which side of the request noticed.
 
@@ -1043,6 +1044,21 @@ The advice also follows the retry clock.
 Inside the eight attempts sync keeps a timer for, "keep the app open" is a true description of what will send the walk.
 Past it the record is still pending but nothing is counting down, so the advice becomes the two things that do send it: reopening the app, or the connection coming back.
 The attempt count is said only from two failures up, because one is ordinary and saying so is noise.
+
+#### Whose walks the phone is holding
+
+A record is only meaningful to the account that walked it: it names a challenge and a task, and the server answers for those against the session the request carries.
+A phone, though, is not one person's for ever - a device handed on, a shared tablet, a household second phone - and signing out does not clear the store, deliberately, because a walk saved with no signal has to survive an expiry and a sign-in.
+Put together, those two facts left one person's unsent walks on the phone for whoever signed in next: the first sync pass under the new session would send them, the server would refuse tasks that account cannot see, and the screens would report the refusals as though the new account had walked and been turned away.
+
+So the store is opened in the name of an account.
+`store_owner` holds one row, home names the signed-in `accountId` when it builds the completion runtime, and an open under a different owner starts empty - rejected records included, since a refusal about a task the new account cannot see is not theirs to act on either.
+The alternative, keeping the previous account's records aside in case they sign back in, buys almost nothing: an unsent walk is worth something only until its deadline plus the receipt grace, which is measured in hours.
+
+A database with no owner written down - a phone updating from a version before this - is adopted rather than emptied.
+The records there were written by whoever is signed in now, because that is the only account the app has ever held a session for on this device.
+
+Account deletion still clears the store separately, through `discardAll`, because that account is not coming back at all and nobody else will ever claim the database.
 
 #### How long a saved walk has left
 

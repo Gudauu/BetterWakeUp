@@ -22,6 +22,12 @@ export interface FakeCompletionRuntime extends CompletionRuntime {
   readonly foreground: ReturnType<typeof createFakeForeground>;
   /** How many times this runtime was disposed, for the tear-down assertion. */
   disposals(): number;
+  /**
+   * What was still on the phone when this runtime was disposed, read before the
+   * database was closed. A store that is closed cannot be asked afterwards, so
+   * a test about what a sign-out or a deletion left behind reads this.
+   */
+  leftHolding(): readonly { readonly id: string }[];
 }
 
 export interface FakeRuntimeOptions {
@@ -58,8 +64,8 @@ export interface FakeRuntimeOptions {
 export function fakeCompletionRuntimeFactory(
   options: FakeRuntimeOptions = {},
 ): CompletionRuntimeFactory {
-  return async (api: ApiClient) => {
-    const runtime = await openFakeCompletionRuntime(api, options);
+  return async (api: ApiClient, owner: string) => {
+    const runtime = await openFakeCompletionRuntime(api, { ...options, owner });
     options.onOpened?.(runtime);
     return runtime;
   };
@@ -67,14 +73,16 @@ export function fakeCompletionRuntimeFactory(
 
 export async function openFakeCompletionRuntime(
   api: ApiClient,
-  options: FakeRuntimeOptions = {},
+  options: FakeRuntimeOptions & { readonly owner?: string } = {},
 ): Promise<FakeCompletionRuntime> {
   const now = options.now ?? (() => new Date("2026-09-01T13:00:00.000Z"));
   let counter = 0;
   let disposed = 0;
+  let left: readonly { readonly id: string }[] = [];
 
   const store = await openPendingCompletionStore({
     database: createMemoryDatabase(),
+    owner: options.owner ?? "account-1",
     // expo-crypto's randomUUID does not bind under jest, so the ID generator
     // is supplied here rather than left to the default.
     newRecordId: () => {
@@ -114,9 +122,11 @@ export async function openFakeCompletionRuntime(
     pedometer,
     foreground,
     disposals: () => disposed,
+    leftHolding: () => left,
     async dispose() {
       disposed += 1;
       sync.stop();
+      left = await store.list();
       await store.close();
     },
   };
@@ -134,11 +144,12 @@ export async function openFakeCompletionRuntime(
 export function simulatedCompletionRuntimeFactory(
   options: { readonly now?: () => Date } = {},
 ): CompletionRuntimeFactory {
-  return async (api: ApiClient) => {
+  return async (api: ApiClient, owner: string) => {
     const now = options.now ?? (() => new Date());
     let counter = 0;
     const store = await openPendingCompletionStore({
       database: createMemoryDatabase(),
+      owner,
       newRecordId: () => {
         counter += 1;
         return `66666666-0000-4000-8000-${String(counter).padStart(12, "0")}`;
