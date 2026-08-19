@@ -34,6 +34,13 @@ export const LAST_CALL_LEAD_MINUTES = 10;
 export const RECOVERY_LEAD_MINUTES = 60;
 
 /**
+ * What a reminder is asking for, and therefore what tapping it should open.
+ * Carried on the notification itself rather than worked out when the tap
+ * arrives: the app may have been launched by the tap and know nothing yet.
+ */
+export type ReminderTarget = "walk" | "recovery";
+
+/**
  * One scheduled notification.
  *
  * The `id` is derived from what the reminder is about rather than generated,
@@ -46,6 +53,8 @@ export interface Reminder {
   readonly at: string;
   readonly title: string;
   readonly body: string;
+  /** What the user is being asked to do, so the tap can lead there. */
+  readonly opens: ReminderTarget;
 }
 
 /**
@@ -75,12 +84,14 @@ export function remindersFor(challenge: ChallengeView | null, now: Date): readon
         at: minutesBefore(currentTask.deadline, ALARM_LEAD_MINUTES),
         title: "Time to get moving",
         body: `${configuration.stepTarget} steps by ${time}. Open BetterWakeUp and walk.`,
+        opens: "walk",
       });
       reminders.push({
         id: `${currentTask.id}:last-call`,
         at: minutesBefore(currentTask.deadline, LAST_CALL_LEAD_MINUTES),
         title: `Last call - ${time}`,
         body: `${LAST_CALL_LEAD_MINUTES} minutes left to walk your ${configuration.stepTarget} steps.`,
+        opens: "walk",
       });
     }
   }
@@ -92,6 +103,7 @@ export function remindersFor(challenge: ChallengeView | null, now: Date): readon
       at: minutesBefore(recoveryOffer.expiresAt, RECOVERY_LEAD_MINUTES),
       title: "Your recovery is about to expire",
       body: `Decide before ${time} or the missed day stands.`,
+      opens: "recovery",
     });
   }
 

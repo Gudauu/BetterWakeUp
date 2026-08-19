@@ -382,6 +382,21 @@ Permission is requested from a press and never on launch.
 iOS gives an app one prompt for the lifetime of an install, and spending it in front of a user who has not yet seen what the app is for is how an app ends up permanently unable to remind anyone of anything.
 Home therefore offers the switch by naming the time the nudge would arrive rather than the feature, and says where to turn notifications back on for a device that has already refused.
 
+#### The alarm being tapped
+
+A reminder exists to get someone walking, and until the tap led somewhere the app answered it by opening at home: the walk was a read of the screen and two more taps away, at the one moment of the day when the user is least able to do either.
+
+Each reminder therefore carries what it is asking for - `opens: "walk" | "recovery"` - as data on the notification itself.
+It has to travel with the notification because a tap on a lock screen launches the app from nothing: by the time anything has mounted, the tap has already happened and there is no challenge read to work it out from.
+
+`app/src/reminders/reminder-taps.ts` is the port, shaped like `AppReturnTrigger` and `BackPressTrigger`.
+It has two halves for that reason: `subscribe` hears taps while the app is running, and `taken` hands over the tap that launched it.
+The launch tap is handed over exactly once - the operating system keeps answering with the same response for the life of the process, so a second read would send the user back to the walk from wherever they had since got to.
+
+Home holds the tap until it has an answer to check it against, because a launch tap arrives before the challenge has been read.
+`tapDestination` then decides: a walk only when a task is actually open on a running, unpaused challenge, a recovery only while the offer stands, and home in every other case.
+The device holds the reminder, so it fires whatever has happened since it was scheduled - the day walked on another phone, the challenge ended, the offer decided - and home is the honest answer to all of those.
+
 ### The payment sheet
 
 A funded challenge is authorized on the device, not on the server.

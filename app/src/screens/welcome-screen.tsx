@@ -24,6 +24,7 @@ import {
   type Notifier,
   useRemindersClearedWhenSignedOut,
 } from "../reminders/notifier.ts";
+import type { ReminderTapTrigger } from "../reminders/reminder-taps.ts";
 import { useSession } from "../session/session-context.tsx";
 import { AppText, Banner, Button, Screen } from "../ui/components.tsx";
 import { useTheme } from "../ui/theme.ts";
@@ -87,6 +88,8 @@ export interface WelcomeScreenProps {
   readonly appReturn?: AppReturnTrigger;
   /** Handed straight to home, so a test can set up a challenge without a sensor. */
   readonly movementDevice?: MovementDevice;
+  /** Handed straight to home, so a test can tap a wake-up reminder. */
+  readonly reminderTaps?: ReminderTapTrigger;
 }
 
 export function WelcomeScreen({
@@ -95,6 +98,7 @@ export function WelcomeScreen({
   paymentSheet,
   appReturn,
   movementDevice,
+  reminderTaps,
 }: WelcomeScreenProps = {}) {
   const { state, availability, signIn, signOut } = useSession();
   const theme = useTheme();
@@ -142,6 +146,7 @@ export function WelcomeScreen({
           {...(paymentSheet === undefined ? {} : { paymentSheet })}
           {...(appReturn === undefined ? {} : { appReturn })}
           {...(movementDevice === undefined ? {} : { movementDevice })}
+          {...(reminderTaps === undefined ? {} : { reminderTaps })}
         />
       </View>
     );

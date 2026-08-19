@@ -53,6 +53,16 @@ describe("what a running challenge asks to be reminded of", () => {
     ]);
   });
 
+  it("says what tapping it should open, since the tap may launch the app", () => {
+    // The point of the alarm is the walk. Working out where to send someone
+    // from the notification alone is only possible if the notification carries
+    // it: a tap on a locked phone starts the app knowing nothing at all.
+    expect(remindersFor(RUNNING, NIGHT_BEFORE).map((reminder) => reminder.opens)).toEqual([
+      "walk",
+      "walk",
+    ]);
+  });
+
   it("drops a reminder whose moment has already passed", () => {
     // Between the two leads: the alarm is behind us and the last call is not.
     const reminders = remindersFor(RUNNING, new Date("2026-09-01T13:30:00.000Z"));
@@ -110,6 +120,8 @@ describe("the recovery offer", () => {
     expect(reminders[0]?.id).toBe("44444444-4444-4444-8444-444444444444:recovery");
     expect(reminders[0]?.at).toBe("2026-09-02T13:00:00.000Z");
     expect(reminders[0]?.body).toBe("Decide before 7:00 AM or the missed day stands.");
+    // The decision, not the walk: there is no open task to walk for.
+    expect(reminders[0]?.opens).toBe("recovery");
     expect(RECOVERY_LEAD_MINUTES).toBe(60);
   });
 });

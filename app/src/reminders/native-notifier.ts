@@ -15,7 +15,8 @@
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import type { Notifier, ReminderPermission } from "./notifier.ts";
-import type { Reminder } from "./reminders.ts";
+import type { ReminderTapTrigger } from "./reminder-taps.ts";
+import type { Reminder, ReminderTarget } from "./reminders.ts";
 
 /**
  * Android puts every notification in a channel, and one that names itself is
@@ -80,6 +81,46 @@ export function createNativeNotifier(): Notifier {
   };
 }
 
+/**
+ * The tap that opened the app, and the ones that arrive while it is open.
+ *
+ * A launch tap is read once and then forgotten: the operating system keeps
+ * answering with the same response for the life of the process, so a second
+ * read - after home remounts, or after signing back in - would send the user
+ * off to the walk again from wherever they had got to.
+ */
+export function createNativeReminderTaps(): ReminderTapTrigger {
+  let launchRead = false;
+  return {
+    async taken() {
+      if (launchRead) {
+        return null;
+      }
+      launchRead = true;
+      return targetOf(await Notifications.getLastNotificationResponseAsync());
+    },
+    subscribe(onTap) {
+      const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+        const target = targetOf(response);
+        if (target !== null) {
+          onTap(target);
+        }
+      });
+      return () => subscription.remove();
+    },
+  };
+}
+
+/**
+ * What a tapped notification was asking for. Anything without the app's own
+ * `opens` payload - a notification from an older install, or one this app did
+ * not schedule - leads nowhere in particular and is ignored.
+ */
+function targetOf(response: Notifications.NotificationResponse | null): ReminderTarget | null {
+  const opens = response?.notification.request.content.data?.opens;
+  return opens === "walk" || opens === "recovery" ? opens : null;
+}
+
 async function schedule(reminder: Reminder): Promise<void> {
   await Notifications.scheduleNotificationAsync({
     identifier: reminder.id,
@@ -87,6 +128,9 @@ async function schedule(reminder: Reminder): Promise<void> {
       title: reminder.title,
       body: reminder.body,
       sound: "default",
+      // Read back when the notification is tapped, which is the only moment
+      // the app can find out what the user was answering.
+      data: { opens: reminder.opens },
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DATE,

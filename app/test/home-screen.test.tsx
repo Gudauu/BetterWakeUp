@@ -11,6 +11,7 @@ import type { ApiClient } from "../src/api/client.ts";
 import { ApiError } from "../src/api/errors.ts";
 import type { AppReturnTrigger } from "../src/challenges/app-return.ts";
 import type { BackPressTrigger } from "../src/device/back-press.ts";
+import type { ReminderTapTrigger } from "../src/reminders/reminder-taps.ts";
 import { HomeScreen } from "../src/screens/home-screen.tsx";
 import { SessionProvider } from "../src/session/session-context.tsx";
 import { createMemorySessionStore } from "../src/session/session-store.ts";
@@ -36,6 +37,7 @@ import {
 import { type FakeNotifier, fakeNotifier } from "./support/fake-notifier.ts";
 import { type FakePaymentSheet, fakePaymentSheet } from "./support/fake-payment-sheet.ts";
 import { fakeProviders } from "./support/fake-providers.ts";
+import { fakeReminderTaps } from "./support/fake-reminder-taps.ts";
 import { type FakeSettingsLauncher, fakeSettings } from "./support/fake-settings.ts";
 
 const SESSION = {
@@ -92,6 +94,11 @@ async function renderHome(
      */
     backPress?: BackPressTrigger;
     /**
+     * How home hears that a wake-up reminder was tapped. Stated so a tap is a
+     * call in the test rather than a notification nothing here can deliver.
+     */
+    reminderTaps?: ReminderTapTrigger;
+    /**
      * What the clock says while home is on screen. Stated rather than read
      * from the machine, so how long is left on a recovery offer is a fact of
      * the fixture instead of a fact of the day the suite is run on.
@@ -128,6 +135,7 @@ async function renderHome(
           {...(options.settings === undefined ? {} : { settings: options.settings })}
           {...(options.appReturn === undefined ? {} : { appReturn: options.appReturn })}
           {...(options.backPress === undefined ? {} : { backPress: options.backPress })}
+          {...(options.reminderTaps === undefined ? {} : { reminderTaps: options.reminderTaps })}
           {...(options.onSignOut === undefined ? {} : { onSignOut: options.onSignOut })}
         />
       </SessionProvider>
@@ -1757,5 +1765,98 @@ describe("the back gesture", () => {
     expect(await back.press()).toBe(true);
 
     expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+  });
+});
+
+describe("the alarm being tapped", () => {
+  const OFFERED_RECOVERY = challengeView({
+    status: "recovery_pending",
+    currentTask: null,
+    recoveryOffer: {
+      taskId: "44444444-4444-4444-8444-444444444444",
+      offeredAt: "2026-09-01T15:00:00.000Z",
+      expiresAt: "2026-09-02T15:00:00.000Z",
+    },
+  });
+
+  it("opens today's walk for the tap that launched the app", async () => {
+    // The whole point of the reminder. At the moment it fires the user is
+    // half awake with money on the morning, and home is a screen to read
+    // before a walk they were already told to take.
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: challengeView({ currentTask: taskView() }),
+          lastEnded: null,
+        },
+      }),
+      { reminderTaps: fakeReminderTaps({ launchedBy: "walk" }).trigger },
+    );
+
+    expect(await screen.findByTestId("daily-completion")).toBeOnTheScreen();
+    expect(screen.getByTestId("start-capture")).toBeOnTheScreen();
+  });
+
+  it("opens today's walk for a tap that arrives with the app already open", async () => {
+    const taps = fakeReminderTaps();
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: challengeView({ currentTask: taskView() }),
+          lastEnded: null,
+        },
+      }),
+      { reminderTaps: taps.trigger },
+    );
+    await screen.findByTestId("home-challenge");
+
+    await taps.tap("walk");
+
+    expect(await screen.findByTestId("daily-completion")).toBeOnTheScreen();
+  });
+
+  it("opens the recovery decision for the reminder about the offer", async () => {
+    const taps = fakeReminderTaps();
+    await renderHome(
+      fakeApi({ getCurrentChallenge: { challenge: OFFERED_RECOVERY, lastEnded: null } }),
+      { reminderTaps: taps.trigger },
+    );
+    await screen.findByTestId("home-challenge");
+
+    await taps.tap("recovery");
+
+    expect(await screen.findByTestId("recovery-screen")).toBeOnTheScreen();
+  });
+
+  it("stays on home when the walk the alarm named is no longer open", async () => {
+    // The device holds the reminder, so it fires whatever has happened since:
+    // the day may have been walked on another phone, or the challenge ended.
+    // What is true now is the honest answer, and it is already on screen.
+    await renderHome(
+      fakeApi({ getCurrentChallenge: { challenge: challengeView(), lastEnded: null } }),
+      { reminderTaps: fakeReminderTaps({ launchedBy: "walk" }).trigger },
+    );
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("daily-completion")).toBeNull();
+  });
+
+  it("leaves the walk open once, so coming back to home stays at home", async () => {
+    const taps = fakeReminderTaps({ launchedBy: "walk" });
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: challengeView({ currentTask: taskView() }),
+          lastEnded: null,
+        },
+      }),
+      { reminderTaps: taps.trigger },
+    );
+    await screen.findByTestId("daily-completion");
+
+    await userEvent.press(screen.getByTestId("daily-back"));
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("daily-completion")).toBeNull();
   });
 });

@@ -12,7 +12,7 @@
  */
 
 import type { ChallengeStatus, ChallengeView, EndedChallengeSummary } from "@betterwakeup/contract";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { type AppReturnTrigger, useAppReturn } from "../challenges/app-return.ts";
 import { useCurrentChallenge } from "../challenges/current-challenge.ts";
@@ -66,7 +66,12 @@ import {
   type RemindersState,
   useReminders,
 } from "../reminders/notifier.ts";
-import { ALARM_LEAD_MINUTES, nextAlarmAt } from "../reminders/reminders.ts";
+import {
+  type ReminderTapTrigger,
+  tapDestination,
+  useReminderTaps,
+} from "../reminders/reminder-taps.ts";
+import { ALARM_LEAD_MINUTES, nextAlarmAt, type ReminderTarget } from "../reminders/reminders.ts";
 import { useSession } from "../session/session-context.tsx";
 import {
   SIGN_OUT_CANCEL_LABEL,
@@ -143,6 +148,12 @@ export interface HomeScreenProps {
    * device; a build passes nothing.
    */
   readonly backPress?: BackPressTrigger;
+  /**
+   * How home hears that a wake-up reminder was tapped, which is what opens the
+   * walk it was about. Substituted in tests, so that a tap is drivable without
+   * a notification; a build passes nothing.
+   */
+  readonly reminderTaps?: ReminderTapTrigger;
   /**
    * How the device's settings page is opened, which is the only way out of a
    * refused notification or motion permission. Substituted in tests so a press
@@ -224,6 +235,7 @@ export function HomeScreen({
   movementDevice,
   appReturn,
   backPress,
+  reminderTaps,
   now,
   settings,
 }: HomeScreenProps) {
@@ -324,6 +336,26 @@ export function HomeScreen({
       ...(backPress === undefined ? {} : { trigger: backPress }),
     },
   );
+  // A tapped alarm names what it was asking for, but not whether that is still
+  // there: the tap may have launched the app, in which case the challenge has
+  // not been read yet. It is held until there is an answer to check it against.
+  const [tapped, setTapped] = useState<ReminderTarget | null>(null);
+  useReminderTaps(setTapped, {
+    ...(reminderTaps === undefined ? {} : { trigger: reminderTaps }),
+  });
+  const loaded = state.status === "loaded" ? state.challenge : undefined;
+  useEffect(() => {
+    if (tapped === null || loaded === undefined) {
+      return;
+    }
+    setTapped(null);
+    const destination = tapDestination(tapped, loaded);
+    // Home is where the app already is, so a tap whose subject has gone leaves
+    // the user looking at what is true instead of at an empty screen.
+    if (destination !== "home") {
+      setRoute(destination === "walk" ? "task" : "recovery");
+    }
+  }, [tapped, loaded]);
   // Opening the form retires the finish: whatever comes back from it, the last
   // challenge is no longer the thing the screen is about.
   const openCreate = (endedId?: string) => {
