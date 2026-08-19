@@ -20,7 +20,7 @@ describe("waiting for a funded challenge", () => {
     const api = fakeApi({
       getCurrentChallenge: () => {
         reads += 1;
-        return { challenge: reads < 3 ? null : challenge };
+        return { challenge: reads < 3 ? null : challenge, lastEnded: null };
       },
     });
 
@@ -32,7 +32,7 @@ describe("waiting for a funded challenge", () => {
   });
 
   it("gives up as pending rather than as failed when the hold is still clearing", async () => {
-    const api = fakeApi({ getCurrentChallenge: { challenge: null } });
+    const api = fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } });
 
     const outcome = await awaitFundedChallenge(api, { attempts: 4, sleep: immediately });
 
@@ -46,7 +46,7 @@ describe("waiting for a funded challenge", () => {
     const api = fakeApi({
       getCurrentChallenge: () => {
         reads += 1;
-        return reads === 1 ? new Error("network down") : { challenge };
+        return reads === 1 ? new Error("network down") : { challenge, lastEnded: null };
       },
     });
 
@@ -65,7 +65,7 @@ describe("waiting for a funded challenge", () => {
 
   it("stops asking once the screen that wanted it is gone", async () => {
     const controller = new AbortController();
-    const api = fakeApi({ getCurrentChallenge: { challenge: null } });
+    const api = fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } });
 
     const outcome = await awaitFundedChallenge(api, {
       attempts: 5,

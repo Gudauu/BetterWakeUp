@@ -187,7 +187,7 @@ describe("issue 19's acceptance boundary", () => {
     const beforeDelivery = await app.server.request("http://api.test/challenges/current", {
       headers: { authorization: `Bearer ${token}` },
     });
-    expect(await beforeDelivery.json()).toEqual({ challenge: null });
+    expect(await beforeDelivery.json()).toEqual({ challenge: null, lastEnded: null });
 
     const delivery = app.provider.deliver(intent.authorizationId ?? "", "succeeded");
     const webhook = await app.server.request(...deliver(delivery.body, delivery.signature));

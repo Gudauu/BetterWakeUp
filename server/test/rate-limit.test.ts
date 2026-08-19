@@ -107,7 +107,7 @@ describe("mounting a limited endpoint", () => {
       createApp({
         logger: silent(),
         sessionGate: fakeSessionGate(),
-        handlers: { getCurrentChallenge: () => ({ challenge: null }) },
+        handlers: { getCurrentChallenge: () => ({ challenge: null, lastEnded: null }) },
       }),
     ).not.toThrow();
   });

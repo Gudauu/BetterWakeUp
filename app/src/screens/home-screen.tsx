@@ -11,7 +11,7 @@
  * and reloads it whenever something it launched changed the answer.
  */
 
-import type { ChallengeStatus, ChallengeView } from "@betterwakeup/contract";
+import type { ChallengeStatus, ChallengeView, EndedChallengeSummary } from "@betterwakeup/contract";
 import { type ReactNode, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useCurrentChallenge } from "../challenges/current-challenge.ts";
@@ -91,10 +91,14 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
   const theme = useTheme();
   const { state, reload } = useCurrentChallenge(api);
   const [route, setRoute] = useState<Route>("home");
-  // The challenge as it stood when its last day was acknowledged. The server
-  // stops answering for a finished challenge, so without holding it here the
-  // month would end as an empty screen offering to start another one.
-  const [finished, setFinished] = useState<ChallengeView | null>(null);
+  // The challenge as it stood when its last day was acknowledged, so the finish
+  // is on screen the moment it happens rather than after the next read.
+  const [finished, setFinished] = useState<EndedChallengeSummary | null>(null);
+  // The ended challenge the user has already taken in. The server keeps
+  // reporting the last outcome until another challenge exists, which is right
+  // for someone opening the app to find out - and wrong for someone who has
+  // read it and come back for something else.
+  const [dismissed, setDismissed] = useState<string | null>(null);
   // The way back from everything home opens. A command that changed the
   // challenge reads it again from here rather than while its screen is still
   // up: `reload` puts home into its loading state, which would pull that screen
@@ -111,8 +115,11 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
   const runtime = useCompletionRuntime(api, createRuntime ?? createConfiguredCompletionRuntime);
   // Opening the form retires the finish: whatever comes back from it, the last
   // challenge is no longer the thing the screen is about.
-  const openCreate = () => {
+  const openCreate = (endedId?: string) => {
     setFinished(null);
+    if (endedId !== undefined) {
+      setDismissed(endedId);
+    }
     setRoute("create");
   };
 
@@ -184,7 +191,7 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
           challenge={open}
           runtime={runtime}
           onBack={() => goHome(true)}
-          onFinished={() => setFinished(open)}
+          onFinished={() => setFinished(succeededSummary(open))}
         />
       );
     }
@@ -213,15 +220,24 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
     }
   }
 
+  // What the account has just been through, if anything: the finish the task
+  // screen reported, or the outcome the server is still holding for it. Both
+  // are read the same way, because a month that ended is a month that ended
+  // however the app came to hear about it.
+  const ended =
+    state.challenge !== null
+      ? null
+      : (finished ?? (state.lastEnded?.id === dismissed ? null : state.lastEnded));
+
   return (
     <Screen testID="home">
       <View style={styles.header}>
         <AppText variant="caption" tone="accent">
           {state.challenge !== null
             ? "TODAY"
-            : finished === null
+            : ended === null
               ? "READY WHEN YOU ARE"
-              : "WELL DONE"}
+              : ENDED_CAPTION[ended.status]}
         </AppText>
         <AppText variant="display" accessibilityRole="header">
           BetterWakeUp
@@ -229,16 +245,27 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
       </View>
 
       {state.challenge === null ? (
-        finished === null ? (
+        ended === null ? (
           <Card testID="home-no-challenge">
             <AppText variant="headline">No challenge running</AppText>
             <AppText variant="small" tone="muted">
               Set a wake-up time, walk when the alarm goes, and keep your deposit.
             </AppText>
-            <Button testID="home-create-challenge" label="Start a challenge" onPress={openCreate} />
+            <Button
+              testID="home-create-challenge"
+              label="Start a challenge"
+              onPress={() => openCreate()}
+            />
           </Card>
         ) : (
-          <FinishedCard challenge={finished} onStartAnother={openCreate} />
+          <FinishedCard
+            ended={ended}
+            onStartAnother={() => openCreate(ended.id)}
+            onDismiss={() => {
+              setFinished(null);
+              setDismissed(ended.id);
+            }}
+          />
         )
       ) : (
         <ChallengeCard
@@ -407,43 +434,117 @@ function ChallengeCard({
   );
 }
 
+/** The caption over an account holding no challenge, once one has ended. */
+const ENDED_CAPTION: Readonly<Record<EndedChallengeSummary["status"], string>> = {
+  succeeded: "WELL DONE",
+  failed: "THAT ONE'S OVER",
+  expired: "THAT ONE'S OVER",
+};
+
+const ENDED_PILL: Readonly<
+  Record<EndedChallengeSummary["status"], { label: string; tone: "success" | "danger" }>
+> = {
+  succeeded: { label: "Challenge complete", tone: "success" },
+  failed: { label: "Challenge ended short", tone: "danger" },
+  expired: { label: "Challenge expired", tone: "danger" },
+};
+
 /**
  * The challenge that just ended, in place of the empty state.
  *
- * The server answers null for a finished challenge, so this is drawn from the
- * copy home was holding when the last completion was acknowledged. It names the
- * days and the deposit, because those are the two things the user staked, and
- * it offers the next challenge without pretending the last one never happened.
+ * A challenge that succeeds says so on the completion that ended it, and one
+ * that fails or expires is decided by a sweep the app never hears, so the
+ * server reports the last outcome until another challenge exists. Either way
+ * this is the same card: what happened, how many days were done, and what
+ * became of the money - the three things the user staked a month on.
  */
 function FinishedCard({
-  challenge,
+  ended,
   onStartAnother,
+  onDismiss,
 }: {
-  challenge: ChallengeView;
+  ended: EndedChallengeSummary;
   onStartAnother: () => void;
+  onDismiss: () => void;
 }) {
-  const { configuration } = challenge;
+  const pill = ENDED_PILL[ended.status];
   return (
     <Card testID="home-finished">
-      <StatusPill testID="home-finished-status" label="Challenge complete" tone="success" />
+      <StatusPill testID="home-finished-status" label={pill.label} tone={pill.tone} />
       <AppText variant="display" testID="home-finished-days">
-        {configuration.requiredTaskCount}
+        {endedDaysCount(ended)}
         <AppText variant="headline" tone="muted">
-          {configuration.requiredTaskCount === 1 ? " day, all yours" : " days, all yours"}
+          {endedDaysSuffix(ended)}
         </AppText>
       </AppText>
       <AppText variant="small" tone="muted" testID="home-finished-deposit">
-        {configuration.deposit.amount === 0
-          ? "You staked nothing on this one. The next one could be worth something."
-          : `Your ${formatMoney(configuration.deposit.amount)} deposit was never charged.`}
+        {endedDepositText(ended)}
       </AppText>
       <Button
         testID="home-create-challenge"
-        label="Start another challenge"
+        label={ended.status === "succeeded" ? "Start another challenge" : "Start a new challenge"}
         onPress={onStartAnother}
       />
+      {/* The way to put it down. The card stands until another challenge
+          exists, which is right for someone opening the app to find out what
+          happened and wrong for someone who already knows. */}
+      <TextButton testID="home-finished-dismiss" label="Got it" onPress={onDismiss} />
     </Card>
   );
+}
+
+/**
+ * A success is read as the whole month it was; anything else is read as the
+ * days that were actually done, because that is the honest number and the one
+ * the user is about to compare against what they set out to do.
+ */
+function endedDaysCount(ended: EndedChallengeSummary): string {
+  return ended.status === "succeeded"
+    ? String(ended.requiredTaskCount)
+    : `${ended.completedTaskCount} / ${ended.requiredTaskCount}`;
+}
+
+function endedDaysSuffix(ended: EndedChallengeSummary): string {
+  if (ended.status === "succeeded") {
+    return ended.requiredTaskCount === 1 ? " day, all yours" : " days, all yours";
+  }
+  return ended.requiredTaskCount === 1 ? " day done" : " days done";
+}
+
+/** What became of the money, which is the first thing asked about any ending. */
+function endedDepositText(ended: EndedChallengeSummary): string {
+  const amount = formatMoney(ended.deposit.amount);
+  if (ended.depositOutcome === "none") {
+    return ended.status === "succeeded"
+      ? "You staked nothing on this one. The next one could be worth something."
+      : "You staked nothing on this one, so nothing was charged.";
+  }
+  if (ended.depositOutcome === "charged") {
+    return `Your ${amount} deposit was charged. A new challenge starts a new deposit.`;
+  }
+  return ended.status === "succeeded"
+    ? `Your ${amount} deposit was never charged.`
+    : `Your ${amount} deposit was released, not charged.`;
+}
+
+/**
+ * The finish the task screen just reported, as the summary the server would
+ * answer with once asked again. Home draws it immediately rather than waiting
+ * for a read, and the two have to be the same shape or the card would have to
+ * know which of them it was looking at.
+ */
+function succeededSummary(challenge: ChallengeView): EndedChallengeSummary {
+  const { configuration } = challenge;
+  return {
+    id: challenge.id,
+    status: "succeeded",
+    endedAt: new Date().toISOString(),
+    requiredTaskCount: configuration.requiredTaskCount,
+    // The completion that ended it was the last one the challenge asked for.
+    completedTaskCount: configuration.requiredTaskCount,
+    deposit: configuration.deposit,
+    depositOutcome: configuration.deposit.amount === 0 ? "none" : "kept",
+  };
 }
 
 /**

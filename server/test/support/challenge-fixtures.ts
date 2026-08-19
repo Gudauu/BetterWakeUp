@@ -38,6 +38,12 @@ export interface ChallengeOptions {
    * without its required completions.
    */
   readonly taskStatus: TaskStatusValue;
+  /**
+   * When a terminal challenge reached its status. Defaults to the first task's
+   * instant. A test with two ended challenges has to set it, because the status
+   * transition trigger refuses to update a challenge that already ended.
+   */
+  readonly terminalAt?: Date;
 }
 
 const DEFAULT_OPTIONS: Omit<ChallengeOptions, "taskStatus"> = {
@@ -131,7 +137,7 @@ export async function insertChallengeForAccount(
         policyVersion: "2026-01-01",
         projectedEndDate: taskDate(options.requiredTaskCount),
         activatedAt: new Date(FIRST_TASK_DATE - DAY_MS),
-        ...(terminal ? { terminalAt: new Date(FIRST_TASK_DATE) } : {}),
+        ...(terminal ? { terminalAt: options.terminalAt ?? new Date(FIRST_TASK_DATE) } : {}),
       })
       .returning({ id: challenges.id });
     if (challenge === undefined) {

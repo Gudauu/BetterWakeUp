@@ -215,11 +215,23 @@ A deadline is only true in the challenge's own time zone, so every screen that s
 
 ### The end of a challenge
 
-`GET /challenges/current` answers null for every terminal challenge, so the server cannot be asked what the account just finished.
-The completion that ends a challenge says so in its own response, in `challengeStatus`, and that answer is the app's only notice of the finish.
+`GET /challenges/current` answers null in `challenge` for every terminal challenge: "current" is the challenge holding the account's slot, and a challenge that ended holds nothing and offers nothing to act on.
 
-The daily task screen therefore says the challenge is over on the acknowledgment that ended it, and hands the challenge it was holding up to home, which keeps it for the rest of the session and shows it in place of the empty state.
-Without that, a finished challenge would read as an account that never held one.
+A challenge can end two ways, and the app hears about them differently.
+
+**The user finishes it.**
+The completion that ends a challenge says so in its own response, in `challengeStatus`, so the daily task screen says the challenge is over on the acknowledgment that ended it and hands that finish up to home, which shows it without waiting for another read.
+
+**The server decides it.**
+A failure and an expiry are decided by the sweep, which the app is never told about, so there is no response to carry them.
+`GET /challenges/current` therefore answers with `lastEnded` beside the null challenge: the outcome, the days that were done, the deposit, and what became of it.
+It is one summary of the account's most recent terminal challenge, not a history, and it is null while a challenge is running, because a running challenge is the whole answer.
+
+`depositOutcome` is stated by the server rather than derived by the app from a status.
+Only a failure forfeits a deposit: a challenge that succeeded, and one that expired after a year of pause, both release the hold uncharged, and that rule belongs beside the settlement that carries it out.
+
+Home draws both the same way, so a month that ended reads as a month that ended however the app came to hear about it.
+Without this, a challenge that failed would read as an account that never held one, and a charged deposit would be something the user found out from their card statement.
 
 ### Movement
 

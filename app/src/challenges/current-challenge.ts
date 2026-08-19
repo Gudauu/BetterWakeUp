@@ -11,7 +11,7 @@
  * account and of every account whose last challenge reached a terminal status.
  */
 
-import type { ChallengeView } from "@betterwakeup/contract";
+import type { ChallengeView, EndedChallengeSummary } from "@betterwakeup/contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
@@ -19,8 +19,16 @@ import { ApiError } from "../api/errors.ts";
 export type CurrentChallengeState =
   /** The read is in flight, and nothing about the account is known yet. */
   | { readonly status: "loading" }
-  /** The server answered. `challenge` is null when the account holds none. */
-  | { readonly status: "loaded"; readonly challenge: ChallengeView | null }
+  /**
+   * The server answered. `challenge` is null when the account holds none, and
+   * `lastEnded` is how the account learns what happened to the one before: a
+   * failure or an expiry is decided by a server sweep the app never hears.
+   */
+  | {
+      readonly status: "loaded";
+      readonly challenge: ChallengeView | null;
+      readonly lastEnded: EndedChallengeSummary | null;
+    }
   | { readonly status: "failed"; readonly message: string };
 
 const NETWORK_MESSAGE = "No connection to BetterWakeUp. Check your network and try again.";
@@ -39,7 +47,9 @@ export async function loadCurrentChallenge(
     const response = await api.request("getCurrentChallenge", {
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
-    return { status: "loaded", challenge: response.challenge };
+    // Both fields are the contract's, and the client parses the body against
+    // it, so an answer that reached here has an outcome or an explicit null.
+    return { status: "loaded", challenge: response.challenge, lastEnded: response.lastEnded };
   } catch (cause) {
     return { status: "failed", message: messageFor(cause) };
   }

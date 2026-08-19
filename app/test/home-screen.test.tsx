@@ -13,6 +13,7 @@ import { SessionProvider } from "../src/session/session-context.tsx";
 import { createMemorySessionStore } from "../src/session/session-store.ts";
 import {
   challengeView,
+  endedChallenge,
   type FakeApi,
   fakeApi,
   PAUSE_EXPIRES_AT,
@@ -66,7 +67,7 @@ async function renderHome(
 
 describe("home reads the account's current challenge", () => {
   it("offers to start one when the account holds none", async () => {
-    await renderHome(fakeApi({ getCurrentChallenge: { challenge: null } }));
+    await renderHome(fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } }));
 
     expect(await screen.findByTestId("home-no-challenge")).toBeOnTheScreen();
     expect(screen.getByTestId("home-create-challenge")).toBeOnTheScreen();
@@ -78,6 +79,7 @@ describe("home reads the account's current challenge", () => {
     // form anyway would be sending the user at a request the server refuses.
     const api = fakeApi({
       getCurrentChallenge: {
+        lastEnded: null,
         challenge: challengeView({
           progress: {
             requiredTaskCount: 30,
@@ -103,6 +105,7 @@ describe("home reads the account's current challenge", () => {
     await renderHome(
       fakeApi({
         getCurrentChallenge: {
+          lastEnded: null,
           challenge: challengeView({
             pause: { pausedAt: "2026-09-02T00:00:00.000Z", expiresAt: "2027-09-02T00:00:00.000Z" },
           }),
@@ -117,6 +120,7 @@ describe("home reads the account's current challenge", () => {
     await renderHome(
       fakeApi({
         getCurrentChallenge: {
+          lastEnded: null,
           challenge: challengeView({
             status: "recovery_pending",
             depositSecured: false,
@@ -146,7 +150,7 @@ describe("home when the read fails", () => {
         if (attempts === 1) {
           throw new ApiError("internal_error", "database unreachable", { status: 500 });
         }
-        return { challenge: challengeView() };
+        return { challenge: challengeView(), lastEnded: null };
       },
     });
 
@@ -176,10 +180,10 @@ describe("home is the door to creating a challenge", () => {
   it("opens the form and reads the challenge back once it is created", async () => {
     let created = false;
     const api = fakeApi({
-      getCurrentChallenge: () => ({ challenge: created ? challengeView() : null }),
+      getCurrentChallenge: () => ({ challenge: created ? challengeView() : null, lastEnded: null }),
       createChallenge: () => {
         created = true;
-        return { challenge: challengeView() };
+        return { challenge: challengeView(), lastEnded: null };
       },
     });
 
@@ -202,7 +206,7 @@ describe("home is the door to creating a challenge", () => {
   });
 
   it("comes back to home when the form is left without creating anything", async () => {
-    const api = fakeApi({ getCurrentChallenge: { challenge: null } });
+    const api = fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } });
 
     await renderHome(api);
     await userEvent.press(await screen.findByTestId("home-create-challenge"));
@@ -218,7 +222,12 @@ describe("home is the door to today's task", () => {
     // Before this route existed the completion screen was unreachable from the
     // running app, so this is the test that says the app can record a day.
     await renderHome(
-      fakeApi({ getCurrentChallenge: { challenge: challengeView({ currentTask: taskView() }) } }),
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: challengeView({ currentTask: taskView() }),
+          lastEnded: null,
+        },
+      }),
     );
     await userEvent.press(await screen.findByTestId("home-open-task"));
 
@@ -227,7 +236,9 @@ describe("home is the door to today's task", () => {
   });
 
   it("offers no way in when nothing is due", async () => {
-    await renderHome(fakeApi({ getCurrentChallenge: { challenge: challengeView() } }));
+    await renderHome(
+      fakeApi({ getCurrentChallenge: { challenge: challengeView(), lastEnded: null } }),
+    );
 
     expect(await screen.findByTestId("home-no-task")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-open-task")).toBeNull();
@@ -235,7 +246,10 @@ describe("home is the door to today's task", () => {
 
   it("comes back to home and re-reads the challenge", async () => {
     const api = fakeApi({
-      getCurrentChallenge: { challenge: challengeView({ currentTask: taskView() }) },
+      getCurrentChallenge: {
+        challenge: challengeView({ currentTask: taskView() }),
+        lastEnded: null,
+      },
     });
 
     await renderHome(api);
@@ -253,7 +267,7 @@ describe("home is the door to today's task", () => {
     // A runtime left open would hold a database handle and a foreground
     // listener nothing can reach, so the tear-down is part of the contract.
     let opened: FakeCompletionRuntime | null = null;
-    const api = fakeApi({ getCurrentChallenge: { challenge: null } });
+    const api = fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } });
 
     await renderHome(api, {
       onRuntimeOpened: (runtime) => {
@@ -274,7 +288,9 @@ describe("home is the door to today's task", () => {
 
 describe("home is the door to pausing", () => {
   it("opens the pause screen for a running challenge", async () => {
-    await renderHome(fakeApi({ getCurrentChallenge: { challenge: challengeView() } }));
+    await renderHome(
+      fakeApi({ getCurrentChallenge: { challenge: challengeView(), lastEnded: null } }),
+    );
     await userEvent.press(await screen.findByTestId("home-open-pause"));
 
     expect(await screen.findByTestId("pause-screen")).toBeOnTheScreen();
@@ -285,6 +301,7 @@ describe("home is the door to pausing", () => {
     await renderHome(
       fakeApi({
         getCurrentChallenge: {
+          lastEnded: null,
           challenge: challengeView({ pause: { pausedAt: PAUSED_AT, expiresAt: PAUSE_EXPIRES_AT } }),
         },
       }),
@@ -297,7 +314,9 @@ describe("home is the door to pausing", () => {
     // Pausing a finished challenge is a press the server refuses, so it is not
     // offered rather than offered and rejected.
     await renderHome(
-      fakeApi({ getCurrentChallenge: { challenge: challengeView({ status: "succeeded" }) } }),
+      fakeApi({
+        getCurrentChallenge: { challenge: challengeView({ status: "succeeded" }), lastEnded: null },
+      }),
     );
 
     expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
@@ -305,7 +324,7 @@ describe("home is the door to pausing", () => {
   });
 
   it("comes back and re-reads the challenge once a pause went through", async () => {
-    const api = fakeApi({ getCurrentChallenge: { challenge: challengeView() } });
+    const api = fakeApi({ getCurrentChallenge: { challenge: challengeView(), lastEnded: null } });
 
     await renderHome(api);
     await userEvent.press(await screen.findByTestId("home-open-pause"));
@@ -320,7 +339,7 @@ describe("home is the door to pausing", () => {
   });
 
   it("comes back without asking again when the screen is only left", async () => {
-    const api = fakeApi({ getCurrentChallenge: { challenge: challengeView() } });
+    const api = fakeApi({ getCurrentChallenge: { challenge: challengeView(), lastEnded: null } });
 
     await renderHome(api);
     await userEvent.press(await screen.findByTestId("home-open-pause"));
@@ -345,7 +364,7 @@ describe("home is the door to the recovery offer", () => {
   });
 
   it("opens the decision from the alert that raised it", async () => {
-    await renderHome(fakeApi({ getCurrentChallenge: { challenge: OFFERED } }));
+    await renderHome(fakeApi({ getCurrentChallenge: { challenge: OFFERED, lastEnded: null } }));
     await userEvent.press(await screen.findByTestId("home-open-recovery"));
 
     expect(await screen.findByTestId("recovery-screen")).toBeOnTheScreen();
@@ -353,14 +372,16 @@ describe("home is the door to the recovery offer", () => {
   });
 
   it("offers no way in when nothing is waiting on a decision", async () => {
-    await renderHome(fakeApi({ getCurrentChallenge: { challenge: challengeView() } }));
+    await renderHome(
+      fakeApi({ getCurrentChallenge: { challenge: challengeView(), lastEnded: null } }),
+    );
 
     expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-open-recovery")).toBeNull();
   });
 
   it("comes back and re-reads the challenge once the recovery was spent", async () => {
-    const api = fakeApi({ getCurrentChallenge: { challenge: OFFERED } });
+    const api = fakeApi({ getCurrentChallenge: { challenge: OFFERED, lastEnded: null } });
 
     await renderHome(api);
     await userEvent.press(await screen.findByTestId("home-open-recovery"));
@@ -375,7 +396,7 @@ describe("home is the door to the recovery offer", () => {
   });
 
   it("comes back spending nothing when the allowance is kept", async () => {
-    const api = fakeApi({ getCurrentChallenge: { challenge: OFFERED } });
+    const api = fakeApi({ getCurrentChallenge: { challenge: OFFERED, lastEnded: null } });
 
     await renderHome(api);
     await userEvent.press(await screen.findByTestId("home-open-recovery"));
@@ -386,11 +407,80 @@ describe("home is the door to the recovery offer", () => {
   });
 });
 
+describe("home says what happened to the challenge that ended", () => {
+  // A failure or an expiry is decided by a server sweep the app never hears,
+  // so `lastEnded` on the next read is the only notice the user ever gets. Home
+  // showing the empty state instead would mean a charged deposit was something
+  // they found out from their card statement.
+  it("names the deposit a failed challenge charged", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: null,
+          lastEnded: endedChallenge({
+            status: "failed",
+            requiredTaskCount: 30,
+            completedTaskCount: 12,
+            deposit: { amount: 2000, currency: "USD" },
+            depositOutcome: "charged",
+          }),
+        },
+      }),
+    );
+
+    expect(await screen.findByTestId("home-finished")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-no-challenge")).toBeNull();
+    expect(screen.getByTestId("home-finished-status")).toHaveTextContent(/ended short/);
+    expect(screen.getByTestId("home-finished-days")).toHaveTextContent(/12 \/ 30 days done/);
+    expect(screen.getByTestId("home-finished-deposit")).toHaveTextContent(
+      /\$20\.00 deposit was charged/,
+    );
+  });
+
+  it("says an expired challenge kept its deposit", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: null,
+          lastEnded: endedChallenge({ status: "expired", depositOutcome: "kept" }),
+        },
+      }),
+    );
+
+    expect(await screen.findByTestId("home-finished-status")).toHaveTextContent(/expired/);
+    expect(screen.getByTestId("home-finished-deposit")).toHaveTextContent(/released, not charged/);
+  });
+
+  it("puts the outcome down when the user says they have read it", async () => {
+    // The server keeps reporting the last outcome until another challenge
+    // exists, which is right for someone opening the app to find out and wrong
+    // for someone who came back for something else.
+    await renderHome(
+      fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: endedChallenge() } }),
+    );
+    await userEvent.press(await screen.findByTestId("home-finished-dismiss"));
+
+    expect(await screen.findByTestId("home-no-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-finished")).toBeNull();
+  });
+
+  it("does not show it beside a challenge that is running", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: { challenge: challengeView(), lastEnded: endedChallenge() },
+      }),
+    );
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-finished")).toBeNull();
+  });
+});
+
 describe("home is the door to deleting the account", () => {
   it("is reachable for an account holding no challenge", async () => {
     // The App Store requires deletion from inside the app, and an account with
     // nothing running is exactly the one most likely to want it.
-    await renderHome(fakeApi({ getCurrentChallenge: { challenge: null } }));
+    await renderHome(fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } }));
     await userEvent.press(await screen.findByTestId("home-delete-account"));
 
     expect(await screen.findByTestId("delete-account-screen")).toBeOnTheScreen();
@@ -401,6 +491,7 @@ describe("home is the door to deleting the account", () => {
     await renderHome(
       fakeApi({
         getCurrentChallenge: {
+          lastEnded: null,
           challenge: challengeView({
             configuration: {
               ...challengeView().configuration,
@@ -417,7 +508,7 @@ describe("home is the door to deleting the account", () => {
   });
 
   it("comes back to home when the screen is left", async () => {
-    const api = fakeApi({ getCurrentChallenge: { challenge: null } });
+    const api = fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } });
 
     await renderHome(api);
     await userEvent.press(await screen.findByTestId("home-delete-account"));
@@ -430,7 +521,7 @@ describe("home is the door to deleting the account", () => {
 
 describe("home's own actions", () => {
   it("asks the server again when refreshed", async () => {
-    const api = fakeApi({ getCurrentChallenge: { challenge: null } });
+    const api = fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } });
 
     await renderHome(api);
     await screen.findByTestId("home-no-challenge");

@@ -65,7 +65,9 @@ describe("the API client builds requests from the contract registry", () => {
   });
 
   it("sends the stored session as a bearer token on a session endpoint", async () => {
-    const { calls, client } = harness(() => jsonResponse(200, { challenge: null }));
+    const { calls, client } = harness(() =>
+      jsonResponse(200, { challenge: null, lastEnded: null }),
+    );
 
     await client.request("getCurrentChallenge", {});
 
@@ -116,7 +118,9 @@ describe("the API client builds requests from the contract registry", () => {
   });
 
   it("sends no idempotency key on a read", async () => {
-    const { calls, client } = harness(() => jsonResponse(200, { challenge: null }));
+    const { calls, client } = harness(() =>
+      jsonResponse(200, { challenge: null, lastEnded: null }),
+    );
 
     await client.request("getCurrentChallenge", {});
 
@@ -191,7 +195,9 @@ describe("the API client turns every failure into one error type", () => {
   });
 
   it("treats a success body the contract does not describe as an internal error", async () => {
-    const { client } = harness(() => jsonResponse(200, { challenge: "not an object" }));
+    const { client } = harness(() =>
+      jsonResponse(200, { challenge: "not an object", lastEnded: null }),
+    );
 
     const error: ApiError = await client.request("getCurrentChallenge", {}).catch((t) => t);
 

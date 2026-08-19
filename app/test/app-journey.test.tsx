@@ -216,6 +216,48 @@ describe("one account's life through the app's own screens", () => {
     await waitFor(() => expect(screen.queryByTestId("projection")).not.toBeNull());
   });
 
+  it("tells the user their challenge failed and their deposit went with it", async () => {
+    // The losing end. Nothing on screen causes it: the deadline passes, the
+    // server's sweep fails the challenge, and the next read is the whole of
+    // the notice. Before the server carried an outcome, this month read as an
+    // account that had never held a challenge.
+    const server = journeyServer();
+    await launch(server);
+    const user = userEvent.setup();
+
+    await user.press(await screen.findByTestId("sign-in-apple"));
+    await user.press(await screen.findByTestId("home-create-challenge"));
+    await waitFor(() => expect(screen.queryByTestId("projection")).not.toBeNull());
+    await fireEvent(screen.getByTestId("confirm-time-zone"), "valueChange", true);
+    for (const disclosure of disclosuresFor(0)) {
+      await fireEvent(screen.getByTestId(`disclosure-${disclosure.id}`), "valueChange", true);
+    }
+    await user.press(screen.getByTestId("start-challenge"));
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+
+    // The morning goes by unwalked, and the sweep decides it.
+    server.missDeadline();
+    await user.press(screen.getByTestId("home-refresh"));
+
+    expect(await screen.findByTestId("home-finished")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-no-challenge")).toBeNull();
+    expect(screen.getByTestId("home-finished-status")).toHaveTextContent(/ended short/);
+    expect(screen.getByTestId("home-finished-days")).toHaveTextContent(
+      new RegExp(`0 / ${REQUIRED_TASK_COUNT} days done`),
+    );
+
+    // A zero deposit challenge stakes nothing, and the app says so rather than
+    // implying money moved.
+    expect(screen.getByTestId("home-finished-deposit")).toHaveTextContent(/staked nothing/);
+
+    // And the way on is another challenge, with the outcome put down.
+    await user.press(screen.getByTestId("home-create-challenge"));
+    await waitFor(() => expect(screen.queryByTestId("projection")).not.toBeNull());
+    await user.press(screen.getByTestId("cancel-create"));
+    expect(await screen.findByTestId("home-no-challenge")).toBeOnTheScreen();
+  });
+
   it("pauses and resumes a running challenge from home", async () => {
     // A separate journey because pausing is only offered while a challenge is
     // running, and the first one deliberately finishes its challenge.

@@ -151,9 +151,46 @@ export const createFundingIntentResponse = z.object({
   pollAfterAuthorization: z.literal(true),
 });
 
+/**
+ * The challenge that ended, as the account's notice of what happened to it.
+ *
+ * A challenge that succeeds tells the app so on the completion that ended it,
+ * but a challenge that fails or expires is decided by the server's sweep, which
+ * the app never hears. Without this the month a user staked money on would read
+ * as an account that had never held a challenge, and a charged deposit would be
+ * something they learned from their card statement.
+ *
+ * It is a summary rather than a `challengeView`, because there is nothing here
+ * to act on: no task, no pause, no offer. What it carries is the outcome, the
+ * days that were done, and what happened to the money.
+ */
+export const endedChallengeSummary = z.object({
+  id: resourceId,
+  /** Terminal statuses only. An open challenge is answered as `challenge`. */
+  status: z.enum(["succeeded", "failed", "expired"]),
+  endedAt: instant,
+  requiredTaskCount: z.int().min(1),
+  completedTaskCount: z.int().nonnegative(),
+  deposit: depositAmount,
+  /**
+   * What became of the deposit. Only a failure forfeits it: a challenge that
+   * succeeded, and one that expired after a year of pause, release the hold.
+   * Stated by the server so the app never has to derive money from a status.
+   */
+  depositOutcome: z.enum(["none", "kept", "charged"]),
+});
+
 export const getCurrentChallengeResponse = z.object({
   /** Null when the account holds no challenge, which is the state after any terminal one. */
   challenge: challengeView.nullable(),
+  /**
+   * The account's most recent terminal challenge, present only while it holds
+   * no open one. Null for an account that has never finished a challenge, and
+   * null whenever `challenge` is set: a running challenge is the whole answer,
+   * and pairing it with an older outcome would only invite the app to show two
+   * challenges at once.
+   */
+  lastEnded: endedChallengeSummary.nullable(),
 });
 
 export const replacePaymentMethodRequest = z.object({
@@ -230,6 +267,7 @@ export type CreateChallengeRequest = z.infer<typeof createChallengeRequest>;
 export type CreateChallengeResponse = z.infer<typeof createChallengeResponse>;
 export type CreateFundingIntentRequest = z.infer<typeof createFundingIntentRequest>;
 export type CreateFundingIntentResponse = z.infer<typeof createFundingIntentResponse>;
+export type EndedChallengeSummary = z.infer<typeof endedChallengeSummary>;
 export type GetCurrentChallengeResponse = z.infer<typeof getCurrentChallengeResponse>;
 export type ReplacePaymentMethodRequest = z.infer<typeof replacePaymentMethodRequest>;
 export type ReplacePaymentMethodResponse = z.infer<typeof replacePaymentMethodResponse>;

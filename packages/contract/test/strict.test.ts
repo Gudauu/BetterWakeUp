@@ -139,13 +139,14 @@ describe("response schemas", () => {
   it("tolerate a field an older app has never heard of", () => {
     const response = {
       challenge: null,
+      lastEnded: null,
       // A field a later version of the server added.
       serverTime: "2026-08-17T06:31:00Z",
     };
     const parsed = getCurrentChallengeResponse.safeParse(response);
     expect(parsed.success).toBe(true);
     // Tolerated on the way in, and not carried into the app's own value.
-    expect(parsed.data).toEqual({ challenge: null });
+    expect(parsed.data).toEqual({ challenge: null, lastEnded: null });
   });
 
   it("are built without mutating the schemas the strict requests were built from", () => {

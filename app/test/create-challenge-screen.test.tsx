@@ -158,7 +158,9 @@ describe("a funded challenge", () => {
       <SafeAreaProvider initialMetrics={METRICS}>
         <SessionProvider
           store={createMemorySessionStore(SESSION)}
-          createClient={() => fakeApi({ getCurrentChallenge: { challenge: funded } })}
+          createClient={() =>
+            fakeApi({ getCurrentChallenge: { challenge: funded, lastEnded: null } })
+          }
           providers={fakeProviders({ google: fakeProvider() })}
         >
           <CreateChallengeScreen initialDraft={readyDraft(2000)} onCreated={created} />

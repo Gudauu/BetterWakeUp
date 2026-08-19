@@ -424,7 +424,7 @@ describe("the current challenge", () => {
     const response = await app(db).request(...get(token, "/challenges/current"));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ challenge: null });
+    expect(await response.json()).toEqual({ challenge: null, lastEnded: null });
   });
 
   it("is the challenge the account just created", async () => {
@@ -443,17 +443,94 @@ describe("the current challenge", () => {
 
     const response = await server.request(...get(token, "/challenges/current"));
 
-    expect(await response.json()).toEqual({ challenge });
+    // A running challenge is the whole answer: no outcome is reported beside it.
+    expect(await response.json()).toEqual({ challenge, lastEnded: null });
   });
 
-  it("is null again once the challenge has ended", async () => {
+  it("is null again once the challenge has ended, with the outcome beside it", async () => {
     const { db } = testDatabase();
     const { accountId, token } = await signIn(db);
-    await insertChallengeForAccount(db, accountId, { status: "succeeded", depositMinorUnits: 0 });
+    const challengeId = await insertChallengeForAccount(db, accountId, {
+      status: "succeeded",
+      depositMinorUnits: 0,
+      requiredTaskCount: 3,
+    });
 
     const response = await app(db).request(...get(token, "/challenges/current"));
 
-    expect(await response.json()).toEqual({ challenge: null });
+    expect(await response.json()).toEqual({
+      challenge: null,
+      lastEnded: {
+        id: challengeId,
+        status: "succeeded",
+        endedAt: expect.any(String),
+        requiredTaskCount: 3,
+        completedTaskCount: 3,
+        deposit: { amount: 0, currency: "USD" },
+        depositOutcome: "none",
+      },
+    });
+  });
+
+  it("says a failed challenge charged its deposit", async () => {
+    // The one outcome the app is never told about any other way: a failure is
+    // decided by the sweep, and the account's next read is where the user
+    // finds out that the money went.
+    const { db } = testDatabase();
+    const { accountId, token } = await signIn(db);
+    await insertChallengeForAccount(db, accountId, {
+      status: "failed",
+      depositMinorUnits: 2000,
+      requiredTaskCount: 3,
+      taskCount: 3,
+      taskStatus: "missed",
+    });
+
+    const response = await app(db).request(...get(token, "/challenges/current"));
+
+    const body = (await response.json()) as {
+      lastEnded: { status: string; completedTaskCount: number; depositOutcome: string };
+    };
+    expect(body.lastEnded.status).toBe("failed");
+    expect(body.lastEnded.completedTaskCount).toBe(0);
+    expect(body.lastEnded.depositOutcome).toBe("charged");
+  });
+
+  it("says an expired challenge kept its deposit", async () => {
+    // Expiry after a year of pause releases the hold. Only a failure forfeits,
+    // and the app must never have to infer that from a status.
+    const { db } = testDatabase();
+    const { accountId, token } = await signIn(db);
+    await insertChallengeForAccount(db, accountId, {
+      status: "expired",
+      depositMinorUnits: 2000,
+    });
+
+    const response = await app(db).request(...get(token, "/challenges/current"));
+
+    const body = (await response.json()) as { lastEnded: { depositOutcome: string } };
+    expect(body.lastEnded.depositOutcome).toBe("kept");
+  });
+
+  it("reports the outcome of the challenge that ended last", async () => {
+    const { db } = testDatabase();
+    const { accountId, token } = await signIn(db);
+    const older = await insertChallengeForAccount(db, accountId, {
+      status: "succeeded",
+      depositMinorUnits: 0,
+    });
+    const newer = await insertChallengeForAccount(db, accountId, {
+      status: "failed",
+      depositMinorUnits: 2000,
+      taskStatus: "missed",
+      terminalAt: new Date("2026-02-01T00:00:00Z"),
+    });
+
+    const response = await app(db).request(...get(token, "/challenges/current"));
+
+    const body = (await response.json()) as { lastEnded: { id: string } };
+    expect(body.lastEnded.id).toBe(newer);
+    expect(body.lastEnded.id).not.toBe(older);
   });
 
   it("is another account's challenge to nobody", async () => {
@@ -464,7 +541,7 @@ describe("the current challenge", () => {
 
     const response = await app(db).request(...get(token, "/challenges/current"));
 
-    expect(await response.json()).toEqual({ challenge: null });
+    expect(await response.json()).toEqual({ challenge: null, lastEnded: null });
   });
 
   it("carries the standing Emergency Recovery offer while one is open", async () => {

@@ -29,7 +29,7 @@ describe("mounting a protected endpoint", () => {
     expect(() =>
       createApp({
         logger: silent(),
-        handlers: { getCurrentChallenge: () => ({ challenge: null }) },
+        handlers: { getCurrentChallenge: () => ({ challenge: null, lastEnded: null }) },
       }),
     ).toThrow(/requires a session and no session gate/);
   });
@@ -114,7 +114,7 @@ describe("what a handler is given", () => {
       handlers: {
         getCurrentChallenge: ({ session }) => {
           seen = session;
-          return { challenge: null };
+          return { challenge: null, lastEnded: null };
         },
       },
     });
@@ -135,7 +135,7 @@ describe("what a handler is given", () => {
     const app = createApp({
       logger: createLogger({ sink: (line) => lines.push(line) }),
       sessionGate: fakeSessionGate(),
-      handlers: { getCurrentChallenge: () => ({ challenge: null }) },
+      handlers: { getCurrentChallenge: () => ({ challenge: null, lastEnded: null }) },
     });
 
     await app.request("/challenges/current", { headers: { authorization: "Bearer anything" } });

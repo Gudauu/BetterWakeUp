@@ -12,6 +12,7 @@ import {
   type CreateFundingIntentResponse,
   type CreateProjectionResponse,
   DISCLOSURE_POLICY_VERSION,
+  type EndedChallengeSummary,
   type TaskView,
 } from "@betterwakeup/contract";
 import type { ApiClient, ApiRequest, ClientEndpointName } from "../../src/api/client.ts";
@@ -95,6 +96,22 @@ export function challengeView(overrides: Partial<ChallengeView> = {}): Challenge
   };
 }
 
+/** The outcome the server reports for the account's last terminal challenge. */
+export function endedChallenge(
+  overrides: Partial<EndedChallengeSummary> = {},
+): EndedChallengeSummary {
+  return {
+    id: "33333333-3333-4333-8333-333333333333",
+    status: "failed",
+    endedAt: "2026-10-12T14:00:00.000Z",
+    requiredTaskCount: 30,
+    completedTaskCount: 12,
+    deposit: { amount: 2000, currency: "USD" },
+    depositOutcome: "charged",
+    ...overrides,
+  };
+}
+
 export function taskView(overrides: Partial<TaskView> = {}): TaskView {
   return {
     id: "44444444-4444-4444-8444-444444444444",
@@ -117,7 +134,7 @@ const DEFAULTS: Partial<Record<ClientEndpointName, unknown>> = {
   createFundingIntent: FUNDING_INTENT,
   // An account with no challenge: the state a new one is in, and the one that
   // leaves a test about something else free of a challenge it did not set up.
-  getCurrentChallenge: { challenge: null },
+  getCurrentChallenge: { challenge: null, lastEnded: null },
   deleteSession: {},
   deleteAccount: {},
   pauseChallenge: {

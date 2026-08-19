@@ -21,6 +21,7 @@ import {
   type ChallengeView,
   type CreateCompletionRequest,
   ENDPOINTS,
+  type EndedChallengeSummary,
   type TaskView,
 } from "@betterwakeup/contract";
 import type { ApiClient, ApiRequest, ClientEndpointName } from "../../src/api/client.ts";
@@ -51,6 +52,13 @@ export interface JourneyServer extends ApiClient {
    * the app does causes this, which is exactly why the app has to watch for it.
    */
   confirmFunding(): void;
+  /**
+   * The sweep, as a test can press it: the deadline passed with no walk, the
+   * challenge fails, and the deposit is charged. Like the webhook, nothing the
+   * app does causes this, which is why the app only ever learns about it from
+   * the next read.
+   */
+  missDeadline(): void;
 }
 
 export interface JourneyServerOptions {
@@ -79,6 +87,8 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
   const calls: RecordedCall[] = [];
   const completions: CreateCompletionRequest[] = [];
   let challenge: ChallengeView | null = null;
+  /** The last terminal challenge, which is all the account keeps of it. */
+  let lastEnded: EndedChallengeSummary | null = null;
   /** The configuration a hold was authorized for, until its webhook lands. */
   let authorized: ChallengeView["configuration"] | null = null;
   let accountExists = true;
@@ -114,6 +124,25 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
     return challenge;
   }
 
+  /** How a challenge ends, whichever way it ends: it stops being current and leaves a summary. */
+  function endChallenge(
+    current: ChallengeView,
+    status: EndedChallengeSummary["status"],
+    completedTaskCount: number,
+  ): void {
+    const deposit = current.configuration.deposit;
+    lastEnded = {
+      id: current.id,
+      status,
+      endedAt: now().toISOString(),
+      requiredTaskCount: current.progress.requiredTaskCount,
+      completedTaskCount,
+      deposit,
+      depositOutcome: deposit.amount === 0 ? "none" : status === "failed" ? "charged" : "kept",
+    };
+    challenge = null;
+  }
+
   function live(): ChallengeView {
     if (challenge === null) {
       throw new ApiError("not_found", "This account holds no challenge.");
@@ -139,7 +168,9 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
 
     deleteSession: () => ({}),
 
-    getCurrentChallenge: () => ({ challenge }),
+    // An open challenge is the whole answer; the outcome is reported only while
+    // the account holds none, which is what the contract says.
+    getCurrentChallenge: () => ({ challenge, lastEnded: challenge === null ? lastEnded : null }),
 
     createChallengeProjection: (input) => {
       const { configuration } = (
@@ -203,17 +234,19 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
       };
       const completedTaskCount = current.progress.completedTaskCount + 1;
       const succeeded = completedTaskCount >= current.progress.requiredTaskCount;
-      // A succeeded challenge is terminal, and the account holds none again -
-      // the same state a new account is in.
-      challenge = succeeded
-        ? null
-        : {
-            ...current,
-            progress: { ...current.progress, completedTaskCount },
-            // The next task appears on the next active day, so there is
-            // nothing due until then.
-            currentTask: null,
-          };
+      // A succeeded challenge is terminal: the account holds none again, and
+      // all that is left of it is the outcome the next read reports.
+      if (succeeded) {
+        endChallenge(current, "succeeded", completedTaskCount);
+      } else {
+        challenge = {
+          ...current,
+          progress: { ...current.progress, completedTaskCount },
+          // The next task appears on the next active day, so there is
+          // nothing due until then.
+          currentTask: null,
+        };
+      }
       return {
         task: acknowledged,
         replayed: false,
@@ -263,6 +296,7 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
     deleteAccount: () => {
       accountExists = false;
       challenge = null;
+      lastEnded = null;
       return {};
     },
   };
@@ -279,6 +313,11 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
       }
       activate(authorized);
       authorized = null;
+    },
+
+    missDeadline() {
+      const current = live();
+      endChallenge(current, "failed", current.progress.completedTaskCount);
     },
 
     async request<Name extends ClientEndpointName>(name: Name, input: ApiRequest<Name>) {
