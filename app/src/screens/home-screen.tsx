@@ -32,6 +32,7 @@ import {
   Divider,
   ProgressBar,
   Screen,
+  StatusPill,
   TextButton,
 } from "../ui/components.tsx";
 import { formatDay, formatDeadline } from "../ui/format.ts";
@@ -315,6 +316,7 @@ function ChallengeCard({
       <Card testID="home-challenge">
         <View style={styles.statusRow}>
           <StatusPill
+            testID="home-challenge-status"
             label={paused ? "Paused" : STATUS_HEADLINE[challenge.status]}
             tone={paused ? "warning" : STATUS_TONE[challenge.status]}
           />
@@ -383,40 +385,6 @@ function ChallengeCard({
 }
 
 /** The challenge's state, said once, in the colour that state deserves. */
-function StatusPill({
-  label,
-  tone,
-}: {
-  label: string;
-  tone: "accent" | "success" | "danger" | "warning";
-}) {
-  const theme = useTheme();
-  const color = theme.colors[tone];
-  const wash = {
-    accent: theme.colors.accentSoft,
-    success: theme.colors.successSoft,
-    danger: theme.colors.dangerSoft,
-    warning: theme.colors.warningSoft,
-  }[tone];
-  return (
-    <View
-      style={[
-        styles.pill,
-        {
-          backgroundColor: wash,
-          borderRadius: theme.radius.pill,
-          paddingHorizontal: theme.space.md,
-        },
-      ]}
-    >
-      <View style={[styles.dot, { backgroundColor: color }]} />
-      <AppText variant="caption" tone={tone} testID="home-challenge-status">
-        {label}
-      </AppText>
-    </View>
-  );
-}
-
 /**
  * Today's task, once the pieces it needs exist.
  *
@@ -489,7 +457,5 @@ const styles = StyleSheet.create({
   wide: { alignSelf: "stretch" },
   taskCard: { gap: 8 },
   statusRow: { flexDirection: "row" },
-  pill: { alignItems: "center", flexDirection: "row", gap: 8, paddingVertical: 6 },
-  dot: { borderRadius: 999, height: 8, width: 8 },
   progressBlock: { gap: 10 },
 });

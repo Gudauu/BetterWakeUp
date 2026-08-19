@@ -6,12 +6,16 @@
  * skip before the confirmation opens. While it is paused, the first thing on
  * screen says the challenge is not running, no task is offered, and the
  * approach of the year is stated as an outcome rather than as a prompt.
+ *
+ * Both shapes lead with a status pill, because "running" and "paused" are the
+ * one fact the user came here to check and a heading alone is easy to skim
+ * past. What pausing costs is spelled out as a short list of promises rather
+ * than a paragraph, so a half-awake reader can find the one that worries them.
  */
 
 import type { ChallengeView } from "@betterwakeup/contract";
 import { useCallback, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StyleSheet, View } from "react-native";
 import type { ApiClient } from "../api/client.ts";
 import {
   type CommandOutcome,
@@ -19,6 +23,8 @@ import {
   resumeChallenge,
 } from "../challenges/lifecycle-commands.ts";
 import { pauseExpirySentence, pausePresentation } from "../challenges/pause.ts";
+import { AppText, Banner, Card, Divider, Screen, StatusPill } from "../ui/components.tsx";
+import { formatDay } from "../ui/format.ts";
 import { BackLink } from "./back-link.tsx";
 import { ConfirmAction } from "./confirm-action.tsx";
 
@@ -33,9 +39,16 @@ export interface PauseScreenProps {
   readonly onBack?: () => void;
 }
 
+/** What a pause does and does not do, in the order a worried user asks it. */
+const PAUSE_PROMISES: readonly string[] = [
+  "No task is due and no deadline counts.",
+  "Nothing is charged and no day can be failed.",
+  "Your Emergency Recovery stays untouched.",
+  "You can resume at any time.",
+];
+
 export function PauseScreen(props: PauseScreenProps) {
   const { api, challenge } = props;
-  const insets = useSafeAreaInsets();
   const readClock = props.now ?? (() => new Date());
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -70,25 +83,38 @@ export function PauseScreen(props: PauseScreenProps) {
   );
 
   return (
-    <ScrollView
-      testID="pause-screen"
-      contentContainerStyle={[styles.container, { paddingTop: insets.top }]}
-    >
+    <Screen testID="pause-screen">
       <BackLink testID="pause-back" onBack={props.onBack} />
 
-      <Text style={styles.title} accessibilityRole="header" testID="pause-status">
-        {view.running ? "Your challenge is running" : "Your challenge is paused"}
-      </Text>
+      <View style={styles.header}>
+        <StatusPill
+          label={view.running ? "Running" : "Paused"}
+          tone={view.running ? "success" : "warning"}
+        />
+        <AppText variant="display" accessibilityRole="header" testID="pause-status">
+          {view.running ? "Your challenge is running" : "Your challenge is paused"}
+        </AppText>
+      </View>
 
       {view.running ? (
         <>
-          <Text style={styles.body}>
-            Pausing skips every task from here until you resume. Nothing is charged and nothing is
-            failed while it lasts.
-          </Text>
-          <Text style={styles.body} testID="next-skipped-task">
-            {nextSkippedSentence(view.nextSkippedTask, view.cutoffPassed)}
-          </Text>
+          <Card>
+            <AppText variant="headline">What pausing does</AppText>
+            {PAUSE_PROMISES.map((promise) => (
+              <View key={promise} style={styles.promise}>
+                <AppText variant="small" tone="muted">
+                  •
+                </AppText>
+                <AppText variant="small" style={styles.shrink}>
+                  {promise}
+                </AppText>
+              </View>
+            ))}
+            <Divider />
+            <AppText variant="small" tone="muted" testID="next-skipped-task">
+              {nextSkippedSentence(view.nextSkippedTask, view.cutoffPassed)}
+            </AppText>
+          </Card>
           <ConfirmAction
             testID="pause"
             label="Pause the challenge"
@@ -100,18 +126,30 @@ export function PauseScreen(props: PauseScreenProps) {
         </>
       ) : (
         <>
-          <View style={styles.banner} testID="paused-banner">
-            <Text style={styles.bannerText}>
+          <Banner tone="info" testID="paused-banner">
+            <AppText variant="small">
               No task is due and nothing can be failed. Deadlines start again only when you resume.
-            </Text>
-          </View>
-          <Text style={styles.note} testID="paused-days">
-            {pausedDaysSentence(view.pausedDays)}
-          </Text>
+            </AppText>
+          </Banner>
+          <Card>
+            <AppText variant="title" testID="paused-days">
+              {pausedDaysSentence(view.pausedDays)}
+            </AppText>
+            <AppText variant="small" tone="muted">
+              Every day you spend paused is a day your end date moves later, and nothing else.
+            </AppText>
+          </Card>
           {view.expiryWarning && view.daysUntilExpiry !== null ? (
-            <Text style={styles.warning} testID="pause-expiry-warning" accessibilityRole="alert">
-              {pauseExpirySentence(view.daysUntilExpiry)}
-            </Text>
+            <Banner tone="warning">
+              <AppText
+                variant="small"
+                tone="warning"
+                testID="pause-expiry-warning"
+                accessibilityRole="alert"
+              >
+                {pauseExpirySentence(view.daysUntilExpiry)}
+              </AppText>
+            </Banner>
           ) : null}
           <ConfirmAction
             testID="resume"
@@ -125,17 +163,19 @@ export function PauseScreen(props: PauseScreenProps) {
       )}
 
       {problem === null ? null : (
-        <Text style={styles.error} testID="pause-problem" accessibilityRole="alert">
-          {problem}
-        </Text>
+        <Banner tone="danger">
+          <AppText variant="small" tone="danger" testID="pause-problem" accessibilityRole="alert">
+            {problem}
+          </AppText>
+        </Banner>
       )}
-    </ScrollView>
+    </Screen>
   );
 }
 
 function nextSkippedSentence(task: { date: string } | null, cutoffPassed: boolean): string {
   if (task !== null) {
-    return `Pausing now skips your task on ${task.date} first.`;
+    return `Pausing now skips your task on ${formatDay(task.date)} first.`;
   }
   if (cutoffPassed) {
     return "Your current task is already past the point where it can be skipped, so it stays live. The pause starts with the task after it.";
@@ -155,12 +195,7 @@ function pausedDaysSentence(pausedDays: number | null): string {
 }
 
 const styles = StyleSheet.create({
-  container: { gap: 16, paddingHorizontal: 24, paddingBottom: 48 },
-  title: { fontSize: 28, fontWeight: "600" },
-  body: { fontSize: 15, lineHeight: 21 },
-  note: { fontSize: 13, opacity: 0.6, lineHeight: 18 },
-  banner: { backgroundColor: "#f1efe6", borderRadius: 12, padding: 16 },
-  bannerText: { fontSize: 15, lineHeight: 21 },
-  warning: { fontSize: 14, color: "#8a5300", lineHeight: 20 },
-  error: { fontSize: 14, color: "#b00020", lineHeight: 20 },
+  header: { gap: 8 },
+  promise: { flexDirection: "row", gap: 8 },
+  shrink: { flexShrink: 1 },
 });

@@ -42,7 +42,10 @@ describe("PauseScreen while running", () => {
     );
 
     expect(screen.getByTestId("pause-status")).toHaveTextContent(/running/);
-    expect(screen.getByTestId("next-skipped-task")).toHaveTextContent(/2026-09-01/);
+    // The day is named the way a person says it, not the way the server sends
+    // it: an ISO date here is a defect, not a formatting preference.
+    expect(screen.getByTestId("next-skipped-task")).toHaveTextContent(/Tuesday, September 1/);
+    expect(screen.getByTestId("next-skipped-task")).not.toHaveTextContent(/2026-09-01/);
   });
 
   it("says the current task stays live when its cutoff has passed", async () => {
@@ -51,6 +54,13 @@ describe("PauseScreen while running", () => {
     );
 
     expect(screen.getByTestId("next-skipped-task")).toHaveTextContent(/stays live/);
+  });
+
+  it("spells out what a pause protects before it is taken", async () => {
+    await pauseScreen(challengeView({ currentTask: taskView() }));
+
+    expect(screen.getByText(/no deadline counts/)).toBeTruthy();
+    expect(screen.getByText(/Emergency Recovery stays untouched/)).toBeTruthy();
   });
 
   it("pauses nothing on the first press, and pauses on the confirmation", async () => {
@@ -168,6 +178,24 @@ describe("RecoveryScreen", () => {
     expect(api.names()).toEqual(["acceptRecovery"]);
   });
 
+  it("reads the closing time in the challenge's zone rather than as an instant", async () => {
+    const api = fakeApi();
+    await draw(<RecoveryScreen api={api} challenge={offered} now={now} />);
+
+    // Midnight UTC is 5pm the previous afternoon in the challenge's zone, and
+    // the afternoon is the one the user has to act by.
+    expect(screen.getByTestId("recovery-deadline")).toHaveTextContent(/Tue, Sep 1, 5:00 PM/);
+    expect(screen.getByTestId("recovery-deadline")).not.toHaveTextContent(/2026-09-02T/);
+  });
+
+  it("states what keeping the recovery costs, beside what spending it costs", async () => {
+    const api = fakeApi();
+    await draw(<RecoveryScreen api={api} challenge={offered} now={now} />);
+
+    expect(screen.getByTestId("recovery-expiry")).toHaveTextContent(/deposit is charged/);
+    expect(screen.getByTestId("recovery-expiry")).toHaveTextContent(/unspent for a future/);
+  });
+
   it("offers declining as a real choice and sends nothing for it", async () => {
     const user = userEvent.setup();
     const api = fakeApi();
@@ -194,6 +222,27 @@ describe("DeleteAccountScreen", () => {
 
     await user.press(screen.getByTestId("delete-account-confirm"));
     expect(api.names()).toEqual(["deleteAccount"]);
+  });
+
+  it("names each thing deletion takes rather than summarising it", async () => {
+    const api = fakeApi();
+    await draw(<DeleteAccountScreen api={api} challenge={null} />);
+
+    expect(screen.getByText(/Emergency Recovery allowance, spent or not/)).toBeTruthy();
+    expect(screen.getByText(/Every day you completed/)).toBeTruthy();
+  });
+
+  it("paints the acting press as destructive once the confirmation is open", async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    await draw(<DeleteAccountScreen api={api} challenge={null} />);
+
+    await user.press(screen.getByTestId("delete-account"));
+
+    // The second press has to look unlike the first, or it reads as a repeat
+    // of the press that only opened the consequence.
+    expect(screen.getByTestId("delete-account-confirmation")).toBeTruthy();
+    expect(screen.getByTestId("delete-account-cancel")).toBeTruthy();
   });
 
   it("offers no deletion control while a funded challenge is unsettled, and says why", async () => {

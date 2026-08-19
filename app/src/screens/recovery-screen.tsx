@@ -7,14 +7,19 @@
  * label of the press that acts. Declining is a real option here rather than a
  * dismissal, because letting the window pass is what the product expects of a
  * user who would rather keep the allowance.
+ *
+ * The two outcomes are drawn as a pair of cards - what spending it does, what
+ * keeping it does - so the choice is a comparison rather than a wall of
+ * warnings with one button under it.
  */
 
 import type { ChallengeView } from "@betterwakeup/contract";
 import { useCallback, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StyleSheet, View } from "react-native";
 import type { ApiClient } from "../api/client.ts";
 import { acceptRecovery } from "../challenges/lifecycle-commands.ts";
+import { AppText, Banner, Card, Screen, StatusPill, TextButton } from "../ui/components.tsx";
+import { formatDeadline } from "../ui/format.ts";
 import { BackLink } from "./back-link.tsx";
 import { ConfirmAction } from "./confirm-action.tsx";
 
@@ -34,7 +39,6 @@ export const RECOVERY_PERMANENCE =
 
 export function RecoveryScreen(props: RecoveryScreenProps) {
   const { api, challenge } = props;
-  const insets = useSafeAreaInsets();
   const readClock = props.now ?? (() => new Date());
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -63,72 +67,89 @@ export function RecoveryScreen(props: RecoveryScreenProps) {
 
   if (offer === null) {
     return (
-      <ScrollView
-        testID="recovery-screen"
-        contentContainerStyle={[styles.container, { paddingTop: insets.top }]}
-      >
+      <Screen testID="recovery-screen">
         <BackLink testID="recovery-back" onBack={props.onBack} />
-        <Text style={styles.title} accessibilityRole="header">
+        <AppText variant="display" accessibilityRole="header">
           No recovery offer
-        </Text>
-        <Text style={styles.body}>Nothing is waiting on a decision right now.</Text>
-      </ScrollView>
+        </AppText>
+        <AppText variant="body" tone="muted">
+          Nothing is waiting on a decision right now.
+        </AppText>
+      </Screen>
     );
   }
 
   return (
-    <ScrollView
-      testID="recovery-screen"
-      contentContainerStyle={[styles.container, { paddingTop: insets.top }]}
-    >
+    <Screen testID="recovery-screen">
       <BackLink testID="recovery-back" onBack={props.onBack} />
-      <Text style={styles.title} accessibilityRole="header">
-        Spend your one Emergency Recovery?
-      </Text>
-      <Text style={styles.body}>
-        A task was missed, so the challenge has ended unless you undo it. Spending the recovery
-        forgives that day and the challenge continues.
-      </Text>
-      <Text style={styles.permanence} testID="recovery-permanence">
-        {RECOVERY_PERMANENCE}
-      </Text>
-      <Text style={styles.note} testID="recovery-expiry">
-        This offer closes at {new Date(offer.expiresAt).toISOString()}. Letting it pass charges the
-        deposit and leaves your recovery unspent for a future challenge.
-      </Text>
+
+      <View style={styles.header}>
+        <StatusPill label="One decision left" tone="warning" />
+        <AppText variant="display" accessibilityRole="header">
+          Spend your one Emergency Recovery?
+        </AppText>
+        <AppText variant="body" tone="muted">
+          A task was missed, so the challenge has ended unless you undo it.
+        </AppText>
+      </View>
+
+      <Banner tone="warning" testID="recovery-deadline">
+        <AppText variant="small" tone="warning" accessibilityRole="alert">
+          This offer closes at {formatDeadline(offer.expiresAt, challenge.configuration.timeZone)}.
+          After that the decision is made for you.
+        </AppText>
+      </Banner>
+
+      <Card>
+        <AppText variant="headline">If you spend it</AppText>
+        <AppText variant="small">
+          The missed day is forgiven and the challenge continues from your next task.
+        </AppText>
+        <AppText variant="small" tone="danger" testID="recovery-permanence">
+          {RECOVERY_PERMANENCE}
+        </AppText>
+      </Card>
+
+      <Card>
+        <AppText variant="headline">If you keep it</AppText>
+        <AppText variant="small" testID="recovery-expiry">
+          This challenge ends here, the deposit is charged, and your recovery stays unspent for a
+          future challenge.
+        </AppText>
+      </Card>
 
       <ConfirmAction
         testID="accept-recovery"
         label="Spend the recovery"
         consequence={RECOVERY_PERMANENCE}
         confirmLabel="Spend it permanently"
+        variant="danger"
         busy={busy}
         onConfirm={onAccept}
       />
 
-      <Pressable
-        accessibilityRole="button"
+      <TextButton
         testID="decline-recovery"
+        label="Keep my recovery and let the deposit settle"
         onPress={() => props.onDeclined?.()}
-      >
-        <Text style={styles.decline}>Keep my recovery and let the deposit settle</Text>
-      </Pressable>
+      />
 
       {problem === null ? null : (
-        <Text style={styles.error} testID="recovery-problem" accessibilityRole="alert">
-          {problem}
-        </Text>
+        <Banner tone="danger">
+          <AppText
+            variant="small"
+            tone="danger"
+            testID="recovery-problem"
+            accessibilityRole="alert"
+          >
+            {problem}
+          </AppText>
+        </Banner>
       )}
-    </ScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { gap: 16, paddingHorizontal: 24, paddingBottom: 48 },
-  title: { fontSize: 28, fontWeight: "600" },
-  body: { fontSize: 15, lineHeight: 21 },
-  permanence: { fontSize: 15, lineHeight: 21, fontWeight: "600" },
-  note: { fontSize: 13, opacity: 0.6, lineHeight: 18 },
-  decline: { fontSize: 15, textAlign: "center", paddingVertical: 8 },
-  error: { fontSize: 14, color: "#b00020", lineHeight: 20 },
+  header: { gap: 8 },
 });

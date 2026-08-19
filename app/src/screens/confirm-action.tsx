@@ -5,10 +5,14 @@
  * so a single mistaken tap never spends a recovery, skips a task, or deletes
  * an account. Cancelling is always offered beside the confirmation and is the
  * wider target of the two.
+ *
+ * The opened state is drawn as a warning panel rather than as a plain box: the
+ * step that acts should not look like the step that only opened, or the second
+ * press reads as a repeat of the first.
  */
 
 import { useCallback, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { AppText, Banner, Button, type ButtonVariant, TextButton } from "../ui/components.tsx";
 
 export interface ConfirmActionProps {
   readonly testID: string;
@@ -18,6 +22,11 @@ export interface ConfirmActionProps {
   readonly consequence: string;
   /** The label of the press that actually acts. */
   readonly confirmLabel: string;
+  /**
+   * How the acting press is painted. `danger` for the presses that destroy
+   * something the user cannot get back; the default for the rest.
+   */
+  readonly variant?: ButtonVariant;
   readonly busy?: boolean;
   readonly onConfirm: () => Promise<void> | void;
 }
@@ -25,6 +34,7 @@ export interface ConfirmActionProps {
 export function ConfirmAction(props: ConfirmActionProps) {
   const [open, setOpen] = useState(false);
   const busy = props.busy ?? false;
+  const variant = props.variant ?? "primary";
 
   const onConfirm = useCallback(async () => {
     await props.onConfirm();
@@ -33,55 +43,40 @@ export function ConfirmAction(props: ConfirmActionProps) {
 
   if (!open) {
     return (
-      <Pressable
-        accessibilityRole="button"
+      <Button
         testID={props.testID}
+        label={props.label}
+        variant={variant}
         disabled={busy}
-        style={[styles.button, busy && styles.disabled]}
         onPress={() => setOpen(true)}
-      >
-        <Text style={styles.buttonLabel}>{props.label}</Text>
-      </Pressable>
+      />
     );
   }
 
   return (
-    <View style={styles.panel} testID={`${props.testID}-confirmation`}>
-      <Text style={styles.consequence} testID={`${props.testID}-consequence`}>
+    <Banner
+      tone={variant === "danger" ? "danger" : "warning"}
+      testID={`${props.testID}-confirmation`}
+    >
+      <AppText
+        variant="small"
+        tone={variant === "danger" ? "danger" : "warning"}
+        testID={`${props.testID}-consequence`}
+      >
         {props.consequence}
-      </Text>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ disabled: busy, busy }}
+      </AppText>
+      <Button
         testID={`${props.testID}-confirm`}
-        disabled={busy}
-        style={[styles.button, busy && styles.disabled]}
+        label={props.confirmLabel}
+        variant={variant}
+        busy={busy}
         onPress={() => void onConfirm()}
-      >
-        <Text style={styles.buttonLabel}>{props.confirmLabel}</Text>
-      </Pressable>
-      <Pressable
-        accessibilityRole="button"
+      />
+      <TextButton
         testID={`${props.testID}-cancel`}
+        label="Keep things as they are"
         onPress={() => setOpen(false)}
-      >
-        <Text style={styles.cancelLabel}>Keep things as they are</Text>
-      </Pressable>
-    </View>
+      />
+    </Banner>
   );
 }
-
-const styles = StyleSheet.create({
-  panel: { gap: 12, borderRadius: 12, borderWidth: 1, borderColor: "#d8d8d8", padding: 16 },
-  consequence: { fontSize: 15, lineHeight: 21 },
-  button: {
-    alignItems: "center",
-    backgroundColor: "#111111",
-    borderRadius: 12,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-  },
-  disabled: { opacity: 0.4 },
-  buttonLabel: { color: "#ffffff", fontSize: 16, fontWeight: "600" },
-  cancelLabel: { fontSize: 15, textAlign: "center", paddingVertical: 8 },
-});

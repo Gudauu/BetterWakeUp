@@ -5,14 +5,18 @@
  * product requires it to be honest: an account still holding a funded
  * challenge cannot be deleted until that challenge settles, and the screen has
  * to say so instead of offering a control that would fail at the server.
+ *
+ * What goes is listed item by item rather than summarised, because "your data"
+ * is the one phrase a user reads without picturing anything, and the
+ * Emergency Recovery allowance in particular is worth more than it looks.
  */
 
 import type { ChallengeView } from "@betterwakeup/contract";
 import { useCallback, useState } from "react";
-import { ScrollView, StyleSheet, Text } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StyleSheet, View } from "react-native";
 import type { ApiClient } from "../api/client.ts";
 import { deleteAccount, deletionBlocker } from "../challenges/lifecycle-commands.ts";
+import { AppText, Banner, Card, Screen } from "../ui/components.tsx";
 import { BackLink } from "./back-link.tsx";
 import { ConfirmAction } from "./confirm-action.tsx";
 
@@ -28,9 +32,15 @@ export interface DeleteAccountScreenProps {
 export const DELETION_PERMANENCE =
   "Deleting your account is permanent. Your challenges, completions, and your Emergency Recovery allowance go with it, and nothing can be restored afterward.";
 
+/** What the press takes away, each thing named so none of it is a surprise. */
+const DELETION_LOSSES: readonly string[] = [
+  "Every challenge you have run, finished or not.",
+  "Every day you completed, and the record of it.",
+  "Your one Emergency Recovery allowance, spent or not.",
+];
+
 export function DeleteAccountScreen(props: DeleteAccountScreenProps) {
   const { api, challenge } = props;
-  const insets = useSafeAreaInsets();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -52,17 +62,28 @@ export function DeleteAccountScreen(props: DeleteAccountScreenProps) {
   }, [api, challenge, props.onDeleted]);
 
   return (
-    <ScrollView
-      testID="delete-account-screen"
-      contentContainerStyle={[styles.container, { paddingTop: insets.top }]}
-    >
+    <Screen testID="delete-account-screen">
       <BackLink testID="delete-back" onBack={props.onBack} />
-      <Text style={styles.title} accessibilityRole="header">
+      <AppText variant="display" accessibilityRole="header">
         Delete your account
-      </Text>
-      <Text style={styles.permanence} testID="deletion-permanence">
-        {DELETION_PERMANENCE}
-      </Text>
+      </AppText>
+
+      <Card>
+        <AppText variant="headline">What you lose</AppText>
+        {DELETION_LOSSES.map((loss) => (
+          <View key={loss} style={styles.loss}>
+            <AppText variant="small" tone="muted">
+              •
+            </AppText>
+            <AppText variant="small" style={styles.shrink}>
+              {loss}
+            </AppText>
+          </View>
+        ))}
+        <AppText variant="small" tone="danger" testID="deletion-permanence">
+          {DELETION_PERMANENCE}
+        </AppText>
+      </Card>
 
       {blocker === null ? (
         <ConfirmAction
@@ -70,28 +91,40 @@ export function DeleteAccountScreen(props: DeleteAccountScreenProps) {
           label="Delete my account"
           consequence={DELETION_PERMANENCE}
           confirmLabel="Delete it permanently"
+          variant="danger"
           busy={busy}
           onConfirm={onDelete}
         />
       ) : (
-        <Text style={styles.blocked} testID="deletion-blocked" accessibilityRole="alert">
-          {blocker}
-        </Text>
+        <Banner tone="warning">
+          <AppText
+            variant="small"
+            tone="warning"
+            testID="deletion-blocked"
+            accessibilityRole="alert"
+          >
+            {blocker}
+          </AppText>
+        </Banner>
       )}
 
       {problem === null ? null : (
-        <Text style={styles.error} testID="deletion-problem" accessibilityRole="alert">
-          {problem}
-        </Text>
+        <Banner tone="danger">
+          <AppText
+            variant="small"
+            tone="danger"
+            testID="deletion-problem"
+            accessibilityRole="alert"
+          >
+            {problem}
+          </AppText>
+        </Banner>
       )}
-    </ScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { gap: 16, paddingHorizontal: 24, paddingBottom: 48 },
-  title: { fontSize: 28, fontWeight: "600" },
-  permanence: { fontSize: 15, lineHeight: 21, fontWeight: "600" },
-  blocked: { fontSize: 15, lineHeight: 21, color: "#8a5300" },
-  error: { fontSize: 14, color: "#b00020", lineHeight: 20 },
+  loss: { flexDirection: "row", gap: 8 },
+  shrink: { flexShrink: 1 },
 });

@@ -329,6 +329,53 @@ export function Banner({
   );
 }
 
+export type StatusTone = "accent" | "success" | "danger" | "warning";
+
+/**
+ * One word for the state a thing is in, carried by a coloured dot.
+ *
+ * It exists so a status is read at a glance rather than out of a sentence, and
+ * so the same state is the same colour wherever it appears; the dot is what
+ * carries the state for a reader who cannot separate the four hues.
+ */
+export function StatusPill({
+  label,
+  tone,
+  testID,
+}: {
+  readonly label: string;
+  readonly tone: StatusTone;
+  readonly testID?: string;
+}) {
+  const theme = useTheme();
+  const color = theme.colors[tone];
+  const wash = {
+    accent: theme.colors.accentSoft,
+    success: theme.colors.successSoft,
+    danger: theme.colors.dangerSoft,
+    warning: theme.colors.warningSoft,
+  }[tone];
+  return (
+    <View
+      style={[
+        styles.pill,
+        {
+          backgroundColor: wash,
+          borderRadius: theme.radius.pill,
+          paddingHorizontal: theme.space.md,
+        },
+      ]}
+    >
+      <View style={[styles.dot, { backgroundColor: color }]} />
+      {/* Spread rather than passed: under exactOptionalPropertyTypes an
+          explicit `undefined` is not the same as an absent testID. */}
+      <AppText variant="caption" tone={tone} {...(testID === undefined ? {} : { testID })}>
+        {label}
+      </AppText>
+    </View>
+  );
+}
+
 /** How far through a challenge, or a day's steps, the user is. */
 export function ProgressBar({
   done,
@@ -601,4 +648,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   toggle: { minHeight: 44 },
+  pill: { alignItems: "center", flexDirection: "row", gap: 8, paddingVertical: 6 },
+  dot: { borderRadius: 999, height: 8, width: 8 },
 });
