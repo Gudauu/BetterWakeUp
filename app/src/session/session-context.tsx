@@ -35,8 +35,21 @@ import { createSecureSessionStore, type SessionStore } from "./session-store.ts"
  */
 export type SessionState =
   | { status: "loading" }
-  | { status: "signedOut" }
+  | { status: "signedOut"; reason: SignedOutReason }
   | { status: "signedIn"; session: SessionView };
+
+/**
+ * Why nobody is signed in. Three different things happened and the signed-out
+ * screen is the same screen for all of them, so the reason travels with the
+ * state: a user who was thrown out of a running challenge by an expiry needs to
+ * be told that, where a user who has never signed in needs the pitch and a user
+ * who just pressed Sign out needs neither.
+ *
+ * `expired` covers both ways a session dies - the stored one whose expiry the
+ * app can read at launch, and the one the server refuses mid-use - because the
+ * user experienced the same thing either way.
+ */
+export type SignedOutReason = "noSession" | "signedOut" | "expired";
 
 /**
  * Which providers this device and build can actually offer, or `null` while
@@ -101,7 +114,7 @@ export function SessionProvider({
   const client = useMemo(() => {
     const hooks: ApiClientHooks = {
       sessionStore,
-      onSessionInvalid: () => setState({ status: "signedOut" }),
+      onSessionInvalid: () => setState({ status: "signedOut", reason: "expired" }),
     };
     return createClient === undefined
       ? createApiClient({ baseUrl: loadAppConfig().apiBaseUrl, ...hooks })
@@ -122,7 +135,7 @@ export function SessionProvider({
           return;
         }
         if (session === null) {
-          setState({ status: "signedOut" });
+          setState({ status: "signedOut", reason: "noSession" });
           return;
         }
         // An expiry the app can read for itself is not worth a round trip:
@@ -132,16 +145,18 @@ export function SessionProvider({
         if (Date.parse(session.expiresAt) <= nowMs) {
           await sessionStore.clear();
           if (active) {
-            setState({ status: "signedOut" });
+            setState({ status: "signedOut", reason: "expired" });
           }
           return;
         }
         setState({ status: "signedIn", session });
       },
       () => {
-        // Unreadable secure storage is signed out, not a crash on launch.
+        // Unreadable secure storage is signed out, not a crash on launch. There
+        // is no evidence a session ever existed, so it is not reported as one
+        // having expired.
         if (active) {
-          setState({ status: "signedOut" });
+          setState({ status: "signedOut", reason: "noSession" });
         }
       },
     );
@@ -200,7 +215,7 @@ export function SessionProvider({
       // The session is being discarded either way.
     }
     await sessionStore.clear();
-    setState({ status: "signedOut" });
+    setState({ status: "signedOut", reason: "signedOut" });
   }, [client, sessionStore]);
 
   const value = useMemo<SessionContextValue>(

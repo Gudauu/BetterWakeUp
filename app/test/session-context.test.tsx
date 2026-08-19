@@ -49,7 +49,13 @@ function harness(props: {
 
   function Probe() {
     captured.current = useSession();
-    return <Text testID="status">{captured.current.state.status}</Text>;
+    const state = captured.current.state;
+    return (
+      <>
+        <Text testID="status">{state.status}</Text>
+        <Text testID="reason">{state.status === "signedOut" ? state.reason : "-"}</Text>
+      </>
+    );
   }
 
   return {
@@ -171,6 +177,8 @@ describe("signing out", () => {
 
     expect(names).toEqual(["deleteSession"]);
     expect(screen.getByTestId("status")).toHaveTextContent("signedOut");
+    // The user asked for this, so the signed-out screen has nothing to explain.
+    expect(screen.getByTestId("reason")).toHaveTextContent("signedOut");
     expect(await store.read()).toBeNull();
   });
 
@@ -209,6 +217,9 @@ describe("session expiry", () => {
     // No round trip is needed to know it is useless, and presenting it would
     // put the user on a screen whose first request is certain to fail.
     expect(screen.getByTestId("status")).toHaveTextContent("signedOut");
+    // Not the same as never having signed in: the screen has to be able to say
+    // what happened to the account that was there a moment ago.
+    expect(screen.getByTestId("reason")).toHaveTextContent("expired");
     expect(names).toHaveLength(0);
     expect(await store.read()).toBeNull();
   });
@@ -234,6 +245,17 @@ describe("session expiry", () => {
     });
 
     expect(screen.getByTestId("status")).toHaveTextContent("signedOut");
+    expect(screen.getByTestId("reason")).toHaveTextContent("expired");
+  });
+
+  it("reports an empty device as never having been signed in", async () => {
+    const h = harness({ store: createMemorySessionStore(null), api: apiThat(() => ({})).api });
+
+    await h.render();
+
+    // A first launch and an expiry both end on the same screen, and only this
+    // tells them apart.
+    expect(screen.getByTestId("reason")).toHaveTextContent("noSession");
   });
 
   it("keeps a stored session that expires in the future", async () => {

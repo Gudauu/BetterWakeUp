@@ -1,7 +1,7 @@
 import type { SessionView } from "@betterwakeup/contract";
 import { render, screen, userEvent } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import type { ApiClient } from "../src/api/client.ts";
+import { type ApiClient, createApiClient } from "../src/api/client.ts";
 import { ApiError } from "../src/api/errors.ts";
 import type { ProviderSignIns } from "../src/auth/provider-sign-in.ts";
 import { WelcomeScreen } from "../src/screens/welcome-screen.tsx";
@@ -83,6 +83,73 @@ describe("the app reaches an unauthenticated screen", () => {
 
     expect(screen.getByTestId("welcome-loading")).toBeOnTheScreen();
     expect(screen.queryByTestId("welcome-signed-out")).toBeNull();
+  });
+});
+
+describe("a session that ran out", () => {
+  const EXPIRED = { ...SESSION, expiresAt: "2026-01-01T00:00:00.000Z" };
+
+  it("says what happened rather than pitching the app again", async () => {
+    // The stored session expired while the app was closed, so the user is
+    // looking at the signed-out screen without having asked for it.
+    await renderScreen(createMemorySessionStore(EXPIRED));
+
+    const notice = screen.getByTestId("session-expired");
+    expect(notice).toBeOnTheScreen();
+    expect(notice).toHaveTextContent(/signed out/i);
+    // The thing a user in the middle of a challenge needs to know: being
+    // signed out is not a pause.
+    expect(notice).toHaveTextContent(/deadlines still count/i);
+    expect(notice).toHaveTextContent(/still here/i);
+    // The three steps are for someone who has never seen the app.
+    expect(screen.queryByTestId("welcome-how-it-works")).toBeNull();
+    expect(screen.getByTestId("sign-in-apple")).toBeOnTheScreen();
+  });
+
+  it("says nothing of the sort to a device that never held a session", async () => {
+    await renderScreen(createMemorySessionStore(null));
+
+    expect(screen.queryByTestId("session-expired")).toBeNull();
+    expect(screen.getByTestId("welcome-how-it-works")).toBeOnTheScreen();
+  });
+
+  it("explains itself when the server refuses the session mid-use", async () => {
+    // The whole chain with the shipped client in it: home asks for the
+    // challenge, the server refuses the token, the client discards it, and the
+    // app has to land somewhere that says why rather than on the pitch.
+    const refuse: typeof globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({ code: "session_expired", message: "This session has expired." }),
+        { status: 401, headers: { "content-type": "application/json" } },
+      );
+    const store = createMemorySessionStore(SESSION);
+
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <SessionProvider
+          store={store}
+          createClient={(hooks) =>
+            createApiClient({ baseUrl: "https://example.test", fetch: refuse, ...hooks })
+          }
+          providers={fakeProviders({ google: fakeProvider() })}
+        >
+          <WelcomeScreen notifier={fakeNotifier()} />
+        </SessionProvider>
+      </SafeAreaProvider>,
+    );
+
+    expect(await screen.findByTestId("session-expired")).toBeOnTheScreen();
+    expect(await store.read()).toBeNull();
+  });
+
+  it("says nothing of the sort to a user who signed themselves out", async () => {
+    await renderScreen(createMemorySessionStore(SESSION));
+
+    await userEvent.press(screen.getByText("Sign out"));
+
+    // Explaining a sign-out to the person who pressed it is noise.
+    expect(screen.getByTestId("welcome-signed-out")).toBeOnTheScreen();
+    expect(screen.queryByTestId("session-expired")).toBeNull();
   });
 });
 

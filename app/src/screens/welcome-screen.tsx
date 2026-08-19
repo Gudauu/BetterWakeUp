@@ -40,6 +40,22 @@ const HOW_IT_WORKS: readonly { readonly step: string; readonly line: string }[] 
   { step: "3", line: "Finish the run of days and your deposit comes back." },
 ];
 
+/**
+ * What a signed-out user is told when they did not ask to be signed out. The
+ * screen otherwise sells the app to someone who has never seen it, which reads
+ * as an insult to someone who was three weeks into a challenge a moment ago.
+ *
+ * It stops short of naming the challenge or its numbers because there is no
+ * session left to read them with; what it can say for certain is that being
+ * signed out is not a pause, and that nothing on the phone was thrown away.
+ */
+const EXPIRED_NOTICE = {
+  title: "You were signed out",
+  body: "Your sign-in expired, so the app can no longer reach your account.",
+  reassurance:
+    "If a challenge is running it carries on without you: its deadlines still count while you are signed out, and only a walk taken in the app can meet one. Any walk already saved on this phone is still here, and will be sent once you sign back in.",
+} as const;
+
 export interface WelcomeScreenProps {
   /**
    * Handed straight to home, which is the screen that holds it. It is here so
@@ -107,9 +123,22 @@ export function WelcomeScreen({
 
   const offered: IdentityProvider[] =
     availability === null ? [] : (["apple", "google"] as const).filter((p) => availability[p]);
+  const expired = state.reason === "expired";
 
   return (
     <Screen testID="welcome-signed-out" style={styles.signedOut}>
+      {expired ? (
+        <Banner tone="warning" testID="session-expired">
+          <AppText variant="headline" accessibilityRole="alert">
+            {EXPIRED_NOTICE.title}
+          </AppText>
+          <AppText variant="small">{EXPIRED_NOTICE.body}</AppText>
+          <AppText variant="small" tone="muted">
+            {EXPIRED_NOTICE.reassurance}
+          </AppText>
+        </Banner>
+      ) : null}
+
       <View style={styles.hero}>
         <AppText variant="caption" tone="accent">
           WAKE UP ON PURPOSE
@@ -123,25 +152,30 @@ export function WelcomeScreen({
         </AppText>
       </View>
 
-      <View style={styles.steps} testID="welcome-how-it-works">
-        {HOW_IT_WORKS.map(({ step, line }) => (
-          <View key={step} style={styles.step}>
-            <View
-              style={[
-                styles.stepBadge,
-                { backgroundColor: theme.colors.accentSoft, borderRadius: theme.radius.pill },
-              ]}
-            >
-              <AppText variant="caption" tone="accent">
-                {step}
+      {/* The three steps are the pitch, and someone who was signed in a moment
+          ago has already bought it; the room goes to why they are looking at
+          this screen instead. */}
+      {expired ? null : (
+        <View style={styles.steps} testID="welcome-how-it-works">
+          {HOW_IT_WORKS.map(({ step, line }) => (
+            <View key={step} style={styles.step}>
+              <View
+                style={[
+                  styles.stepBadge,
+                  { backgroundColor: theme.colors.accentSoft, borderRadius: theme.radius.pill },
+                ]}
+              >
+                <AppText variant="caption" tone="accent">
+                  {step}
+                </AppText>
+              </View>
+              <AppText variant="small" style={styles.stepLine}>
+                {line}
               </AppText>
             </View>
-            <AppText variant="small" style={styles.stepLine}>
-              {line}
-            </AppText>
-          </View>
-        ))}
-      </View>
+          ))}
+        </View>
+      )}
 
       <View style={styles.actions}>
         {offered.map((provider) => (

@@ -423,6 +423,21 @@ With a task still open the banner names the deadline that still counts instead o
 The year is stated the same way on both screens, through `pauseExpirySentence`, and the banner turns red inside `PAUSE_EXPIRY_WARNING_DAYS`.
 It asks for nothing: expiry is neither a success nor a failure, and nothing is charged, so the sentence states the outcome and leaves resuming to the user.
 
+### Being signed out without asking
+
+There are three ways to arrive at the signed-out screen and they are not the same event.
+A first launch has never held a session, a sign-out was pressed, and an expiry happens to a user who was in the middle of something - either the stored session's expiry passes while the app is closed, or the server refuses the token on the next request and `onSessionInvalid` moves the whole app back to signed out.
+
+The signed-out state therefore carries a `SignedOutReason` (`noSession`, `signedOut`, `expired`) in `app/src/session/session-context.tsx`.
+Without it the screen has to sell the app to someone who was three weeks into a challenge a second ago, which reads as the app having forgotten them.
+
+On `expired` the welcome screen leads with what happened and drops the three how-it-works steps, which are for someone who has never seen the app.
+The notice says the one thing that changes what the user does next: being signed out is not a pause.
+The challenge keeps running, its deadlines keep counting, and only a walk taken in the app can meet one, so signing back in is urgent rather than housekeeping.
+It also says that a walk already saved on this phone is still there, because the pending completion store is never cleared by a sign-out and would otherwise look lost.
+
+The two ways a session dies share one reason on purpose: the user experienced the same thing either way, and the difference is only in which side of the request noticed.
+
 ### Pending completion store
 
 The app writes a pending completion to SQLite before displaying the local check.
