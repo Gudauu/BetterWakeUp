@@ -161,6 +161,12 @@ describe("one account's life through the app's own screens", () => {
       "accessibilityLabel",
       `Your days: 1 kept, ${REQUIRED_TASK_COUNT - 1} still to come.`,
     );
+    // Home says the morning is done and stops asking for a walk: the open task
+    // is now tomorrow's, and the server refuses a completion taken for it
+    // before its own day starts.
+    expect(screen.getByTestId("home-walked-today-text")).toHaveTextContent(/Today's walk is done/);
+    expect(screen.getByTestId("home-task-opens")).toHaveTextContent(/opens tomorrow morning/);
+    expect(screen.queryByTestId("home-open-task")).toBeNull();
 
     // And the account can be deleted, from home, in two presses.
     await user.press(screen.getByTestId("home-delete-account"));

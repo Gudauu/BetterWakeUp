@@ -431,6 +431,24 @@ Home is the screen most people open first, and it named "Deadline 7:00 AM" and s
 Past it the card says the morning went by with nothing saved, stops short of calling the day lost because the sweep decides that, and mentions the Emergency Recovery only as a condition rather than as a promise, since a challenge that has already spent it gets no offer.
 A walk the deadline overtook while it sat unsent on the phone is told so plainly: the sentence that asked its owner to find signal was asking for work that could no longer buy anything.
 
+#### The morning that has not started yet
+
+`app/src/challenges/walk-window.ts` answers the other end of the same window: whether the walk home is showing can be walked at all yet.
+
+The server hands out one open task at a time, so the moment today's walk is acknowledged the open task is tomorrow morning's.
+Home drew it exactly as it had drawn today's - a step target, a countdown, and a button reading "Open today's task" - and a completion recorded for it that evening is refused, because `create-completion.ts` requires the observation to fall inside the task's own local day.
+That is the same defect as the passed deadline at the opposite edge of the window, and it was reachable every single day of a challenge rather than only on a missed one.
+
+The question is answered by comparing calendar dates in the challenge's own time zone, not instants: a task's `date` is the local day it belongs to, so "has that day started" is "what day is it where the challenge reads its deadlines".
+A runtime whose `Intl` cannot read the zone answers nothing and home says what it always said, because a guess about which day it is would be worse than the sentence it replaces.
+
+Once the walk has not opened, the card asks for nothing.
+The countdown is gone - twenty hours to a morning nobody is being asked about is noise - the button is gone, and in its place is the rule the missing button would otherwise leave a user to infer: the walk opens tomorrow morning, it has to be walked then, and steps taken before it opens cannot count for it.
+
+The same read is what lets home say a morning was kept.
+Until now the only mark of a kept day on home was a square in the row of days: the card that had asked for the walk simply started asking for the next one, on the one screen a user opens after doing the thing the whole product is about.
+A run of two or more is named in the same sentence, and a single kept day is stated as itself rather than counted, for the reason `streakSentence` already gives.
+
 ### The clock on the recovery offer
 
 `app/src/challenges/recovery-window.ts` does for the Emergency Recovery offer what `time-left.ts` does for the morning: it reads the offer's `expiresAt` against the clock and answers how long is left, how urgent that is, and whether there is still a decision to make.

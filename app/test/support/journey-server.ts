@@ -27,6 +27,7 @@ import {
 } from "@betterwakeup/contract";
 import type { ApiClient, ApiRequest, ClientEndpointName } from "../../src/api/client.ts";
 import { ApiError } from "../../src/api/errors.ts";
+import { localDate } from "../../src/challenges/walk-window.ts";
 import { challengeView, taskView } from "./fake-api.ts";
 
 export const JOURNEY_ACCOUNT_ID = "11111111-1111-4111-8111-111111111111";
@@ -84,15 +85,30 @@ export interface JourneyServerOptions {
   readonly now?: () => Date;
 }
 
-/** A task open for the next couple of hours, which is the state a walk starts in. */
-function openTask(now: Date, id: string): TaskView {
-  const deadline = new Date(now.getTime() + 2 * HOUR_MS);
+/**
+ * A task open for the next couple of hours, which is the state a walk starts in.
+ *
+ * Its date is the day it is *now* where the challenge is, not the UTC day its
+ * deadline falls in: a task the server has open belongs to the day it is being
+ * asked for, and dating it in UTC would make it tomorrow's task for anyone
+ * whose evening is already the next day in UTC - which is a state the app
+ * deliberately refuses to offer a walk in.
+ */
+function openTask(now: Date, id: string, timeZone: string, daysAhead = 0): TaskView {
+  const opens = new Date(now.getTime() + daysAhead * DAY_MS);
+  const deadline = new Date(opens.getTime() + 2 * HOUR_MS);
   return taskView({
     id,
-    date: deadline.toISOString().slice(0, 10),
+    date: localDate(opens, timeZone) ?? opens.toISOString().slice(0, 10),
     deadline: deadline.toISOString(),
-    pauseCutoff: new Date(now.getTime() + HOUR_MS).toISOString(),
+    pauseCutoff: new Date(opens.getTime() + HOUR_MS).toISOString(),
   });
+}
+
+/** The first day of the calendar, as the UTC midnight the row of days is built from. */
+function startOfFirstDay(created: Date, timeZone: string): number {
+  const first = localDate(created, timeZone) ?? created.toISOString().slice(0, 10);
+  return Date.parse(`${first}T00:00:00.000Z`);
 }
 
 export function journeyServer(options: JourneyServerOptions = {}): JourneyServer {
@@ -108,9 +124,14 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
   let offline = false;
   let taskCounter = 0;
 
-  function nextTask(): TaskView {
+  function nextTask(timeZone: string, daysAhead = 0): TaskView {
     taskCounter += 1;
-    return openTask(now(), `44444444-4444-4444-8444-${String(taskCounter).padStart(12, "0")}`);
+    return openTask(
+      now(),
+      `44444444-4444-4444-8444-${String(taskCounter).padStart(12, "0")}`,
+      timeZone,
+      daysAhead,
+    );
   }
 
   /** Both doors end here: a challenge, active, with today's task open. */
@@ -137,10 +158,12 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
       // writes it, so the row of days on home has something to draw from the
       // first read rather than filling in as the month is walked.
       days: Array.from({ length: configuration.requiredTaskCount }, (_unused, index) => ({
-        date: new Date(created.getTime() + index * DAY_MS).toISOString().slice(0, 10),
+        date: new Date(startOfFirstDay(created, configuration.timeZone) + index * DAY_MS)
+          .toISOString()
+          .slice(0, 10),
         status: "scheduled" as const,
       })),
-      currentTask: nextTask(),
+      currentTask: nextTask(configuration.timeZone),
     });
     return challenge;
   }
@@ -280,9 +303,10 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
           ...current,
           progress: { ...current.progress, completedTaskCount },
           days: decideNextDay(current.days, "completed"),
-          // The next task appears on the next active day, so there is
-          // nothing due until then.
-          currentTask: null,
+          // Every day was materialized when the challenge activated, so the
+          // open task becomes tomorrow's the moment this one closes - which is
+          // a task nothing can be walked for until tomorrow starts.
+          currentTask: nextTask(current.configuration.timeZone, 1),
         };
       }
       return {
@@ -323,7 +347,7 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
       if (params.challengeId !== current.id) {
         throw new ApiError("not_found", "No challenge with this identifier.");
       }
-      const liveTask = nextTask();
+      const liveTask = nextTask(current.configuration.timeZone);
       challenge = {
         ...current,
         pause: { pausedAt: null, expiresAt: null },

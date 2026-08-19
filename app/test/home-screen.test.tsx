@@ -15,6 +15,7 @@ import { SessionProvider } from "../src/session/session-context.tsx";
 import { createMemorySessionStore } from "../src/session/session-store.ts";
 import { CLOCK_INTERVAL_MS } from "../src/ui/clock.ts";
 import {
+  challengeDays,
   challengeView,
   endedChallenge,
   type FakeApi,
@@ -1371,5 +1372,85 @@ describe("home and the device's reminders", () => {
     expect(await screen.findByTestId("home-no-challenge")).toBeOnTheScreen();
     await waitFor(() => expect(notifier.scheduled).toHaveLength(1));
     expect(notifier.scheduled.at(-1)).toEqual([]);
+  });
+});
+
+/**
+ * The morning after it is kept. The server hands out one open task at a time,
+ * so the moment today's walk lands the open task is tomorrow's - and home drew
+ * it exactly as it had drawn today's, down to a button inviting a walk whose
+ * completion the server refuses for falling outside that task's own day.
+ */
+describe("a morning already kept", () => {
+  /** Los Angeles teatime on the first day, with that day's walk behind them. */
+  const AFTERNOON = new Date("2026-09-01T20:00:00.000Z");
+
+  function afterTodaysWalk(keptDays: number) {
+    return fakeApi({
+      getCurrentChallenge: {
+        lastEnded: null,
+        challenge: challengeView({
+          progress: {
+            requiredTaskCount: 30,
+            completedTaskCount: keptDays,
+            skippedTaskCount: 0,
+            forgivenTaskCount: 0,
+          },
+          days: challengeDays(30, "scheduled").map((day, index) =>
+            index < keptDays ? { ...day, status: "completed" as const } : day,
+          ),
+          currentTask: taskView({
+            id: "44444444-4444-4444-8444-444444444445",
+            date: "2026-09-02",
+            deadline: "2026-09-02T14:00:00.000Z",
+            pauseCutoff: "2026-09-02T06:00:00.000Z",
+          }),
+        }),
+      },
+    });
+  }
+
+  it("says the day is done rather than only marking a square", async () => {
+    await renderHome(afterTodaysWalk(1), { now: AFTERNOON });
+
+    expect(await screen.findByTestId("home-walked-today-text")).toHaveTextContent(
+      /Today's walk is done. Nothing else is due today./,
+    );
+  });
+
+  it("names the run once the walk continues one", async () => {
+    await renderHome(afterTodaysWalk(3), { now: AFTERNOON });
+
+    expect(await screen.findByTestId("home-walked-today-text")).toHaveTextContent(
+      /That is 3 days in a row./,
+    );
+  });
+
+  it("offers no way to walk a morning that has not started", async () => {
+    await renderHome(afterTodaysWalk(1), { now: AFTERNOON });
+
+    expect(await screen.findByTestId("home-task-opens")).toHaveTextContent(
+      /opens tomorrow morning and has to be walked then, by 7:00 AM/,
+    );
+    // The whole point: the server would refuse a walk taken tonight for it.
+    expect(screen.queryByTestId("home-open-task")).toBeNull();
+    // Counting twenty hours down to a morning nobody is being asked about yet.
+    expect(screen.queryByTestId("home-task-time-left")).toBeNull();
+  });
+
+  it("leaves this morning's own walk on offer", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          lastEnded: null,
+          challenge: challengeView({ currentTask: taskView() }),
+        },
+      }),
+      { now: new Date("2026-09-01T12:00:00.000Z") },
+    );
+
+    expect(await screen.findByTestId("home-open-task")).toHaveTextContent("Open today's task");
+    expect(screen.queryByTestId("home-walked-today")).toBeNull();
+    expect(screen.queryByTestId("home-task-opens")).toBeNull();
   });
 });

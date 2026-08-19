@@ -35,6 +35,7 @@ import {
   recoveryWindow,
 } from "../challenges/recovery-window.ts";
 import { type TimeZoneMove, timeZoneLabel, timeZoneMoveFor } from "../challenges/time-zone.ts";
+import { walkedTodayText, walkOpensText, walkWindow } from "../challenges/walk-window.ts";
 import {
   type CompletionRuntimeFactory,
   type CompletionRuntimeState,
@@ -573,6 +574,11 @@ function ChallengeCard({
   const left = currentTask === null ? null : timeLeftUntil(currentTask.deadline, now);
   const deadlineTime =
     currentTask === null ? "" : formatTimeOfDay(currentTask.deadline, configuration.timeZone);
+  // Where the open task stands against the day it is now. The moment a morning
+  // is kept the server's open task is the next morning's, and a walk taken for
+  // it tonight is refused, so the card asks for nothing until its day starts.
+  const walk = walkWindow(challenge, now);
+  const opensLater = walk?.opensLater === true;
   // Past the deadline nothing walked now can count, so the card stops asking
   // for a walk and says what happened instead.
   const morningGone = left !== null && left.urgency === "expired";
@@ -590,10 +596,22 @@ function ChallengeCard({
     <View style={styles.stack}>
       {/* Today's task is the reason the screen exists, so it is its own card
           above the challenge's numbers rather than a row buried inside them. */}
+      {/* A morning that has already been kept. The row of days marks it with a
+          square, and until now that square was the whole of what home said
+          about the thing the user got out of bed for - the card above simply
+          moved on to asking for the next one. */}
+      {walk?.walkedToday === true && opensLater ? (
+        <Banner tone="success" testID="home-walked-today">
+          <AppText variant="headline" tone="success" testID="home-walked-today-text">
+            {walkedTodayText(history.streak)}
+          </AppText>
+        </Banner>
+      ) : null}
+
       {currentTask === null ? null : (
         <Card testID="home-current-task" style={styles.taskCard}>
           <AppText variant="caption" tone="accent">
-            {unsent.currentTask === "none" ? "YOUR NEXT WALK" : "TODAY'S WALK"}
+            {opensLater ? "YOUR NEXT WALK" : "TODAY'S WALK"}
           </AppText>
           <AppText variant="title">{formatDay(currentTask.date)}</AppText>
           <AppText variant="small" tone="muted" testID="home-task-deadline">
@@ -602,8 +620,10 @@ function ChallengeCard({
           {/* The clock, under the deadline it counts to: quiet while the
               morning is long, amber from the moment the alarm would have gone
               off, and silent once the deadline is behind - what is left to say
-              then is said in place of the step target below. */}
-          {left === null || morningGone ? null : (
+              then is said in place of the step target below. It is silent on a
+              walk whose day has not started too: counting down twenty hours to
+              a morning nobody is being asked about yet is noise. */}
+          {left === null || morningGone || opensLater ? null : (
             <AppText
               variant="small"
               tone={left.urgency === "closing" ? "warning" : "muted"}
@@ -639,16 +659,26 @@ function ChallengeCard({
             >
               {morningGoneText(deadlineTime)}
             </AppText>
+          ) : walk !== null && opensLater ? (
+            <AppText variant="small" tone="muted" testID="home-task-opens">
+              {walkOpensText(walk, formatDay(currentTask.date), deadlineTime)}
+            </AppText>
           ) : (
             <AppText variant="small" tone="muted">
               {configuration.stepTarget} steps to keep the day.
             </AppText>
           )}
-          <Button
-            testID="home-open-task"
-            label={taskButtonLabel(unsent.currentTask, morningGone)}
-            onPress={onOpenTask}
-          />
+          {/* No way in until the day it belongs to starts. The task screen
+              would offer a walk whose completion the server refuses for being
+              outside the task's own window, which is the same reason the
+              invitation is withdrawn once the deadline has gone by. */}
+          {opensLater ? null : (
+            <Button
+              testID="home-open-task"
+              label={taskButtonLabel(unsent.currentTask, morningGone)}
+              onPress={onOpenTask}
+            />
+          )}
         </Card>
       )}
 
