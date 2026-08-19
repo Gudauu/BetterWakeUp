@@ -24,7 +24,7 @@ import {
   type Weekday,
 } from "@betterwakeup/contract";
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import {
   projectChallenge,
   type StartChallengeOutcome,
@@ -39,6 +39,10 @@ import {
   readinessOf,
   WEEKDAY_ORDER,
 } from "../challenges/draft.ts";
+import {
+  awaitFundedChallenge,
+  type FundedChallengeOutcome,
+} from "../challenges/funded-challenge.ts";
 import { useSession } from "../session/session-context.tsx";
 import {
   AppText,
@@ -54,6 +58,7 @@ import {
   Toggle,
 } from "../ui/components.tsx";
 import { formatDay } from "../ui/format.ts";
+import { useTheme } from "../ui/theme.ts";
 
 const WEEKDAY_LABELS: Readonly<Record<Weekday, string>> = {
   monday: "Mon",
@@ -75,8 +80,13 @@ export interface CreateChallengeScreenProps {
    * app, in which case it reports the outcome itself.
    */
   readonly onCreated?: (challenge: ChallengeView) => void;
-  /** Called when the user leaves the form without creating anything. */
-  readonly onCancel?: () => void;
+  /**
+   * Called when the user leaves without a challenge on screen. `accountChanged`
+   * says whether the server may hold something new anyway: leaving the form is
+   * a no-op, but leaving a hold that has been authorized is not, and a caller
+   * that reads the account has to ask again in that case.
+   */
+  readonly onCancel?: (accountChanged: boolean) => void;
 }
 
 export function CreateChallengeScreen({
@@ -92,6 +102,8 @@ export function CreateChallengeScreen({
   const [projection, setProjection] = useState<CreateProjectionResponse | null>(null);
   const [outcome, setOutcome] = useState<StartChallengeOutcome | null>(null);
   const [busy, setBusy] = useState(false);
+  // What the wait for the bank has come to. Null while it is still watching.
+  const [funding, setFunding] = useState<FundedChallengeOutcome | null>(null);
 
   const readiness = readinessOf(draft);
   const funded = draft.depositMinorUnits > 0;
@@ -127,6 +139,43 @@ export function CreateChallengeScreen({
       active = false;
     };
   }, [api, configurationKey]);
+
+  // The hold is authorized and the challenge does not exist yet: the provider
+  // confirms it out of band, so the app watches for the challenge to appear
+  // rather than leaving the user on a screen that never changes.
+  const waitingForFunding = outcome?.status === "fundingRequired";
+  const created = useRef(onCreated);
+  created.current = onCreated;
+  // The wait in flight, so that pressing "check again" replaces it rather than
+  // running a second one beside it, and so leaving the screen ends it.
+  const watching = useRef<AbortController | null>(null);
+
+  const watchForFunding = useCallback(() => {
+    watching.current?.abort();
+    const controller = new AbortController();
+    watching.current = controller;
+    setFunding(null);
+    void awaitFundedChallenge(api, { signal: controller.signal }).then((result) => {
+      if (controller.signal.aborted) {
+        return;
+      }
+      setFunding(result);
+      if (result.status === "created") {
+        setOutcome({ status: "created", challenge: result.challenge });
+        created.current?.(result.challenge);
+      }
+    });
+  }, [api]);
+
+  useEffect(() => {
+    if (!waitingForFunding) {
+      return;
+    }
+    watchForFunding();
+    return () => {
+      watching.current?.abort();
+    };
+  }, [waitingForFunding, watchForFunding]);
 
   const onStart = useCallback(async () => {
     setBusy(true);
@@ -173,13 +222,46 @@ export function CreateChallengeScreen({
           Confirm your deposit
         </AppText>
         <AppText variant="body" tone="muted" center>
-          {formatMoney(draft.depositMinorUnits)} is ready to be held against your card. The
-          challenge starts once your bank confirms the hold.
+          {formatMoney(draft.depositMinorUnits)} is held against your card. The challenge starts the
+          moment your bank confirms the hold.
         </AppText>
+
+        {funding === null ? (
+          <View style={styles.waiting} testID="funding-waiting">
+            <FundingSpinner />
+            <AppText variant="small" tone="muted" center>
+              Waiting for your bank. This usually takes a few seconds.
+            </AppText>
+          </View>
+        ) : null}
+
+        {funding?.status === "pending" ? (
+          <Banner tone="info">
+            <AppText variant="small" testID="funding-slow">
+              Your bank has not confirmed the hold yet. Nothing is lost - it can take a minute.
+              Check again, or come back to it from home.
+            </AppText>
+          </Banner>
+        ) : null}
+
+        {funding?.status === "failed" ? (
+          <Banner tone="danger">
+            <AppText variant="small" tone="danger" testID="funding-error" accessibilityRole="alert">
+              {funding.message}
+            </AppText>
+          </Banner>
+        ) : null}
+
+        {funding === null ? null : (
+          <Button testID="funding-check-again" label="Check again" onPress={watchForFunding} />
+        )}
+
         {/* Without this the screen is a dead end: the challenge is out of the
-            user's hands, and there is nothing else here to press. */}
+            user's hands, and there is nothing else here to press. Leaving is
+            reported as a change, because the hold may be confirmed a moment
+            after the user gives up on watching for it. */}
         {onCancel === undefined ? null : (
-          <TextButton testID="funding-done" label="Back to home" onPress={onCancel} />
+          <TextButton testID="funding-done" label="Back to home" onPress={() => onCancel(true)} />
         )}
       </Screen>
     );
@@ -397,7 +479,7 @@ export function CreateChallengeScreen({
 
       <View style={styles.footer}>
         {onCancel === undefined ? null : (
-          <TextButton testID="cancel-create" label="Not now" onPress={onCancel} />
+          <TextButton testID="cancel-create" label="Not now" onPress={() => onCancel(false)} />
         )}
         {onSignOut === undefined ? null : (
           <TextButton testID="create-sign-out" label="Sign out" onPress={onSignOut} />
@@ -492,8 +574,17 @@ function SectionTitle({ title, step }: { title: string; step?: number }): ReactN
   );
 }
 
+/** The wait for the bank, drawn in the theme's own accent. */
+function FundingSpinner(): ReactNode {
+  const theme = useTheme();
+  return (
+    <ActivityIndicator accessibilityLabel="Waiting for your bank" color={theme.colors.accent} />
+  );
+}
+
 const styles = StyleSheet.create({
   header: { gap: 4 },
+  waiting: { gap: 8, alignItems: "center" },
   sectionTitle: { gap: 2 },
   group: { gap: 8 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },

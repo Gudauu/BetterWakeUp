@@ -35,6 +35,9 @@ const REQUIRED_TASK_COUNT = 30;
 /** The default draft's step target, which the simulation walks up to. */
 const STEP_TARGET = 250;
 
+/** Twenty dollars, as the funded journey types it into the deposit field. */
+const DEPOSIT_MINOR_UNITS = 2000;
+
 /**
  * The app as `app/index.tsx` renders it, minus the two things a test machine
  * has no version of: the native sign-in SDKs and the device's step counter.
@@ -127,6 +130,43 @@ describe("one account's life through the app's own screens", () => {
     expect(await screen.findByTestId("welcome-signed-out")).toBeOnTheScreen();
     expect(await store.read()).toBeNull();
   });
+
+  it("stakes a deposit and lands on the running challenge once the hold clears", async () => {
+    // The money path, which no other test walks end to end. The challenge does
+    // not exist when the app finishes asking for it: the provider confirms the
+    // hold out of band, so the app has to notice on its own.
+    const server = journeyServer();
+    await launch(server);
+    const user = userEvent.setup();
+
+    await user.press(await screen.findByTestId("sign-in-apple"));
+    await user.press(await screen.findByTestId("home-create-challenge"));
+    await waitFor(() => expect(screen.queryByTestId("projection")).not.toBeNull());
+
+    // Twenty dollars, typed the way a person types money.
+    await fireEvent.changeText(screen.getByTestId("field-deposit"), "20");
+    await fireEvent(screen.getByTestId("confirm-time-zone"), "valueChange", true);
+    for (const disclosure of disclosuresFor(DEPOSIT_MINOR_UNITS)) {
+      await fireEvent(screen.getByTestId(`disclosure-${disclosure.id}`), "valueChange", true);
+    }
+
+    await waitFor(() => expect(screen.queryByTestId("deposit-and-start")).not.toBeNull());
+    await user.press(screen.getByTestId("deposit-and-start"));
+
+    // A hold, not a challenge: the app is waiting on somebody else.
+    expect(await screen.findByTestId("challenge-funding")).toBeOnTheScreen();
+    expect(screen.getByTestId("funding-waiting")).toBeOnTheScreen();
+    expect(server.names()).toContain("createFundingIntent");
+    expect(server.names()).not.toContain("createChallenge");
+    expect(server.challenge()).toBeNull();
+
+    // The provider's webhook lands. Nothing on screen was pressed.
+    server.confirmFunding();
+
+    expect(await screen.findByTestId("home-challenge", {}, { timeout: 10_000 })).toBeOnTheScreen();
+    expect(screen.getByTestId("home-deposit")).toHaveTextContent(/\$20\.00/);
+    expect(screen.getByTestId("home-current-task")).toBeOnTheScreen();
+  }, 30_000);
 
   it("pauses and resumes a running challenge from home", async () => {
     // A separate journey because pausing is only offered while a challenge is

@@ -377,6 +377,9 @@ No money is captured at any point in this flow.
 The client's post-payment callback only triggers a poll of `GET /challenges/current`.
 A client can lie about a payment or die halfway through one, so it is not permitted to be the thing that activates a funded challenge.
 
+`app/src/challenges/funded-challenge.ts` owns that poll on the app's side: it reads `GET /challenges/current` until the challenge appears, and distinguishes a hold that has not cleared yet from a read that did not come back.
+The screen shows the first as something to check again and the second as an error, because a user who has just staked money must never be left watching a screen that cannot change.
+
 There is no sweep endpoint.
 Overdue evaluation is reachable only through a scheduled Lambda invocation.
 

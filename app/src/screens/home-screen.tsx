@@ -109,7 +109,10 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
   if (route === "create") {
     return (
       <CreateChallengeScreen
-        onCancel={() => goHome(false)}
+        // Leaving the form changes nothing, but leaving an authorized hold
+        // might: the challenge appears when the provider confirms it, which can
+        // land after the user has stopped watching for it.
+        onCancel={(accountChanged) => goHome(accountChanged)}
         // The server is the record of what exists, so the new challenge is read
         // back rather than trusted from the response the form held.
         onCreated={() => goHome(true)}

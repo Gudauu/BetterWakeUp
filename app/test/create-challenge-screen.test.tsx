@@ -139,6 +139,38 @@ describe("a funded challenge", () => {
     expect(screen.getByTestId("challenge-funding")).toBeOnTheScreen();
     expect(api.names()).toContain("createFundingIntent");
     expect(api.names()).not.toContain("createChallenge");
+    // And it is watching for the challenge rather than telling the user to
+    // come back later: the hold is confirmed by the provider, not by any
+    // press on this screen.
+    expect(screen.getByTestId("funding-waiting")).toBeOnTheScreen();
+    await waitFor(() => expect(api.names()).toContain("getCurrentChallenge"));
+  });
+
+  it("moves on by itself once the hold clears and the challenge exists", async () => {
+    const funded = challengeView({
+      configuration: {
+        ...challengeView().configuration,
+        deposit: { amount: 2000, currency: "USD" },
+      },
+    });
+    const created = jest.fn();
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <SessionProvider
+          store={createMemorySessionStore(SESSION)}
+          createClient={() => fakeApi({ getCurrentChallenge: { challenge: funded } })}
+          providers={fakeProviders({ google: fakeProvider() })}
+        >
+          <CreateChallengeScreen initialDraft={readyDraft(2000)} onCreated={created} />
+        </SessionProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(screen.queryByTestId("deposit-and-start")).not.toBeNull());
+
+    await userEvent.press(screen.getByTestId("deposit-and-start"));
+
+    expect(await screen.findByTestId("challenge-created")).toBeOnTheScreen();
+    expect(created).toHaveBeenCalledWith(funded);
   });
 
   it("offers no deposit action when the plan runs past the maximum duration", async () => {
@@ -275,6 +307,9 @@ describe("the form the user fills in", () => {
     await userEvent.press(screen.getByTestId("deposit-and-start"));
     await userEvent.press(screen.getByTestId("funding-done"));
 
-    expect(cancelled).toHaveBeenCalled();
+    // Leaving an authorized hold is reported as a change, because the
+    // challenge can come into existence a moment after the user stops
+    // watching for it, and home has to ask again to find it.
+    expect(cancelled).toHaveBeenCalledWith(true);
   });
 });

@@ -45,6 +45,12 @@ export interface JourneyServer extends ApiClient {
   challenge(): ChallengeView | null;
   /** Every completion the app sent, in order. */
   completions(): readonly CreateCompletionRequest[];
+  /**
+   * The provider's webhook, as a test can press it: the hold the app authorized
+   * clears and the challenge the user paid for comes into existence. Nothing
+   * the app does causes this, which is exactly why the app has to watch for it.
+   */
+  confirmFunding(): void;
 }
 
 export interface JourneyServerOptions {
@@ -73,12 +79,39 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
   const calls: RecordedCall[] = [];
   const completions: CreateCompletionRequest[] = [];
   let challenge: ChallengeView | null = null;
+  /** The configuration a hold was authorized for, until its webhook lands. */
+  let authorized: ChallengeView["configuration"] | null = null;
   let accountExists = true;
   let taskCounter = 0;
 
   function nextTask(): TaskView {
     taskCounter += 1;
     return openTask(now(), `44444444-4444-4444-8444-${String(taskCounter).padStart(12, "0")}`);
+  }
+
+  /** Both doors end here: a challenge, active, with today's task open. */
+  function activate(configuration: ChallengeView["configuration"]): ChallengeView {
+    if (challenge !== null) {
+      throw new ApiError("active_challenge_exists", "This account already holds a challenge.");
+    }
+    const created = now();
+    challenge = challengeView({
+      id: JOURNEY_CHALLENGE_ID,
+      configuration,
+      createdAt: created.toISOString(),
+      activatedAt: created.toISOString(),
+      projectedEndDate: new Date(created.getTime() + configuration.requiredTaskCount * DAY_MS)
+        .toISOString()
+        .slice(0, 10),
+      progress: {
+        requiredTaskCount: configuration.requiredTaskCount,
+        completedTaskCount: 0,
+        skippedTaskCount: 0,
+        forgivenTaskCount: 0,
+      },
+      currentTask: nextTask(),
+    });
+    return challenge;
   }
 
   function live(): ChallengeView {
@@ -123,30 +156,33 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
     },
 
     createChallenge: (input) => {
-      if (challenge !== null) {
-        throw new ApiError("active_challenge_exists", "This account already holds a challenge.");
-      }
       const { configuration } = (
         input as { body: { configuration: ChallengeView["configuration"] } }
       ).body;
-      const created = now();
-      challenge = challengeView({
-        id: JOURNEY_CHALLENGE_ID,
-        configuration,
-        createdAt: created.toISOString(),
-        activatedAt: created.toISOString(),
-        projectedEndDate: new Date(created.getTime() + configuration.requiredTaskCount * DAY_MS)
-          .toISOString()
-          .slice(0, 10),
-        progress: {
-          requiredTaskCount: configuration.requiredTaskCount,
-          completedTaskCount: 0,
-          skippedTaskCount: 0,
-          forgivenTaskCount: 0,
-        },
-        currentTask: nextTask(),
-      });
-      return { challenge };
+      if (configuration.deposit.amount > 0) {
+        throw new ApiError("zero_deposit_required", "That challenge has to be funded first.");
+      }
+      return { challenge: activate(configuration) };
+    },
+
+    // The funded door: the hold is authorized here and the challenge does not
+    // exist yet, exactly as the contract's `pollAfterAuthorization` says.
+    createFundingIntent: (input) => {
+      const { configuration } = (
+        input as { body: { configuration: ChallengeView["configuration"] } }
+      ).body;
+      if (configuration.deposit.amount === 0) {
+        throw new ApiError("deposit_required_for_funding", "That challenge has no deposit.");
+      }
+      if (challenge !== null) {
+        throw new ApiError("active_challenge_exists", "This account already holds a challenge.");
+      }
+      authorized = configuration;
+      return {
+        fundingIntentId: "22222222-2222-4222-8222-222222222222",
+        providerClientSecret: "journey-client-secret",
+        pollAfterAuthorization: true as const,
+      };
     },
 
     createCompletion: (input) => {
@@ -236,6 +272,14 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
     names: () => calls.map((call) => call.name),
     challenge: () => challenge,
     completions: () => completions,
+
+    confirmFunding() {
+      if (authorized === null) {
+        throw new Error("No hold has been authorized, so there is nothing to confirm.");
+      }
+      activate(authorized);
+      authorized = null;
+    },
 
     async request<Name extends ClientEndpointName>(name: Name, input: ApiRequest<Name>) {
       calls.push({ name, input });
