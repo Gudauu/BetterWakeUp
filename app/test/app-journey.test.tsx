@@ -113,11 +113,14 @@ describe("one account's life through the app's own screens", () => {
     // depends on the user being at their phone before a wall-clock deadline,
     // and until they say yes nothing on the device would tell them.
     await user.press(screen.getByTestId("home-enable-reminders"));
-    await waitFor(() => expect(notifier.scheduled).toHaveLength(1));
-    expect(notifier.scheduled.at(-1)?.map((reminder) => reminder.title)).toEqual([
-      "Time to get moving",
-      expect.stringContaining("Last call"),
-    ]);
+    // The empty set the signed-out launch cleared the device with is the first
+    // one; what the alarm produced is the last.
+    await waitFor(() =>
+      expect(notifier.scheduled.at(-1)?.map((reminder) => reminder.title)).toEqual([
+        "Time to get moving",
+        expect.stringContaining("Last call"),
+      ]),
+    );
 
     // Today's task, walked with the development build's step controls.
     await user.press(screen.getByTestId("home-open-task"));

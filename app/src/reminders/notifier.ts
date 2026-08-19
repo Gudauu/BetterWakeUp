@@ -50,6 +50,29 @@ export function createConfiguredNotifier(): Notifier {
   };
 }
 
+/**
+ * Takes every reminder off the device once nobody is signed in.
+ *
+ * `useReminders` only ever replaces what it schedules while home is mounted, so
+ * a session that ends leaves the last set it wrote standing: the phone goes on
+ * waking someone at 6:15 for an account it can no longer reach, and the walk
+ * the alarm asks for cannot be taken, because taking it needs a session. An
+ * alarm that cannot be acted on is worse than no alarm.
+ *
+ * It runs on the transition rather than on every render, and it runs for a
+ * first launch too - a device with no session should hold no reminders, whether
+ * it lost one or never had one. Clearing is silent for the same reason
+ * scheduling is: there is no screen this could usefully fail on.
+ */
+export function useRemindersClearedWhenSignedOut(notifier: Notifier, signedOut: boolean): void {
+  useEffect(() => {
+    if (!signedOut) {
+      return;
+    }
+    void notifier.replaceAll([]).catch(() => undefined);
+  }, [notifier, signedOut]);
+}
+
 export interface RemindersState {
   readonly permission: ReminderPermission;
   /** Asks the operating system, then schedules if it said yes. */

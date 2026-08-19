@@ -438,6 +438,12 @@ It also says that a walk already saved on this phone is still there, because the
 
 The two ways a session dies share one reason on purpose: the user experienced the same thing either way, and the difference is only in which side of the request noticed.
 
+Reminders do not survive the session.
+`useReminders` only replaces what it schedules while home is mounted, so a session that ends leaves the last set it wrote standing on the device: the phone goes on waking someone for an account it can no longer reach, and the walk the alarm asks for cannot be taken, because taking it needs a session.
+An alarm that cannot be acted on is worse than no alarm, so `useRemindersClearedWhenSignedOut` takes them all off on the transition into signed out - including a first launch, where a device with no session should hold no reminders whether it lost one or never had one.
+That is also why the welcome screen owns the notifier rather than passing one through: it is the only component mounted both while a session exists and after it is gone.
+The expiry notice says the alarms have stopped, because a user relying on tomorrow's has to hear that it will not sound.
+
 ### Pending completion store
 
 The app writes a pending completion to SQLite before displaying the local check.

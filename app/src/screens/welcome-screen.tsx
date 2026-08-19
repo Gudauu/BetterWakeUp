@@ -18,7 +18,11 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import type { AppReturnTrigger } from "../challenges/app-return.ts";
 import type { CompletionRuntimeFactory } from "../completions/runtime.ts";
 import type { PaymentSheet } from "../payments/payment-sheet.ts";
-import type { Notifier } from "../reminders/notifier.ts";
+import {
+  createConfiguredNotifier,
+  type Notifier,
+  useRemindersClearedWhenSignedOut,
+} from "../reminders/notifier.ts";
 import { useSession } from "../session/session-context.tsx";
 import { AppText, Banner, Button, Screen } from "../ui/components.tsx";
 import { useTheme } from "../ui/theme.ts";
@@ -47,11 +51,17 @@ const HOW_IT_WORKS: readonly { readonly step: string; readonly line: string }[] 
  *
  * It stops short of naming the challenge or its numbers because there is no
  * session left to read them with; what it can say for certain is that being
- * signed out is not a pause, and that nothing on the phone was thrown away.
+ * signed out is not a pause, that the alarms have stopped, and that nothing on
+ * the phone was thrown away.
  */
 const EXPIRED_NOTICE = {
   title: "You were signed out",
   body: "Your sign-in expired, so the app can no longer reach your account.",
+  // Said out loud because the phone has gone quiet without being asked to. An
+  // alarm the app cannot honour is worse than none, so they are cancelled - but
+  // a user relying on one tomorrow has to hear that it will not sound.
+  alarms:
+    "Your wake-up reminders on this phone have been turned off. Sign back in to have them set again.",
   reassurance:
     "If a challenge is running it carries on without you: its deadlines still count while you are signed out, and only a walk taken in the app can meet one. Any walk already saved on this phone is still here, and will be sent once you sign back in.",
 } as const;
@@ -63,7 +73,12 @@ export interface WelcomeScreenProps {
    * today's task; a build passes nothing and home builds its own.
    */
   readonly createRuntime?: CompletionRuntimeFactory;
-  /** Handed straight to home for the same reason, so a test schedules nothing. */
+  /**
+   * The device's reminders, so a test schedules nothing. Held here rather than
+   * passed through, because this screen both hands it to home and clears it
+   * when the session ends; a build passes nothing and the configured one is
+   * built once for the life of the screen.
+   */
   readonly notifier?: Notifier;
   /** Handed straight to home, so a test can walk a deposit without a provider. */
   readonly paymentSheet?: PaymentSheet;
@@ -81,6 +96,12 @@ export function WelcomeScreen({
   const theme = useTheme();
   const [busy, setBusy] = useState<IdentityProvider | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Built here rather than left to home, because the device's reminders outlive
+  // the screen that scheduled them: this is the only component that is mounted
+  // both while a session exists and after it is gone, so it is the only one
+  // that can take them off.
+  const [reminderNotifier] = useState<Notifier>(() => notifier ?? createConfiguredNotifier());
+  useRemindersClearedWhenSignedOut(reminderNotifier, state.status === "signedOut");
 
   async function onSignIn(provider: IdentityProvider) {
     setError(null);
@@ -113,7 +134,7 @@ export function WelcomeScreen({
         <HomeScreen
           onSignOut={() => void signOut()}
           {...(createRuntime === undefined ? {} : { createRuntime })}
-          {...(notifier === undefined ? {} : { notifier })}
+          notifier={reminderNotifier}
           {...(paymentSheet === undefined ? {} : { paymentSheet })}
           {...(appReturn === undefined ? {} : { appReturn })}
         />
@@ -133,6 +154,9 @@ export function WelcomeScreen({
             {EXPIRED_NOTICE.title}
           </AppText>
           <AppText variant="small">{EXPIRED_NOTICE.body}</AppText>
+          <AppText variant="small" testID="session-expired-alarms">
+            {EXPIRED_NOTICE.alarms}
+          </AppText>
           <AppText variant="small" tone="muted">
             {EXPIRED_NOTICE.reassurance}
           </AppText>

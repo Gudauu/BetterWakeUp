@@ -8,7 +8,7 @@ import { WelcomeScreen } from "../src/screens/welcome-screen.tsx";
 import { SessionProvider } from "../src/session/session-context.tsx";
 import { createMemorySessionStore, type SessionStore } from "../src/session/session-store.ts";
 import { fakeApi } from "./support/fake-api.ts";
-import { fakeNotifier } from "./support/fake-notifier.ts";
+import { type FakeNotifier, fakeNotifier } from "./support/fake-notifier.ts";
 import { appleCredential, fakeProvider, fakeProviders } from "./support/fake-providers.ts";
 
 const SESSION: SessionView = {
@@ -39,7 +39,7 @@ const api: ApiClient = fakeApi();
 
 async function renderScreen(
   store: SessionStore,
-  options: { api?: ApiClient; providers?: ProviderSignIns } = {},
+  options: { api?: ApiClient; providers?: ProviderSignIns; notifier?: FakeNotifier } = {},
 ) {
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
@@ -48,7 +48,7 @@ async function renderScreen(
         createClient={() => options.api ?? api}
         providers={options.providers ?? fakeProviders({ google: fakeProvider() })}
       >
-        <WelcomeScreen notifier={fakeNotifier()} />
+        <WelcomeScreen notifier={options.notifier ?? fakeNotifier()} />
       </SessionProvider>
     </SafeAreaProvider>,
   );
@@ -101,6 +101,10 @@ describe("a session that ran out", () => {
     // signed out is not a pause.
     expect(notice).toHaveTextContent(/deadlines still count/i);
     expect(notice).toHaveTextContent(/still here/i);
+    // The phone has gone quiet without being asked to, so it says so.
+    expect(screen.getByTestId("session-expired-alarms")).toHaveTextContent(
+      /reminders on this phone have been turned off/i,
+    );
     // The three steps are for someone who has never seen the app.
     expect(screen.queryByTestId("welcome-how-it-works")).toBeNull();
     expect(screen.getByTestId("sign-in-apple")).toBeOnTheScreen();
@@ -150,6 +154,48 @@ describe("a session that ran out", () => {
     // Explaining a sign-out to the person who pressed it is noise.
     expect(screen.getByTestId("welcome-signed-out")).toBeOnTheScreen();
     expect(screen.queryByTestId("session-expired")).toBeNull();
+  });
+});
+
+describe("the alarms on a phone with nobody signed in", () => {
+  it("leaves them alone while the session stands and takes them off when it ends", async () => {
+    // A refused device schedules nothing of its own, so every set the notifier
+    // is handed here is one this rule put there.
+    const notifier = fakeNotifier({ permission: "denied" });
+    await renderScreen(createMemorySessionStore(SESSION), { notifier });
+
+    expect(notifier.scheduled).toHaveLength(0);
+
+    await userEvent.press(screen.getByText("Sign out"));
+
+    // An alarm the app cannot honour is worse than no alarm: the walk it asks
+    // for needs a session, and there is no longer one.
+    expect(notifier.scheduled).toEqual([[]]);
+  });
+
+  it("takes them off when the stored session had already expired", async () => {
+    // Nothing unmounts on this path - home never renders - so the reminders the
+    // last run scheduled would otherwise still be sitting on the device.
+    const notifier = fakeNotifier({ permission: "granted" });
+    await renderScreen(
+      createMemorySessionStore({ ...SESSION, expiresAt: "2026-01-01T00:00:00Z" }),
+      {
+        notifier,
+      },
+    );
+
+    expect(notifier.scheduled).toEqual([[]]);
+  });
+
+  it("clears a device that never held a session too, without asking it anything", async () => {
+    // A first launch has nothing to cancel, but it also has nothing to lose by
+    // saying so - and it must not be the one path that spends the install's
+    // single permission prompt.
+    const notifier = fakeNotifier();
+    await renderScreen(createMemorySessionStore(null), { notifier });
+
+    expect(notifier.scheduled).toEqual([[]]);
+    expect(notifier.requests).toBe(0);
   });
 });
 
