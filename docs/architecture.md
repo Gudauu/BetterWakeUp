@@ -803,6 +803,23 @@ The error screen asks too: it cannot rule a challenge out, so it states the runn
 
 `ConfirmAction` grew a `quiet` opener for this. Sign-out lives among the account-level controls under the divider, and promoting it to a full button in order to guard it would make it look like the thing to do next - the opposite of what the guard is for.
 
+### The challenge that will not let the account go
+
+Deletion is refused while a funded challenge is unsettled, and saying so is the requirement.
+Saying only so is the defect: "it can be deleted once that challenge settles" names no date, no price, and no press, on the one screen a user reaches because they have already decided to leave.
+
+`app/src/challenges/deletion-hold.ts` answers the three questions that sentence raises, out of the challenge the screen is already holding.
+What is held is the deposit and the card it sits on.
+When it stops being held depends on the state: a running challenge names its `projectedEndDate` as the day the hold is released, a recovery decision names the answer or the window closing, and a pause names neither, because a paused challenge has no date to wait for at all.
+What waiting costs is nothing, and that has to be said out loud - a deposit held on a card until some unnamed later reads as a meter running.
+Only a missed morning ever charges it, so the reassurance names the one thing that would rather than promising in general.
+
+The pause is the case the whole section exists for.
+Nothing settles while a pause stands still, so a user who paused and then decided to leave is in the one state that never resolves on its own inside a year.
+That case and the open recovery offer are also the two with something to press, so the explanation carries the route to the screen that settles it; home wires those to the same pause and recovery routes its own banners use.
+
+`deletionHold` defers to `deletionBlocker` for whether there is anything to explain, so the screen cannot end up explaining a hold the command would not have applied.
+
 ### Pending completion store
 
 The app writes a pending completion to SQLite before displaying the local check.

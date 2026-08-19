@@ -1235,6 +1235,29 @@ describe("home is the door to deleting the account", () => {
     expect(screen.queryByTestId("delete-account")).toBeNull();
   });
 
+  it("opens the pause screen from the hold a paused challenge is holding", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          lastEnded: null,
+          challenge: challengeView({
+            configuration: {
+              ...challengeView().configuration,
+              deposit: { amount: 5000, currency: "USD" },
+            },
+            pause: { pausedAt: "2026-08-30T09:00:00.000Z", expiresAt: null },
+          }),
+        },
+      }),
+    );
+    await userEvent.press(await screen.findByTestId("home-delete-account"));
+    await userEvent.press(await screen.findByTestId("deletion-hold-action"));
+
+    // The one press that can actually move the settling along has to reach the
+    // screen that does it, not send the user back to home to look for it.
+    expect(await screen.findByTestId("pause-screen")).toBeOnTheScreen();
+  });
+
   it("comes back to home when the screen is left", async () => {
     const api = fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } });
 

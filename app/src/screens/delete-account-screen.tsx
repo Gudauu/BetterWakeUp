@@ -15,8 +15,9 @@ import type { ChallengeView } from "@betterwakeup/contract";
 import { useCallback, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import type { ApiClient } from "../api/client.ts";
+import { deletionHold } from "../challenges/deletion-hold.ts";
 import { deleteAccount, deletionBlocker } from "../challenges/lifecycle-commands.ts";
-import { AppText, Banner, Card, Screen } from "../ui/components.tsx";
+import { AppText, Banner, Button, Card, Screen } from "../ui/components.tsx";
 import { BackLink } from "./back-link.tsx";
 import { ConfirmAction } from "./confirm-action.tsx";
 
@@ -27,6 +28,14 @@ export interface DeleteAccountScreenProps {
   readonly onDeleted?: () => void;
   /** Offered as a way back when a caller put this screen on top of another. */
   readonly onBack?: () => void;
+  /**
+   * Where the one thing that would move an unsettled challenge along lives. A
+   * paused challenge settles only once it is resumed and a recovery offer only
+   * once it is answered, so the screen that says so has to be able to lead
+   * there rather than leaving the user to find it back on home.
+   */
+  readonly onOpenPause?: () => void;
+  readonly onOpenRecovery?: () => void;
 }
 
 export const DELETION_PERMANENCE =
@@ -45,6 +54,8 @@ export function DeleteAccountScreen(props: DeleteAccountScreenProps) {
   const [problem, setProblem] = useState<string | null>(null);
 
   const blocker = deletionBlocker(challenge);
+  const hold = deletionHold(challenge);
+  const onAct = hold?.action?.route === "pause" ? props.onOpenPause : props.onOpenRecovery;
 
   const onDelete = useCallback(async () => {
     setBusy(true);
@@ -105,6 +116,25 @@ export function DeleteAccountScreen(props: DeleteAccountScreenProps) {
           >
             {blocker}
           </AppText>
+          {/* The blocker alone names a wait with no end and no price on it,
+              which on the screen someone opened because they had decided to
+              leave is the worst place to be vague. */}
+          {hold === null ? null : (
+            <>
+              <AppText variant="small" testID="deletion-hold-held">
+                {hold.held}
+              </AppText>
+              <AppText variant="small" testID="deletion-hold-settles">
+                {hold.settles}
+              </AppText>
+              <AppText variant="small" tone="muted" testID="deletion-hold-cost">
+                {hold.cost}
+              </AppText>
+              {hold.action === null || onAct === undefined ? null : (
+                <Button testID="deletion-hold-action" label={hold.action.label} onPress={onAct} />
+              )}
+            </>
+          )}
         </Banner>
       )}
 

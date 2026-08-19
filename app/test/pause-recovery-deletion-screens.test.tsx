@@ -335,5 +335,40 @@ describe("DeleteAccountScreen", () => {
 
     expect(screen.queryByTestId("delete-account")).toBeNull();
     expect(screen.getByTestId("deletion-blocked")).toHaveTextContent(/once that challenge settles/);
+    // And says when that is, rather than leaving "settles" as the whole answer.
+    expect(screen.getByTestId("deletion-hold-held")).toHaveTextContent(/\$50\.00/);
+    expect(screen.getByTestId("deletion-hold-settles")).toHaveTextContent(/October 12/);
+    expect(screen.getByTestId("deletion-hold-cost")).toHaveTextContent(/Waiting costs nothing/);
+    // Nothing to press: only walking the remaining mornings settles it.
+    expect(screen.queryByTestId("deletion-hold-action")).toBeNull();
+  });
+
+  it("leads a paused funded challenge to the screen that can settle it", async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    const resumed = jest.fn();
+    const paused = challengeView({
+      configuration: {
+        ...challengeView().configuration,
+        deposit: { amount: 5000, currency: "USD" },
+      },
+      pause: { pausedAt: "2026-08-30T09:00:00.000Z", expiresAt: null },
+    });
+    await draw(<DeleteAccountScreen api={api} challenge={paused} onOpenPause={resumed} />);
+
+    expect(screen.getByTestId("deletion-hold-settles")).toHaveTextContent(
+      /nothing settles while it stands still/,
+    );
+
+    await user.press(screen.getByTestId("deletion-hold-action"));
+    expect(resumed).toHaveBeenCalledTimes(1);
+    expect(api.names()).toEqual([]);
+  });
+
+  it("explains nothing about a hold when there is none to explain", async () => {
+    const api = fakeApi();
+    await draw(<DeleteAccountScreen api={api} challenge={null} />);
+
+    expect(screen.queryByTestId("deletion-hold-held")).toBeNull();
   });
 });

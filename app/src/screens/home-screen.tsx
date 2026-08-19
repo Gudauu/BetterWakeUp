@@ -531,6 +531,11 @@ export function HomeScreen({
         api={api}
         challenge={state.challenge}
         onBack={() => goHome(false)}
+        // The two screens that can settle a challenge holding up deletion, so
+        // the explanation of the hold leads somewhere rather than sending the
+        // user back to home to find them.
+        onOpenPause={() => setRoute("pause")}
+        onOpenRecovery={() => setRoute("recovery")}
         // Nothing is left to read: the account this screen was reading is gone,
         // so the only honest next screen is the signed-out one.
         onDeleted={() => void signOut()}
