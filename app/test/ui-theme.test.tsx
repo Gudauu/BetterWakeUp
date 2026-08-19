@@ -74,6 +74,30 @@ describe("the screen frame", () => {
       StyleSheet.flatten(screen.getByTestId("frame").props.contentContainerStyle),
     ).toMatchObject({ paddingTop: METRICS.insets.top + lightTheme.space.lg });
   });
+
+  it("makes room for the software keyboard rather than letting it cover a field", async () => {
+    // The setup form is taller than a phone, so its lower fields - the step
+    // target, the deposit - sit exactly where the keyboard opens. Without this
+    // the box being typed into, and the complaint drawn under it, are behind
+    // the keys with no way to scroll them out.
+    await draw(
+      <Screen testID="frame">
+        <AppText>Hello</AppText>
+      </Screen>,
+    );
+
+    expect(screen.getByTestId("frame").props.automaticallyAdjustKeyboardInsets).toBe(true);
+  });
+
+  it("lets the keyboard be dragged away, which a number pad has no key for", async () => {
+    await draw(
+      <Screen testID="frame">
+        <AppText>Hello</AppText>
+      </Screen>,
+    );
+
+    expect(screen.getByTestId("frame").props.keyboardDismissMode).toBe("interactive");
+  });
 });
 
 describe("the actions", () => {
@@ -121,6 +145,27 @@ describe("the form controls", () => {
 
     const box = screen.getByTestId("steps").parent;
     expect(StyleSheet.flatten(box?.props.style).minHeight).toBeGreaterThanOrEqual(44);
+  });
+
+  it("asks the keyboard for a value rather than for English", async () => {
+    // Every field in the app holds a time, a count or an amount. Autocorrect
+    // rewrites `7am` and sentence case capitalises it, neither of which the
+    // reader of that text would accept.
+    await draw(<Field label="Wake up at" testID="deadline" value="7am" onChangeText={() => {}} />);
+
+    const input = screen.getByTestId("deadline");
+    expect(input.props.autoCorrect).toBe(false);
+    expect(input.props.autoCapitalize).toBe("none");
+  });
+
+  it("gives a field a key that puts the keyboard away", async () => {
+    // There is nothing to submit from a field - every form here is finished by
+    // a button - so the return key's only useful job is to stop typing.
+    await draw(<Field label="Deposit" testID="deposit" value="20" onChangeText={() => {}} />);
+
+    const input = screen.getByTestId("deposit");
+    expect(input.props.returnKeyType).toBe("done");
+    expect(input.props.submitBehavior).toBe("blurAndSubmit");
   });
 
   it("report a chip as selected rather than only painting it", async () => {

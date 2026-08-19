@@ -128,6 +128,16 @@ export function Screen({ testID, centered = false, style, children }: ScreenProp
       style={{ backgroundColor: theme.colors.background }}
       contentContainerStyle={[{ gap: theme.space.lg }, padding, style]}
       keyboardShouldPersistTaps="handled"
+      // The keyboard is part of the screen's height, not something drawn over
+      // it: without this the software keyboard covers the lower half of the
+      // setup form, so the field the user is typing into - and the complaint
+      // under it - are behind the keys. iOS-only, and ignored on Android,
+      // where the window is resized for the keyboard instead.
+      automaticallyAdjustKeyboardInsets
+      // The way out. Every numeric field in the app asks for a keypad, and an
+      // iOS number pad has no return key at all, so a dragged-down keyboard is
+      // the only dismissal a user has besides tapping a gap in the layout.
+      keyboardDismissMode="interactive"
     >
       {children}
     </ScrollView>
@@ -565,6 +575,17 @@ export function Field({
         keyboardType={keyboardType}
         value={value}
         onChangeText={onChangeText}
+        // Nothing this app asks for is prose: a wake-up time, a step target, a
+        // number of days, an amount of money. Autocorrect on `7am` and a
+        // capitalised first letter are both the keyboard guessing at English
+        // where the answer is a value.
+        autoCapitalize="none"
+        autoCorrect={false}
+        // Done rather than Return, and the keyboard goes away when it is
+        // pressed: there is nothing to submit from a field, and every form here
+        // is finished by a button further down the screen.
+        returnKeyType="done"
+        submitBehavior="blurAndSubmit"
         style={[theme.type.body, styles.fieldInput, { color: theme.colors.text }]}
       />
       {suffix === undefined ? null : (

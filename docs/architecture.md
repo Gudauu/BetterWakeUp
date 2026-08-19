@@ -254,6 +254,15 @@ A number below its field's minimum is read but refused, and the sentence naming 
 
 `configurationOf` states its remaining complaints in the same words. A path into the request body is the right thing to log and the wrong thing to show, so the schema's issues are mapped to sentences, sharing the fields' own wording so the banner and the line under the box cannot disagree.
 
+### The keyboard as part of the screen
+
+A software keyboard is not drawn over the app, it takes half of it, and the setup form is taller than a phone before the keyboard opens.
+`Screen`'s scroll view therefore asks iOS to treat the keyboard as an inset (`automaticallyAdjustKeyboardInsets`), so the box being typed into - and the complaint drawn under it - stay above the keys. Android needs nothing: the window is resized for the keyboard instead.
+
+It is also dismissable by dragging (`keyboardDismissMode="interactive"`). That is not a nicety: the deposit and the three whole numbers all ask for a numeric keypad, and an iOS number pad has no return key at all, so without a drag the only way out is finding a gap in the layout to tap.
+
+`Field` asks the keyboard for a value rather than for English - no autocorrect, no sentence case - because nothing this app collects is prose, and both would rewrite a typed `7am`. Its return key reads Done and blurs: there is nothing to submit from a field, since every form here is committed by a button further down.
+
 ### The month as a row of days
 
 `challengeView.days` is the challenge's own calendar: every day it holds, oldest first, each with the status the server gave it.
