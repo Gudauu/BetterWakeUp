@@ -383,6 +383,23 @@ The app has already decided that is the moment a user should be up and walking, 
 Past the deadline the screen withdraws the invitation rather than colouring it: the start button is gone, the advice says the window has closed, and a banner names the time that passed and points at the Emergency Recovery, which lives on home because the offer only exists once the server has recorded the missed day.
 While a walk is racing the clock the card adds the half of the rule a walker cannot guess - it is the instant the walk is saved that is judged, so a window opened in time and finished late is refused.
 
+### The clock on the recovery offer
+
+`app/src/challenges/recovery-window.ts` does for the Emergency Recovery offer what `time-left.ts` does for the morning: it reads the offer's `expiresAt` against the clock and answers how long is left, how urgent that is, and whether there is still a decision to make.
+
+This is the most expensive clock in the app.
+A missed day puts the challenge into `recovery_pending` and the server holds the settlement open until the offer lapses, so letting it pass is what charges the deposit.
+Both screens that mentioned the offer named an absolute time and nothing else, which is a fact about the future rather than an answer to the question the user has, and neither read the clock at all: once the window had closed, home still offered "Decide on your recovery" and the recovery screen still drew the spend-or-keep choice with a live button under it, even though `acceptRecovery` refuses an expired offer before it sends anything.
+The user's reward for two presses was a refusal explaining that the decision had already been made for them.
+
+The boundary between a countdown read quietly and one read in red is `RECOVERY_LEAD_MINUTES`, imported from the reminders rather than restated, on the same reasoning as the morning's: the moment the app is willing to wake someone over the offer is the moment the offer stops being background information.
+
+Once the window has closed both surfaces withdraw the decision rather than colouring it.
+Home replaces the invitation with what happened and drops the button; the recovery screen replaces the whole choice with the closed window and the one piece of good news left in it, which is that the allowance was never spent.
+Neither of them says what became of the money: a zero-deposit challenge settles nothing, and the outcome the server decides in its sweep reaches home as `lastEnded` rather than being guessed at here.
+
+The duration wording itself lives in `app/src/ui/format.ts` as `formatDuration`, because two countdowns now use it and "2 hours 30 minutes" must not be said two ways.
+
 ### Pending completion store
 
 The app writes a pending completion to SQLite before displaying the local check.

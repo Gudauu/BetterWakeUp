@@ -23,6 +23,11 @@ import {
   historyLabel,
   streakSentence,
 } from "../challenges/history.ts";
+import {
+  type RecoveryWindow,
+  recoveryOfferSummary,
+  recoveryWindow,
+} from "../challenges/recovery-window.ts";
 import { type TimeZoneMove, timeZoneLabel, timeZoneMoveFor } from "../challenges/time-zone.ts";
 import {
   type CompletionRuntimeFactory,
@@ -96,6 +101,12 @@ export interface HomeScreenProps {
    * without an operating system; a build passes nothing.
    */
   readonly appReturn?: AppReturnTrigger;
+  /**
+   * The clock the recovery offer's window is measured against. Stated in tests
+   * so that how long is left to decide is a fact of the test rather than of the
+   * day it is run on; a build passes nothing and the device's clock is read.
+   */
+  readonly now?: () => Date;
 }
 
 /**
@@ -160,8 +171,10 @@ export function HomeScreen({
   notifier,
   paymentSheet,
   appReturn,
+  now,
 }: HomeScreenProps) {
   const { api, signOut } = useSession();
+  const readClock = now ?? (() => new Date());
   const theme = useTheme();
   const { state, refreshing, refreshFailed, reload, refresh } = useCurrentChallenge(api);
   const [route, setRoute] = useState<Route>("home");
@@ -349,6 +362,7 @@ export function HomeScreen({
         <RecoveryScreen
           api={api}
           challenge={state.challenge}
+          now={readClock}
           onBack={() => goHome(false)}
           onAccepted={() => goHome(true)}
           // Declining spends nothing and changes nothing at the server, so
@@ -419,6 +433,7 @@ export function HomeScreen({
           challenge={state.challenge}
           reminders={reminders}
           unsent={unsent}
+          recovery={recoveryWindow(state.challenge, readClock())}
           timeZoneMove={keptTimeZone ? null : timeZoneMoveFor(state.challenge, here)}
           onOpenTask={() => setRoute("task")}
           onOpenPause={() => setRoute("pause")}
@@ -459,6 +474,7 @@ function ChallengeCard({
   challenge,
   reminders,
   unsent,
+  recovery,
   timeZoneMove,
   onOpenTask,
   onOpenPause,
@@ -469,6 +485,7 @@ function ChallengeCard({
   challenge: ChallengeView;
   reminders: RemindersState;
   unsent: UnsentWork;
+  recovery: RecoveryWindow | null;
   timeZoneMove: TimeZoneMove | null;
   onOpenTask: () => void;
   onOpenPause: () => void;
@@ -544,17 +561,33 @@ function ChallengeCard({
 
       <Reminders challenge={challenge} reminders={reminders} />
 
-      {challenge.recoveryOffer === null ? null : (
-        <Banner tone="warning" testID="home-recovery-offer">
-          <AppText variant="small" tone="warning" accessibilityRole="alert">
-            You missed a day. Your one Emergency Recovery can forgive it until{" "}
-            {formatDeadline(challenge.recoveryOffer.expiresAt, configuration.timeZone)}.
+      {/* The offer that decides whether the deposit is charged. It leads with
+          how long is left rather than with when it closes, turns red inside the
+          last hour, and once the window has gone by it stops offering a
+          decision the server would refuse and says what happened instead. */}
+      {challenge.recoveryOffer === null || recovery === null ? null : (
+        <Banner
+          tone={recovery.urgency === "open" ? "warning" : "danger"}
+          testID="home-recovery-offer"
+        >
+          <AppText
+            variant="small"
+            tone={recovery.urgency === "open" ? "warning" : "danger"}
+            accessibilityRole="alert"
+            testID="home-recovery-summary"
+          >
+            {recoveryOfferSummary(
+              recovery,
+              formatDeadline(challenge.recoveryOffer.expiresAt, configuration.timeZone),
+            )}
           </AppText>
-          <Button
-            testID="home-open-recovery"
-            label="Decide on your recovery"
-            onPress={onOpenRecovery}
-          />
+          {recovery.decidable ? (
+            <Button
+              testID="home-open-recovery"
+              label="Decide on your recovery"
+              onPress={onOpenRecovery}
+            />
+          ) : null}
         </Banner>
       )}
 

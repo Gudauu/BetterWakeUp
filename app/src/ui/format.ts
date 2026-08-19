@@ -44,6 +44,31 @@ export function formatDay(date: string): string {
   });
 }
 
+/**
+ * A duration a person would say out loud. Minutes alone past an hour - "127
+ * minutes" - is a number to be converted rather than read, and the last minute
+ * is named as what it is rather than as "0 minutes", which reads as expired.
+ *
+ * It lives here beside the clock times because two different countdowns now
+ * use it - the morning's deadline and the recovery offer's window - and the two
+ * must not drift into saying the same length of time differently.
+ */
+export function formatDuration(minutes: number): string {
+  if (minutes <= 0) {
+    return "Less than a minute";
+  }
+  if (minutes < 60) {
+    return minutes === 1 ? "1 minute" : `${minutes} minutes`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  const hoursText = hours === 1 ? "1 hour" : `${hours} hours`;
+  if (rest === 0) {
+    return hoursText;
+  }
+  return `${hoursText} ${rest === 1 ? "1 minute" : `${rest} minutes`}`;
+}
+
 function format(instant: string, options: Intl.DateTimeFormatOptions): string {
   try {
     return new Intl.DateTimeFormat("en-US", options).format(new Date(instant));

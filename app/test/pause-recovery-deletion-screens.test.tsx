@@ -207,6 +207,34 @@ describe("RecoveryScreen", () => {
     expect(declined).toHaveBeenCalledTimes(1);
     expect(api.names()).toEqual([]);
   });
+
+  // The offer closes at a wall-clock instant and the whole deposit turns on it,
+  // so an absolute time on its own leaves the user to do the arithmetic.
+  it("counts the window down beside the time it closes", async () => {
+    const api = fakeApi();
+    await draw(<RecoveryScreen api={api} challenge={offered} now={now} />);
+
+    expect(screen.getByTestId("recovery-time-left")).toHaveTextContent(/11 hours left to decide/);
+  });
+
+  it("withdraws the decision once the window has closed, and sends nothing", async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    const back = jest.fn();
+    const closed = () => new Date("2026-09-02T01:00:00.000Z");
+    await draw(<RecoveryScreen api={api} challenge={offered} now={closed} onBack={back} />);
+
+    expect(screen.getByTestId("recovery-closed")).toHaveTextContent(/the missed day stands/);
+    expect(screen.getByTestId("recovery-unspent")).toHaveTextContent(/stays unused/);
+    // The command refuses an expired offer before it sends anything, so the
+    // choice was two presses that could only ever end in a refusal.
+    expect(screen.queryByTestId("accept-recovery")).toBeNull();
+    expect(screen.queryByTestId("decline-recovery")).toBeNull();
+
+    await user.press(screen.getByTestId("recovery-back"));
+    expect(back).toHaveBeenCalledTimes(1);
+    expect(api.names()).toEqual([]);
+  });
 });
 
 describe("DeleteAccountScreen", () => {

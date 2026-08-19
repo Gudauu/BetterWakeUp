@@ -44,6 +44,13 @@ const METRICS = {
   insets: { top: 47, left: 0, right: 0, bottom: 34 },
 };
 
+/**
+ * The moment every test reads home at, unless it says otherwise. It sits in the
+ * fixtures' own morning, well ahead of the recovery offer they carry, so the
+ * offer reads as open for the tests that are about something else.
+ */
+const NOW = new Date("2026-09-01T16:00:00.000Z");
+
 async function renderHome(
   api: ApiClient,
   options: {
@@ -71,6 +78,12 @@ async function renderHome(
      * is a call in the test rather than an operating system event.
      */
     appReturn?: AppReturnTrigger;
+    /**
+     * What the clock says while home is on screen. Stated rather than read
+     * from the machine, so how long is left on a recovery offer is a fact of
+     * the fixture instead of a fact of the day the suite is run on.
+     */
+    now?: Date;
   } = {},
 ) {
   // Home holds a completion runtime for as long as it is on screen, so every
@@ -90,6 +103,7 @@ async function renderHome(
           createRuntime={createRuntime}
           notifier={options.notifier ?? fakeNotifier()}
           deviceTimeZone={options.deviceTimeZone ?? "America/Los_Angeles"}
+          now={() => options.now ?? NOW}
           {...(options.paymentSheet === undefined ? {} : { paymentSheet: options.paymentSheet })}
           {...(options.appReturn === undefined ? {} : { appReturn: options.appReturn })}
           {...(options.onSignOut === undefined ? {} : { onSignOut: options.onSignOut })}
@@ -700,6 +714,32 @@ describe("home is the door to the recovery offer", () => {
 
     expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
     expect(api.names()).not.toContain("acceptRecovery");
+  });
+
+  // The offer is the clock that decides whether the deposit is charged, and the
+  // banner named only the instant it closes - a fact about the future, where
+  // the question is whether to act now.
+  it("says how long is left to decide, before it says when the window closes", async () => {
+    await renderHome(fakeApi({ getCurrentChallenge: { challenge: OFFERED, lastEnded: null } }), {
+      now: new Date("2026-09-02T12:30:00.000Z"),
+    });
+
+    expect(await screen.findByTestId("home-recovery-summary")).toHaveTextContent(
+      /2 hours 30 minutes left to decide/,
+    );
+    expect(screen.getByTestId("home-recovery-summary")).toHaveTextContent(/closes at/);
+  });
+
+  it("withdraws the decision once the window has gone by", async () => {
+    await renderHome(fakeApi({ getCurrentChallenge: { challenge: OFFERED, lastEnded: null } }), {
+      now: new Date("2026-09-02T15:30:00.000Z"),
+    });
+
+    expect(await screen.findByTestId("home-recovery-summary")).toHaveTextContent(
+      /the missed day stands/,
+    );
+    // Pressing it would have sent nothing and answered with a refusal.
+    expect(screen.queryByTestId("home-open-recovery")).toBeNull();
   });
 });
 

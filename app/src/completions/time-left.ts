@@ -17,6 +17,7 @@
  */
 
 import { ALARM_LEAD_MINUTES } from "../reminders/reminders.ts";
+import { formatDuration } from "../ui/format.ts";
 
 /**
  * How urgently the remaining time reads.
@@ -52,29 +53,8 @@ export function timeLeft(minutesToDeadline: number | null): TimeLeft | null {
   return {
     urgency: minutesToDeadline <= CLOSING_MINUTES ? "closing" : "ample",
     minutes: minutesToDeadline,
-    sentence: `${durationText(minutesToDeadline)} left to walk.`,
+    sentence: `${formatDuration(minutesToDeadline)} left to walk.`,
   };
-}
-
-/**
- * A duration a person would say out loud. Minutes alone past an hour - "127
- * minutes" - is a number to be converted rather than read, and the last minute
- * is named as what it is rather than as "0 minutes", which reads as expired.
- */
-function durationText(minutes: number): string {
-  if (minutes === 0) {
-    return "Less than a minute";
-  }
-  if (minutes < 60) {
-    return minutes === 1 ? "1 minute" : `${minutes} minutes`;
-  }
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  const hoursText = hours === 1 ? "1 hour" : `${hours} hours`;
-  if (rest === 0) {
-    return hoursText;
-  }
-  return `${hoursText} ${rest === 1 ? "1 minute" : `${rest} minutes`}`;
 }
 
 /**

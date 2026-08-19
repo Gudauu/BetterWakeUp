@@ -18,6 +18,7 @@ import { useCallback, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import type { ApiClient } from "../api/client.ts";
 import { acceptRecovery } from "../challenges/lifecycle-commands.ts";
+import { recoveryWindow } from "../challenges/recovery-window.ts";
 import { AppText, Banner, Card, Screen, StatusPill, TextButton } from "../ui/components.tsx";
 import { formatDeadline } from "../ui/format.ts";
 import { BackLink } from "./back-link.tsx";
@@ -79,6 +80,42 @@ export function RecoveryScreen(props: RecoveryScreenProps) {
     );
   }
 
+  const closing = formatDeadline(offer.expiresAt, challenge.configuration.timeZone);
+  const window = recoveryWindow(challenge, readClock());
+
+  // The window went by while the offer was on screen, or before the user ever
+  // reached it. There is nothing to decide: the command refuses an expired
+  // offer without sending anything, so drawing the choice would be offering a
+  // press whose only outcome is a refusal.
+  if (window !== null && !window.decidable) {
+    return (
+      <Screen testID="recovery-screen">
+        <BackLink testID="recovery-back" onBack={props.onBack} />
+
+        <View style={styles.header}>
+          <StatusPill label="Window closed" tone="danger" />
+          <AppText variant="display" accessibilityRole="header">
+            That decision has been made
+          </AppText>
+        </View>
+
+        <Banner tone="danger" testID="recovery-closed">
+          <AppText variant="small" tone="danger" accessibilityRole="alert">
+            The offer closed at {closing}. {window.sentence}
+          </AppText>
+        </Banner>
+
+        <Card>
+          <AppText variant="headline">Your recovery is still yours</AppText>
+          <AppText variant="small" testID="recovery-unspent">
+            Nothing was spent. Your one Emergency Recovery stays unused and is there for a future
+            challenge.
+          </AppText>
+        </Card>
+      </Screen>
+    );
+  }
+
   return (
     <Screen testID="recovery-screen">
       <BackLink testID="recovery-back" onBack={props.onBack} />
@@ -93,10 +130,28 @@ export function RecoveryScreen(props: RecoveryScreenProps) {
         </AppText>
       </View>
 
-      <Banner tone="warning" testID="recovery-deadline">
-        <AppText variant="small" tone="warning" accessibilityRole="alert">
-          This offer closes at {formatDeadline(offer.expiresAt, challenge.configuration.timeZone)}.
-          After that the decision is made for you.
+      <Banner
+        tone={window?.urgency === "closing" ? "danger" : "warning"}
+        testID="recovery-deadline"
+      >
+        {/* How long is left, before when it closes. A user who has just been
+            told they missed a day needs to know whether this is a decision for
+            now or for later, and an absolute time alone does not answer it. */}
+        {window === null ? null : (
+          <AppText
+            variant="headline"
+            tone={window.urgency === "closing" ? "danger" : "warning"}
+            testID="recovery-time-left"
+          >
+            {window.sentence}
+          </AppText>
+        )}
+        <AppText
+          variant="small"
+          tone={window?.urgency === "closing" ? "danger" : "warning"}
+          accessibilityRole="alert"
+        >
+          This offer closes at {closing}. After that the decision is made for you.
         </AppText>
       </Banner>
 
