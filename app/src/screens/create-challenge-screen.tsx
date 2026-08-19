@@ -52,6 +52,7 @@ import {
   awaitFundedChallenge,
   type FundedChallengeOutcome,
 } from "../challenges/funded-challenge.ts";
+import { NO_REGRET_HINT, noRegretReading } from "../challenges/no-regret.ts";
 import { scheduleSentence } from "../challenges/schedule.ts";
 import { readWakeTime } from "../challenges/wake-time.ts";
 import {
@@ -596,12 +597,14 @@ export function CreateChallengeScreen({
         />
         <CountField
           label="No Regret Time"
-          hint="How long you have to stay up once you are awake."
+          hint={NO_REGRET_HINT}
           testID="field-no-regret-minutes"
           suffix="minutes"
           spec={NO_REGRET_MINUTES}
           count={draft.noRegretMinutes}
-          reading={describeMinutes}
+          // Read back against the mornings picked two fields above, because the
+          // number is only meaningful as the clock time it turns into.
+          reading={(minutes) => noRegretReading(minutes, draft.schedule)}
           onChange={(minutes) => {
             rememberCount("field-no-regret-minutes", minutes);
             if (minutes !== null) {
@@ -887,16 +890,6 @@ function CountField({
       }}
     />
   );
-}
-
-/** `480` reads as `That is 8 hours`, so the unit on screen is not the only one. */
-function describeMinutes(minutes: number): string {
-  if (minutes < 60) {
-    return `That is under an hour.`;
-  }
-  const hours = minutes / 60;
-  const rounded = Number.isInteger(hours) ? String(hours) : hours.toFixed(1);
-  return `That is ${rounded} hours.`;
 }
 
 /**

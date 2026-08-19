@@ -17,6 +17,8 @@
  * @see readWakeTime in ./wake-time.ts, which does the same job for a deadline.
  */
 
+import { NO_REGRET_MISSING } from "./no-regret.ts";
+
 /** What the app should show for text that is not a number at all. */
 export const COUNT_NOT_A_NUMBER = "Whole numbers only, with no decimal point.";
 
@@ -58,7 +60,7 @@ export const STEP_TARGET: CountSpec = {
  */
 export const NO_REGRET_MINUTES: CountSpec = {
   minimum: 0,
-  missing: "Type how many minutes you have to stay up for.",
+  missing: NO_REGRET_MISSING,
   tooSmall: "Minutes cannot be negative.",
 };
 

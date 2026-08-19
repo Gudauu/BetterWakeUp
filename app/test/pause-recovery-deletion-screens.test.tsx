@@ -55,6 +55,20 @@ describe("PauseScreen while running", () => {
     );
 
     expect(screen.getByTestId("next-skipped-task")).toHaveTextContent(/stays live/);
+    // No countdown beside it: the notice has run out, and a window reading zero
+    // under a sentence that already says so is the same fact twice.
+    expect(screen.queryByTestId("skip-window")).toBeNull();
+  });
+
+  it("says how long is left to decide, since the chance goes before the morning does", async () => {
+    await pauseScreen(
+      challengeView({ currentTask: taskView({ pauseCutoff: "2026-09-01T18:00:00.000Z" }) }),
+    );
+
+    // The cutoff read where the challenge reads its deadlines, not in UTC and
+    // not on the machine running the suite.
+    expect(screen.getByTestId("skip-window")).toHaveTextContent(/11:00 AM/);
+    expect(screen.getByTestId("skip-window")).toHaveTextContent(/5 hours left/);
   });
 
   it("spells out what a pause protects before it is taken", async () => {

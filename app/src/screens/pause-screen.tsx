@@ -22,12 +22,14 @@ import {
   pauseChallenge,
   resumeChallenge,
 } from "../challenges/lifecycle-commands.ts";
+import { skipWindowFor, skipWindowSentence } from "../challenges/no-regret.ts";
 import {
   pausedForSentence,
   pausedRestSentence,
   pauseExpirySentence,
   pausePresentation,
 } from "../challenges/pause.ts";
+import { useClock } from "../ui/clock.ts";
 import { AppText, Banner, Card, Divider, Screen, StatusPill } from "../ui/components.tsx";
 import { formatDay } from "../ui/format.ts";
 import { BackLink } from "./back-link.tsx";
@@ -54,11 +56,19 @@ const PAUSE_PROMISES: readonly string[] = [
 
 export function PauseScreen(props: PauseScreenProps) {
   const { api, challenge } = props;
-  const readClock = props.now ?? (() => new Date());
+  // Read on a timer rather than once, because how long is left to skip this
+  // morning is a sentence that stops being true while the screen is open.
+  const clock = useClock(props.now);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
-  const view = pausePresentation({ challenge, now: readClock() });
+  const view = pausePresentation({ challenge, now: clock });
+  const skippable = view.nextSkippedTask;
+  const notice = skippable === null ? null : skipWindowFor(skippable.pauseCutoff, clock);
+  const skipWindow =
+    skippable === null || notice === null
+      ? null
+      : skipWindowSentence(notice, skippable.pauseCutoff, challenge.configuration.timeZone);
 
   const run = useCallback(
     async (command: () => Promise<CommandOutcome<{ challenge: ChallengeView }>>) => {
@@ -119,6 +129,19 @@ export function PauseScreen(props: PauseScreenProps) {
             <AppText variant="small" tone="muted" testID="next-skipped-task">
               {nextSkippedSentence(view.nextSkippedTask, view.cutoffPassed)}
             </AppText>
+            {/* When the chance to skip that task runs out. The screen otherwise
+                names the morning and says nothing about the notice on it, so a
+                user deciding tonight whether to skip tomorrow had no way to
+                know the answer stops being available before they wake up. */}
+            {skipWindow === null ? null : (
+              <AppText
+                variant="small"
+                tone={notice?.closing === true ? "warning" : "muted"}
+                testID="skip-window"
+              >
+                {skipWindow}
+              </AppText>
+            )}
           </Card>
           <ConfirmAction
             testID="pause"

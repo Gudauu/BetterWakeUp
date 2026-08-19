@@ -529,6 +529,22 @@ describe("the form the user fills in", () => {
     expect(screen.getByTestId("create-challenge")).toHaveTextContent(/That is 8 hours/);
   });
 
+  it("says what No Regret Time does, against the mornings already picked", async () => {
+    await renderScreen(readyDraft());
+
+    // The field used to be described as how long the user has to stay up,
+    // which is a promise about a different thing entirely. It is the notice
+    // needed to skip a morning, and 480 minutes only becomes concrete as the
+    // clock time a 7:00 AM morning stops being skippable.
+    expect(screen.getByTestId("create-challenge")).toHaveTextContent(/notice you have to give/);
+    expect(screen.getByTestId("create-challenge")).not.toHaveTextContent(
+      /how long you have to stay up/i,
+    );
+    expect(screen.getByTestId("create-challenge")).toHaveTextContent(
+      /stops being skippable at 11:00 PM the day before/,
+    );
+  });
+
   it("lets a number be cleared and retyped rather than snapping the box back to zero", async () => {
     const api = await renderScreen(readyDraft());
 

@@ -722,6 +722,20 @@ With a task still open the banner names the deadline that still counts instead o
 The year is stated the same way on both screens, through `pauseExpirySentence`, and the banner turns red inside `PAUSE_EXPIRY_WARNING_DAYS`.
 It asks for nothing: expiry is neither a success nor a failure, and nothing is charged, so the sentence states the outcome and leaves resuming to the user.
 
+### The notice on a morning
+
+No Regret Time is defined in `docs/product.md` as the minimum advance notice required to skip a task: the pause cutoff is the deadline less that duration, and pausing at or after the cutoff leaves the morning live.
+The setup form asked for it as "how long you have to stay up once you are awake", which is a promise about a different thing entirely - a user reading that sentence and setting eight hours believed they were agreeing to stay out of bed until the afternoon, and then found at midnight that tomorrow could no longer be skipped.
+
+`app/src/challenges/no-regret.ts` owns the two sentences the app says about the one setting.
+
+While it is being configured, the number is read back against the mornings already picked: eight hours is only concrete as the clock time a 7:00 AM morning stops being skippable, so the reading names that time and how many days before the morning it falls on.
+The earliest deadline in the schedule is the one named, because it has the earliest cutoff and every other morning therefore gets more notice than the one on screen, not less.
+This is the only place the app does the subtraction itself, and it does it in wall-clock minutes against a deadline that has no date yet, so it says nothing about a particular day.
+
+Once a challenge is running, the server's own `pauseCutoff` is what is compared against the clock, and the pause screen counts it down: it already named the morning pausing would skip and said nothing about the notice on it, so a user deciding at bedtime whether to skip tomorrow had no way to know the answer stops being available before they wake up.
+The countdown is drawn from `useClock` for the same reason every other countdown in the app is, and it is withdrawn rather than shown at zero once the cutoff passes, because the sentence beside it already says the task stays live.
+
 ### Being signed out without asking
 
 There are three ways to arrive at the signed-out screen and they are not the same event.
