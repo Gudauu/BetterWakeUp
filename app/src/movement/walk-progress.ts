@@ -8,17 +8,44 @@
  * message ends the walk, and the capture answers that with a `stopped` state
  * that looks exactly like the one a finished walk produces.
  *
- * This module turns the capture's state into the two facts the screen needs
- * and neither of which the capture states outright: whether the target has
- * already been reached, and whether the walk ended without the user asking it
- * to. A walk that ended on its own is the difference between "start moving"
- * appearing as a fresh invitation and appearing as an explanation.
+ * This module turns the capture's state into the three facts the screen needs
+ * and none of which the capture states outright: whether the target has
+ * already been reached, whether the walk ended without the user asking it to,
+ * and whether a walk that ended on its own had already earned the morning
+ * anyway. The first is the difference between "start moving" appearing as a
+ * fresh invitation and appearing as an explanation; the last is the difference
+ * between an interruption that cost a walk and one that cost nothing.
  */
 
+import type { MovementObservation } from "@betterwakeup/contract";
 import type { CaptureState, StopReason } from "./capture.ts";
 
 /** The two ways a walk ends without the user pressing stop. */
 export type WalkInterruption = Exclude<StopReason, "requested">;
+
+/**
+ * The evidence a walk that ended on its own left behind, when that evidence is
+ * already enough.
+ *
+ * A window closed by the app leaving the screen is closed correctly - the
+ * foreground rule is about what may be counted, and nothing after the window
+ * was - so the observation it produced is the same continuous foreground
+ * stretch a pressed stop produces. If the target was already met when the phone
+ * call arrived, that observation is a complete answer to the morning, and
+ * throwing it away would ask someone to walk the same 250 steps twice over a
+ * notification they did not choose.
+ *
+ * A revoked permission is never salvageable: its observation is discarded by
+ * the capture itself, because the app no longer has the user's word that it may
+ * look at those steps.
+ */
+export function salvageableWalk(state: CaptureState, target: number): MovementObservation | null {
+  if (state.status !== "stopped" || state.reason === "requested" || state.observation === null) {
+    return null;
+  }
+  // A zero target would make an empty window a completed morning.
+  return target > 0 && state.observation.steps >= target ? state.observation : null;
+}
 
 export interface WalkProgress {
   /** A window is open and steps are being counted right now. */
@@ -31,10 +58,16 @@ export interface WalkProgress {
   /** The open window has already earned the day; only the press is missing. */
   readonly reachedTarget: boolean;
   /**
-   * The last window ended on its own, with the steps it took with it. Null
-   * while recording, before the first walk, and after a walk the user stopped.
+   * The last window ended on its own, with the steps it took with it and
+   * whether those steps had already met the target - which decides whether the
+   * walk was kept or lost. Null while recording, before the first walk, and
+   * after a walk the user stopped.
    */
-  readonly interruption: { readonly reason: WalkInterruption; readonly steps: number } | null;
+  readonly interruption: {
+    readonly reason: WalkInterruption;
+    readonly steps: number;
+    readonly met: boolean;
+  } | null;
 }
 
 export function walkProgress(state: CaptureState, target: number): WalkProgress {
@@ -64,7 +97,11 @@ export function walkProgress(state: CaptureState, target: number): WalkProgress 
       ...idle,
       // A revoked permission discards its observation, so the steps it counted
       // are unknown rather than zero; zero is what the screen can honestly say.
-      interruption: { reason: state.reason, steps: state.observation?.steps ?? 0 },
+      interruption: {
+        reason: state.reason,
+        steps: state.observation?.steps ?? 0,
+        met: salvageableWalk(state, target) !== null,
+      },
     };
   }
 
@@ -109,12 +146,19 @@ export function abandonWalkText(steps: number, remaining: number): string {
  * Every wording names the same three things in the same order: what ended it,
  * what happened to the steps, and what to do now. The lost count is stated
  * because a walk that vanished without a number reads as a bug in the app
- * rather than as the rule it is.
+ * rather than as the rule it is - and where nothing was lost, the count is
+ * what makes the reassurance believable.
  */
 export function interruptionText(interruption: {
   reason: WalkInterruption;
   steps: number;
+  met: boolean;
 }): string {
+  if (interruption.met) {
+    // Said as a relief rather than as an incident: the interruption happened,
+    // and it cost nothing, so there is nothing here for the user to do.
+    return `The walk ended because the app left the screen, but the ${interruption.steps} steps it had counted already met your target - so it was saved.`;
+  }
   if (interruption.reason === "permission-revoked") {
     return "Motion access was turned off during the walk, so nothing could be counted. Turn it back on in Settings, then start again.";
   }

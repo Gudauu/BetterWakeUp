@@ -455,6 +455,20 @@ With the target met, stopping saves the morning and is offered outright.
 Short of it, the control reads "End this walk" and opens `abandonWalkText` - how far short the walk is, how many steps go, and that a later walk cannot inherit them - before a second, danger-toned press ends it; backing out reads "Keep walking", because a walk is kept by carrying on with it rather than by keeping things as they are, which is what `ConfirmAction`'s default cancel says.
 A window that has counted nothing is closed by a single press: there is nothing to lose, and a confirmation over it would be ceremony.
 
+#### The interruption that cost nothing
+
+Leaving the app closes the window, and that rule is right: the observation the server accepts is one continuous stretch of foreground time, and nothing after the window closed is counted.
+What did not follow from it is that the window's evidence had to be thrown away.
+`finish` produces a real `MovementObservation` for a backgrounded stop - the same shape, with the same permission re-read, as a pressed stop - and the screen recorded one only when the user had pressed the button.
+So a phone call, a notification tapped by accident, or a lock screen arriving one step after the target meant walking the same 250 steps a second time, on a morning with money on it.
+
+`salvageableWalk` in `app/src/movement/walk-progress.ts` names the case: a window that ended on its own, left an observation, and had already met the target.
+The task screen records that observation as the morning's completion without being asked, gated on the day having nothing recorded against it yet - an automatic write must not be the thing that produces the duplicate the server refuses - and keyed on the window's own `startedAt` so a re-render over the same stopped state records once.
+
+A revoked permission is never salvageable, because the capture discards its observation: the steps may be real, but the app no longer has the user's word that it may look at them.
+
+The same event therefore reads two ways, and the banner is toned by what it cost rather than by what happened: short of the target it is danger-toned and names the steps that went, past it it is success-toned and names the steps that were enough.
+
 #### Why the phone does not lock during a walk
 
 The foreground-only rule and the device's auto-lock timer were in direct conflict, and the timer won.

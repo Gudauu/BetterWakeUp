@@ -12,6 +12,7 @@ import type { CaptureState } from "../src/movement/capture.ts";
 import {
   abandonWalkText,
   interruptionText,
+  salvageableWalk,
   type WalkProgress,
   walkingHintText,
   walkProgress,
@@ -88,7 +89,7 @@ describe("a walk that ended on its own", () => {
       250,
     );
 
-    expect(walk.interruption).toEqual({ reason: "backgrounded", steps: 120 });
+    expect(walk.interruption).toEqual({ reason: "backgrounded", steps: 120, met: false });
     expect(interruptionOf(walk)).toMatch(/120 steps it had counted were not saved/);
   });
 
@@ -98,7 +99,7 @@ describe("a walk that ended on its own", () => {
       250,
     );
 
-    expect(walk.interruption).toEqual({ reason: "backgrounded", steps: 0 });
+    expect(walk.interruption).toEqual({ reason: "backgrounded", steps: 0, met: false });
     expect(interruptionOf(walk)).toMatch(/nothing was counted/);
   });
 
@@ -108,12 +109,68 @@ describe("a walk that ended on its own", () => {
       250,
     );
 
-    expect(walk.interruption).toEqual({ reason: "permission-revoked", steps: 0 });
+    expect(walk.interruption).toEqual({ reason: "permission-revoked", steps: 0, met: false });
     expect(interruptionOf(walk)).toMatch(/Motion access was turned off/);
   });
 
   it("clears once a new walk begins", () => {
     expect(walkProgress(recording(10), 250).interruption).toBeNull();
+  });
+});
+
+describe("a walk the app was switched away from after the target was met", () => {
+  /** The same window, but long enough to have already earned the morning. */
+  const enough: CaptureState = {
+    status: "stopped",
+    reason: "backgrounded",
+    observation: { ...OBSERVATION, steps: 260 },
+  };
+
+  it("hands back the observation, because the evidence is complete", () => {
+    expect(salvageableWalk(enough, 250)).toEqual({ ...OBSERVATION, steps: 260 });
+  });
+
+  it("keeps nothing from a window short of the target", () => {
+    expect(
+      salvageableWalk({ status: "stopped", reason: "backgrounded", observation: OBSERVATION }, 250),
+    ).toBeNull();
+  });
+
+  it("keeps nothing from a walk the user stopped, which the screen already saves", () => {
+    expect(
+      salvageableWalk(
+        { status: "stopped", reason: "requested", observation: { ...OBSERVATION, steps: 260 } },
+        250,
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps nothing from a revoked permission, whose steps the app may not look at", () => {
+    expect(
+      salvageableWalk({ status: "stopped", reason: "permission-revoked", observation: null }, 250),
+    ).toBeNull();
+  });
+
+  it("keeps nothing from a walk that is still open", () => {
+    expect(salvageableWalk(recording(400), 250)).toBeNull();
+  });
+
+  it("does not call an empty window against a zero target a morning", () => {
+    expect(
+      salvageableWalk(
+        { status: "stopped", reason: "backgrounded", observation: { ...OBSERVATION, steps: 0 } },
+        0,
+      ),
+    ).toBeNull();
+  });
+
+  it("tells the walker the interruption cost them nothing", () => {
+    const walk = walkProgress(enough, 250);
+
+    expect(walk.interruption).toEqual({ reason: "backgrounded", steps: 260, met: true });
+    expect(interruptionOf(walk)).toBe(
+      "The walk ended because the app left the screen, but the 260 steps it had counted already met your target - so it was saved.",
+    );
   });
 });
 

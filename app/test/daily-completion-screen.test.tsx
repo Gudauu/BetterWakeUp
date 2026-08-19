@@ -397,6 +397,66 @@ describe("the walk itself", () => {
   });
 });
 
+describe("a walk interrupted after the target was already met", () => {
+  /** Walk past the target, then have the app leave the screen. */
+  async function walkThenLeave(given: Harness, steps = 400) {
+    const user = userEvent.setup();
+    await user.press(screen.getByTestId("start-capture"));
+    await act(async () => {
+      given.pedometer.deliver(steps);
+    });
+    await act(async () => {
+      given.foreground.set(false);
+    });
+  }
+
+  it("saves the morning rather than asking for the same steps twice", async () => {
+    const given = await harness();
+    await renderScreen(given);
+
+    await walkThenLeave(given);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("local-check-state")).toHaveTextContent("passed"),
+    );
+    expect(screen.getByTestId("walk-interrupted")).toHaveTextContent(
+      /the 400 steps it had counted already met your target - so it was saved/,
+    );
+    // Nothing is left to walk, so the invitation to start again is gone.
+    expect(screen.queryByTestId("start-capture")).toBeNull();
+  });
+
+  it("writes the interrupted window down exactly once", async () => {
+    const given = await harness(
+      fakeApi({ createCompletion: new TypeError("Network request failed") }),
+    );
+    await renderScreen(given);
+
+    await walkThenLeave(given);
+
+    await waitFor(async () => expect(await given.store.listPending()).toHaveLength(1));
+    // The stopped state stays on the capture, so a re-render must not record a
+    // second completion the server would refuse as a duplicate.
+    await act(async () => {
+      given.foreground.set(true);
+    });
+    expect(await given.store.listPending()).toHaveLength(1);
+  });
+
+  it("still loses a walk that was short of the target", async () => {
+    const given = await harness();
+    await renderScreen(given);
+
+    await walkThenLeave(given, 120);
+
+    await waitFor(() => expect(screen.queryByTestId("walk-interrupted")).not.toBeNull());
+    expect(screen.getByTestId("walk-interrupted")).toHaveTextContent(
+      /the 120 steps it had counted were not saved/,
+    );
+    expect(await given.store.listPending()).toHaveLength(0);
+  });
+});
+
 describe("a permission the app cannot grant itself", () => {
   it("offers the settings page when motion access is refused", async () => {
     const given = await harness();

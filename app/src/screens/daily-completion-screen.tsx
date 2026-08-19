@@ -17,7 +17,7 @@
  */
 
 import type { ChallengeView, TaskView } from "@betterwakeup/contract";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { formatMoney } from "../challenges/draft.ts";
 import {
@@ -40,6 +40,7 @@ import type { MovementSimulation } from "../movement/simulated-pedometer.ts";
 import {
   abandonWalkText,
   interruptionText,
+  salvageableWalk,
   walkingHintText,
   walkProgress,
 } from "../movement/walk-progress.ts";
@@ -98,6 +99,8 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
   const [records, setRecords] = useState<readonly PendingCompletionRecord[]>([]);
   const [captureState, setCaptureState] = useState<CaptureState>(() => capture.getState());
   const [shortfall, setShortfall] = useState<number | null>(null);
+  /** The interrupted window already written down, so it is written down once. */
+  const salvaged = useRef<string | null>(null);
   const [busy, setBusy] = useState(false);
   // The clock ticks rather than being read at render time, so the countdown
   // counts and the deadline passing withdraws the walk while the screen sits
@@ -190,6 +193,40 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
       setBusy(false);
     }
   }, [appVersion, capture, challenge, reload, sync, target, task]);
+
+  /**
+   * A walk the app was switched away from after the target was already met.
+   *
+   * The window closed correctly and the observation it left is the same
+   * continuous foreground stretch a pressed "Save my walk" produces, so the
+   * morning is written down here rather than being lost to a phone call. It is
+   * the one completion the user did not press for, which is why it is gated on
+   * the day having nothing recorded against it yet: an automatic write must not
+   * be the thing that produces a duplicate the server refuses.
+   */
+  useEffect(() => {
+    const observation = salvageableWalk(captureState, target);
+    if (observation === null || task === null || state.status !== "incomplete") {
+      return;
+    }
+    // The window is identified by when it opened, so a re-render over the same
+    // stopped state - or a second subscription delivery - records once.
+    if (salvaged.current === observation.startedAt) {
+      return;
+    }
+    salvaged.current = observation.startedAt;
+    void (async () => {
+      await sync.record({
+        challengeId: challenge.id,
+        taskId: task.id,
+        completedAt: observation.endedAt,
+        observation,
+        appVersion,
+        verificationPolicyVersion: VERIFICATION_POLICY_VERSION,
+      });
+      await reload();
+    })();
+  }, [appVersion, captureState, challenge, reload, state.status, sync, target, task]);
 
   const onRetry = useCallback(async () => {
     setBusy(true);
@@ -360,11 +397,14 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
         </Banner>
       )}
 
+      {/* An interruption that cost nothing is not an alarm: the same event that
+          loses a walk short of the target keeps one past it, so the banner is
+          toned by what it cost rather than by what happened. */}
       {walk.interruption === null ? null : (
-        <Banner tone="danger">
+        <Banner tone={walk.interruption.met ? "success" : "danger"}>
           <AppText
             variant="small"
-            tone="danger"
+            tone={walk.interruption.met ? "success" : "danger"}
             testID="walk-interrupted"
             accessibilityRole="alert"
           >
