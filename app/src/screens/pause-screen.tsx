@@ -11,9 +11,18 @@
  * one fact the user came here to check and a heading alone is easy to skim
  * past. What pausing costs is spelled out as a short list of promises rather
  * than a paragraph, so a half-awake reader can find the one that worries them.
+ *
+ * A third shape is drawn after either command: what the server says it did. The
+ * screen used to close on the press and let home stand for the answer, which
+ * left the morning a pause consumed unnamed and - the expensive half - said
+ * nothing about the deadline a resume had just started counting.
  */
 
-import type { ChallengeView } from "@betterwakeup/contract";
+import type {
+  ChallengeView,
+  PauseChallengeResponse,
+  ResumeChallengeResponse,
+} from "@betterwakeup/contract";
 import { useCallback, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import type { ApiClient } from "../api/client.ts";
@@ -29,8 +38,9 @@ import {
   pauseExpirySentence,
   pausePresentation,
 } from "../challenges/pause.ts";
+import { pauseResult, resumeResult } from "../challenges/pause-outcome.ts";
 import { useClock } from "../ui/clock.ts";
-import { AppText, Banner, Card, Divider, Screen, StatusPill } from "../ui/components.tsx";
+import { AppText, Banner, Button, Card, Divider, Screen, StatusPill } from "../ui/components.tsx";
 import { formatDay } from "../ui/format.ts";
 import { BackLink } from "./back-link.tsx";
 import { ConfirmAction } from "./confirm-action.tsx";
@@ -61,6 +71,10 @@ export function PauseScreen(props: PauseScreenProps) {
   const clock = useClock(props.now);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  // Held rather than handed straight back: the answer names the morning a pause
+  // consumed and the deadline a resume restarted, and neither survives a re-read
+  // of the challenge.
+  const [applied, setApplied] = useState<Applied | null>(null);
 
   const view = pausePresentation({ challenge, now: clock });
   const skippable = view.nextSkippedTask;
@@ -71,13 +85,16 @@ export function PauseScreen(props: PauseScreenProps) {
       : skipWindowSentence(notice, skippable.pauseCutoff, challenge.configuration.timeZone);
 
   const run = useCallback(
-    async (command: () => Promise<CommandOutcome<{ challenge: ChallengeView }>>) => {
+    async <Value,>(
+      command: () => Promise<CommandOutcome<Value>>,
+      applying: (value: Value) => Applied,
+    ) => {
       setBusy(true);
       setProblem(null);
       try {
         const outcome = await command();
         if (outcome.status === "done") {
-          props.onChanged?.(outcome.value.challenge);
+          setApplied(applying(outcome.value));
           return;
         }
         setProblem(outcome.status === "blocked" ? outcome.reasons.join(" ") : outcome.message);
@@ -85,17 +102,38 @@ export function PauseScreen(props: PauseScreenProps) {
         setBusy(false);
       }
     },
-    [props.onChanged],
+    [],
   );
 
   const onPause = useCallback(
-    () => run(() => pauseChallenge({ api, challenge, confirmed: true })),
+    () =>
+      run(
+        () => pauseChallenge({ api, challenge, confirmed: true }),
+        (response) => ({ kind: "paused", response }),
+      ),
     [api, challenge, run],
   );
   const onResume = useCallback(
-    () => run(() => resumeChallenge({ api, challenge })),
+    () =>
+      run(
+        () => resumeChallenge({ api, challenge }),
+        (response) => ({ kind: "resumed", response }),
+      ),
     [api, challenge, run],
   );
+
+  // What the server did, before any branch that reads the challenge this screen
+  // was given: that one still says paused after a resume, so every shape below
+  // would draw the state the press has just left.
+  if (applied !== null) {
+    return (
+      <AppliedScreen
+        applied={applied}
+        now={clock}
+        onDone={() => props.onChanged?.(changed(applied))}
+      />
+    );
+  }
 
   return (
     <Screen testID="pause-screen">
@@ -199,6 +237,121 @@ export function PauseScreen(props: PauseScreenProps) {
           </AppText>
         </Banner>
       )}
+    </Screen>
+  );
+}
+
+/** Which command was applied, held with the answer it came back with. */
+type Applied =
+  | { readonly kind: "paused"; readonly response: PauseChallengeResponse }
+  | { readonly kind: "resumed"; readonly response: ResumeChallengeResponse };
+
+/** The challenge as it stands after the command, for the caller to re-read from. */
+function changed(applied: Applied): ChallengeView {
+  return applied.response.challenge;
+}
+
+/**
+ * What just happened, drawn instead of a screen change.
+ *
+ * There is no back link: the one press leaves with the challenge the server
+ * returned, so the caller cannot end up holding the state before the command.
+ */
+function AppliedScreen(props: {
+  readonly applied: Applied;
+  readonly now: Date;
+  readonly onDone: () => void;
+}) {
+  const { applied } = props;
+
+  if (applied.kind === "paused") {
+    const result = pauseResult({
+      challenge: applied.response.challenge,
+      nextSkippedTask: applied.response.nextSkippedTask,
+    });
+    return (
+      <Screen testID="pause-screen">
+        <View style={styles.header}>
+          <StatusPill label="Paused" tone="warning" />
+          <AppText variant="display" accessibilityRole="header" testID="pause-status">
+            Your challenge is paused
+          </AppText>
+        </View>
+
+        <Card>
+          <AppText variant="headline">What changed</AppText>
+          <AppText variant="small" testID="paused-skipped">
+            {result.skipped}
+          </AppText>
+          <AppText variant="small" testID="paused-ends">
+            {result.ends}
+          </AppText>
+        </Card>
+
+        <Banner tone="info" testID="paused-banner">
+          <AppText variant="small">{result.rest}</AppText>
+        </Banner>
+
+        {result.expires === null ? null : (
+          <AppText variant="small" tone="muted" testID="paused-expires">
+            {result.expires}
+          </AppText>
+        )}
+
+        <Button testID="pause-done" label="Back to home" onPress={props.onDone} />
+      </Screen>
+    );
+  }
+
+  const result = resumeResult({
+    challenge: applied.response.challenge,
+    nextLiveTask: applied.response.nextLiveTask,
+    now: props.now,
+  });
+  // Anything but a morning comfortably ahead: a deadline inside the alarm's own
+  // lead, or one the pause outlived, is the reason this banner exists.
+  const urgent = result.countdown !== null && result.countdown.urgency !== "ample";
+  return (
+    <Screen testID="pause-screen">
+      <View style={styles.header}>
+        <StatusPill label="Running" tone="success" />
+        <AppText variant="display" accessibilityRole="header" testID="pause-status">
+          Your challenge is running
+        </AppText>
+      </View>
+
+      {/* The deadline the press just started. A pause lifted on a Monday evening
+          can hand back a morning that is hours away, and nothing else in the app
+          gives the user a clock they did not ask for. */}
+      <Banner tone={urgent ? "warning" : "info"} testID="resumed-live">
+        <AppText variant="small" tone={urgent ? "warning" : "default"}>
+          {result.live}
+        </AppText>
+        {result.countdown === null ? null : (
+          <AppText
+            variant="headline"
+            tone={urgent ? "warning" : "default"}
+            // Named by urgency as well as by role: a tone is not readable off a
+            // rendered text node, so the state it stands for has to be.
+            testID={urgent ? "resumed-countdown-closing" : "resumed-countdown"}
+            accessibilityRole="alert"
+          >
+            {result.countdown.sentence}
+          </AppText>
+        )}
+      </Banner>
+
+      <Card>
+        <AppText variant="headline">What changed</AppText>
+        <AppText variant="small" testID="resumed-ends">
+          {result.ends}
+        </AppText>
+        <AppText variant="small" testID="resumed-reminders">
+          {result.reminders}
+        </AppText>
+      </Card>
+
+      <Button testID="resume-done" label="Back to home" onPress={props.onDone} />
     </Screen>
   );
 }

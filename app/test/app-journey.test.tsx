@@ -384,6 +384,10 @@ describe("one account's life through the app's own screens", () => {
     await user.press(await screen.findByTestId("pause"));
     await user.press(screen.getByTestId("pause-confirm"));
 
+    // The pause says which morning it consumed before the user leaves it.
+    expect(await screen.findByTestId("paused-skipped")).toHaveTextContent(/is skipped/);
+    await user.press(screen.getByTestId("pause-done"));
+
     // The command returns to home, which re-reads the challenge: the paused
     // state on screen is the server's, and nothing is due while it holds.
     expect(await screen.findByTestId("home-challenge-status")).toHaveTextContent("Paused");
@@ -394,6 +398,10 @@ describe("one account's life through the app's own screens", () => {
     await user.press(screen.getByTestId("home-open-pause"));
     await user.press(await screen.findByTestId("resume"));
     await user.press(screen.getByTestId("resume-confirm"));
+
+    // And the resume names the deadline it has just started counting.
+    expect(await screen.findByTestId("resumed-live")).toHaveTextContent(/deadline counts again/);
+    await user.press(screen.getByTestId("resume-done"));
 
     expect(await screen.findByTestId("home-challenge-status")).toHaveTextContent(
       "Challenge running",

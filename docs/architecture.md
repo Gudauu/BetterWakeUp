@@ -710,6 +710,24 @@ After the press, the screen reports what came back.
 The outcome names the day that no longer counts, the morning that was added and the time it is due, where the challenge now ends, and that the allowance is gone.
 The caller is told only when the user presses "Back to home", so the answer is read before the challenge is re-read; a later `GET /challenges/current` shows a running challenge again and says nothing about which day was traded for which.
 
+### What the pause did, and what the resume started
+
+`app/src/challenges/pause-outcome.ts` is the same shape of answer for the two commands on the pause screen.
+
+`pauseChallengeResponse` carries `nextSkippedTask` - "the first task the pause consumes" - and `resumeChallengeResponse` carries `nextLiveTask` - "the first task the user faces again".
+The screen read neither: on success it called `onChanged` with the challenge and home closed it, so both commands were acknowledged by a screen change and the two facts that decide what the user does next went unsaid.
+
+`pauseResult` names the morning that was consumed, that a skip is not a failure and costs nothing, where the challenge ends as things stand, and that the date moves one day later for every day the pause holds.
+A null `nextSkippedTask` is not "the press did nothing" - every scheduled cutoff had already passed, and the pause holds the days after them - so it gets its own sentence rather than silence.
+What stands still comes from `pausedRestSentence`, the same sentence home uses, so a task that stayed live through the pause is named as the exception on both.
+The year is read from the server's own `pause.expiresAt` in the challenge's zone, and is omitted when the server named no bound.
+
+`resumeResult` leads with the clock, which is the point of it.
+Resuming is the only press in the app that hands the user a deadline they did not ask for: a pause set on a Friday and lifted on a Monday evening can put a morning hours away back in front of somebody who thought they were only ending a pause.
+So the morning, the time it is due, and how long is left are said on the screen that did it, with the countdown from `timeLeftUntil` and the urgency boundary the rest of the app already uses - `ALARM_LEAD_MINUTES` - deciding whether it is a note or a warning.
+
+Both outcomes hand the challenge back only on "Back to home", for the same reason the recovery outcome does: the answer has to be read before the challenge is re-read, and the challenge this screen was given still says paused after a resume, so the outcome branch is checked before any branch that draws from it.
+
 ### A countdown that counts
 
 Both of those clocks were read once, at the instant their screen was drawn.

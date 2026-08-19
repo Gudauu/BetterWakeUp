@@ -120,6 +120,35 @@ describe("PauseScreen while running", () => {
     expect(api.names()).toEqual(["pauseChallenge"]);
     expect(screen.getByTestId("pause-problem")).toHaveTextContent(/Try again/);
   });
+
+  it("reports what the pause did instead of closing on the press", async () => {
+    const user = userEvent.setup();
+    const changed = jest.fn();
+    const api = fakeApi();
+    await draw(
+      <PauseScreen
+        api={api}
+        challenge={challengeView({ currentTask: taskView() })}
+        now={now}
+        onChanged={changed}
+      />,
+    );
+
+    await user.press(screen.getByTestId("pause"));
+    await user.press(screen.getByTestId("pause-confirm"));
+
+    // The server's own answer: which morning it consumed, where the challenge
+    // ends now, and that nothing restarts on its own.
+    expect(screen.getByTestId("paused-skipped")).toHaveTextContent(/Tuesday, September 1/);
+    expect(screen.getByTestId("paused-ends")).toHaveTextContent(/moves one day later/);
+    expect(screen.getByTestId("paused-banner")).toHaveTextContent(/never starts again on its own/);
+    // Nothing is handed back until the user leaves, so the answer cannot be
+    // replaced by a re-read of home.
+    expect(changed).not.toHaveBeenCalled();
+
+    await user.press(screen.getByTestId("pause-done"));
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("PauseScreen while paused", () => {
@@ -169,6 +198,48 @@ describe("PauseScreen while paused", () => {
 
     await user.press(screen.getByTestId("resume-confirm"));
     expect(api.names()).toEqual(["resumeChallenge"]);
+  });
+
+  it("names the deadline the resume just started counting", async () => {
+    const user = userEvent.setup();
+    const changed = jest.fn();
+    await draw(
+      <PauseScreen api={fakeApi()} challenge={paused(null)} now={now} onChanged={changed} />,
+    );
+
+    await user.press(screen.getByTestId("resume"));
+    await user.press(screen.getByTestId("resume-confirm"));
+
+    // The one thing a resume does that nothing else in the app does: it hands
+    // the user a clock. The morning, the time it is due, and how long is left.
+    expect(screen.getByTestId("pause-status")).toHaveTextContent(/running/);
+    expect(screen.getByTestId("resumed-live")).toHaveTextContent(/Tuesday, September 1/);
+    expect(screen.getByTestId("resumed-live")).toHaveTextContent(/7:00 AM/);
+    expect(screen.getByTestId("resumed-countdown")).toHaveTextContent(/1 hour left to walk/);
+    expect(changed).not.toHaveBeenCalled();
+
+    await user.press(screen.getByTestId("resume-done"));
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+
+  it("draws a deadline inside the alarm's lead as a warning rather than a note", async () => {
+    const user = userEvent.setup();
+    const api = fakeApi({
+      resumeChallenge: {
+        challenge: challengeView(),
+        nextLiveTask: taskView({ deadline: "2026-09-01T13:30:00.000Z" }),
+      },
+    });
+    await draw(<PauseScreen api={api} challenge={paused(null)} now={now} />);
+
+    await user.press(screen.getByTestId("resume"));
+    await user.press(screen.getByTestId("resume-confirm"));
+
+    expect(screen.getByTestId("resumed-countdown-closing")).toHaveTextContent(
+      /30 minutes left to walk/,
+    );
+    // The quiet reading is gone rather than sitting beside the loud one.
+    expect(screen.queryByTestId("resumed-countdown")).toBeNull();
   });
 });
 

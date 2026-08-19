@@ -1034,6 +1034,10 @@ describe("home is the door to pausing", () => {
 
     await userEvent.press(screen.getByTestId("pause"));
     await userEvent.press(await screen.findByTestId("pause-confirm"));
+    // The screen reports what the pause did and hands the challenge back on the
+    // press that leaves it, so the re-read is on the way out rather than on the
+    // confirmation.
+    await userEvent.press(await screen.findByTestId("pause-done"));
 
     expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
     expect(api.names()).toContain("pauseChallenge");
