@@ -249,6 +249,23 @@ Only a failure forfeits a deposit: a challenge that succeeded, and one that expi
 Home draws both the same way, so a month that ended reads as a month that ended however the app came to hear about it.
 Without this, a challenge that failed would read as an account that never held one, and a charged deposit would be something the user found out from their card statement.
 
+### The answer on screen going out of date
+
+Everything home shows is tied to a wall-clock moment: which task is open, when it is due, whether the recovery offer has expired, how many days are done.
+The read happens when home mounts, so a phone that has been in a pocket since last night shows last night's answer, and home is the one screen where being out of date is indistinguishable from being wrong.
+
+`app/src/challenges/app-return.ts` turns the app coming back to the front into a re-read.
+It is the same event the pending-completion sync already treats as its "try again now", kept separate because sync's triggers are built inside a runtime that opens a database, while a screen has to be able to take this one on its own.
+
+The re-read is quiet: `useCurrentChallenge` gained `refresh` beside `reload`, which leaves the previous answer on screen until a better one arrives.
+`reload` blanks the screen to a spinner, which is right for a first read and for a retry after a failure, and wrong for a re-read of something the user is already looking at - including the one they asked for by pressing Refresh.
+
+A quiet re-read that does not come back is not an error screen.
+The user is holding a phone showing a challenge, and taking that away because one request did not land is a worse answer than the slightly old one, so home keeps what it has and says under the title that it is the last connection's answer.
+
+Home asks for returns only while it is itself what is on screen.
+A re-read landing under the task screen, the form or the pause decision would pull that screen out from under the user mid-use.
+
 ### Reminders
 
 The product asks the user to be at their phone before a wall-clock time with money riding on it, so a device that never makes a sound is the quietest way to lose a deposit.

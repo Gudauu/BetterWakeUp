@@ -14,6 +14,7 @@
 import type { ChallengeStatus, ChallengeView, EndedChallengeSummary } from "@betterwakeup/contract";
 import { type ReactNode, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { type AppReturnTrigger, useAppReturn } from "../challenges/app-return.ts";
 import { useCurrentChallenge } from "../challenges/current-challenge.ts";
 import { detectTimeZone, formatMoney } from "../challenges/draft.ts";
 import {
@@ -89,6 +90,12 @@ export interface HomeScreenProps {
    * form; substituted in tests, and a build passes nothing.
    */
   readonly paymentSheet?: PaymentSheet;
+  /**
+   * How home hears that the app came back to the front, which is when it asks
+   * the server again. Substituted in tests, so that a return is drivable
+   * without an operating system; a build passes nothing.
+   */
+  readonly appReturn?: AppReturnTrigger;
 }
 
 /**
@@ -152,10 +159,11 @@ export function HomeScreen({
   deviceTimeZone,
   notifier,
   paymentSheet,
+  appReturn,
 }: HomeScreenProps) {
   const { api, signOut } = useSession();
   const theme = useTheme();
-  const { state, reload } = useCurrentChallenge(api);
+  const { state, refreshing, refreshFailed, reload, refresh } = useCurrentChallenge(api);
   const [route, setRoute] = useState<Route>("home");
   // The challenge as it stood when its last day was acknowledged, so the finish
   // is on screen the moment it happens rather than after the next read.
@@ -203,6 +211,15 @@ export function HomeScreen({
     runtime,
     state.status === "loaded" ? (state.challenge?.currentTask?.id ?? null) : null,
   );
+  // A phone picked up the next morning is showing last night's answer: which
+  // task is open, when it is due, whether the recovery offer has expired. Home
+  // asks again on every return, and only while it is the screen in front of the
+  // user - a re-read landing under the task screen or the form would take it
+  // away mid-use.
+  useAppReturn(refresh, {
+    enabled: route === "home",
+    ...(appReturn === undefined ? {} : { trigger: appReturn }),
+  });
   // Opening the form retires the finish: whatever comes back from it, the last
   // challenge is no longer the thing the screen is about.
   const openCreate = (endedId?: string) => {
@@ -364,6 +381,14 @@ export function HomeScreen({
         <AppText variant="display" accessibilityRole="header">
           BetterWakeUp
         </AppText>
+        {/* A re-read that did not come back. Said quietly, under the title,
+            because nothing here is broken - it is the last answer, and the
+            user needs to know it is the last one rather than this morning's. */}
+        {refreshFailed ? (
+          <AppText variant="small" tone="warning" testID="home-refresh-failed">
+            Could not reach BetterWakeUp just now, so this is your last connection's answer.
+          </AppText>
+        ) : null}
       </View>
 
       {state.challenge === null ? (
@@ -409,7 +434,15 @@ export function HomeScreen({
           an account holding none. */}
       <View style={styles.footer}>
         <Divider />
-        <TextButton testID="home-refresh" label="Refresh" onPress={reload} />
+        {/* Asking by hand goes down the same quiet path as a return: pressing
+            Refresh used to replace everything on screen with a spinner, which
+            hid the very numbers the press was checking. */}
+        <TextButton
+          testID="home-refresh"
+          label={refreshing ? "Checking for updates" : "Refresh"}
+          disabled={refreshing}
+          onPress={refresh}
+        />
         <SignOut onSignOut={onSignOut} />
         <TextButton
           testID="home-delete-account"

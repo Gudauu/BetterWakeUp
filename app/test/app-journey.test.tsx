@@ -20,6 +20,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { WelcomeScreen } from "../src/screens/welcome-screen.tsx";
 import { SessionProvider } from "../src/session/session-context.tsx";
 import { createMemorySessionStore } from "../src/session/session-store.ts";
+import { fakeAppReturn } from "./support/fake-app-return.ts";
 import { simulatedCompletionRuntimeFactory } from "./support/fake-completion-runtime.ts";
 import { fakeNotifier } from "./support/fake-notifier.ts";
 import { fakePaymentSheet } from "./support/fake-payment-sheet.ts";
@@ -54,6 +55,9 @@ async function launch(server: JourneyServer) {
   // The provider's sheet, which a test machine has no version of either: the
   // user confirms the card, and the hold is still confirmed by the webhook.
   const paymentSheet = fakePaymentSheet();
+  // The phone being put away and picked up again, which is how a user hears
+  // about anything the server decided while they were not looking.
+  const appReturn = fakeAppReturn();
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <SessionProvider store={store} createClient={() => server} providers={fakeProviders()}>
@@ -61,11 +65,12 @@ async function launch(server: JourneyServer) {
           createRuntime={simulatedCompletionRuntimeFactory()}
           notifier={notifier}
           paymentSheet={paymentSheet}
+          appReturn={appReturn.trigger}
         />
       </SessionProvider>
     </SafeAreaProvider>,
   );
-  return { store, notifier, paymentSheet };
+  return { store, notifier, paymentSheet, appReturn };
 }
 
 describe("one account's life through the app's own screens", () => {
@@ -300,7 +305,7 @@ describe("one account's life through the app's own screens", () => {
     // the notice. Before the server carried an outcome, this month read as an
     // account that had never held a challenge.
     const server = journeyServer();
-    await launch(server);
+    const { appReturn } = await launch(server);
     const user = userEvent.setup();
 
     await user.press(await screen.findByTestId("sign-in-apple"));
@@ -314,9 +319,11 @@ describe("one account's life through the app's own screens", () => {
 
     expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
 
-    // The morning goes by unwalked, and the sweep decides it.
+    // The morning goes by unwalked, and the sweep decides it. The user never
+    // presses anything: they pick the phone up later in the day, and the app
+    // asks again on its own.
     server.missDeadline();
-    await user.press(screen.getByTestId("home-refresh"));
+    await appReturn.fire();
 
     expect(await screen.findByTestId("home-finished")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-no-challenge")).toBeNull();

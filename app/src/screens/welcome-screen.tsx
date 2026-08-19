@@ -15,6 +15,7 @@
 import type { IdentityProvider } from "@betterwakeup/contract";
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
+import type { AppReturnTrigger } from "../challenges/app-return.ts";
 import type { CompletionRuntimeFactory } from "../completions/runtime.ts";
 import type { PaymentSheet } from "../payments/payment-sheet.ts";
 import type { Notifier } from "../reminders/notifier.ts";
@@ -50,9 +51,16 @@ export interface WelcomeScreenProps {
   readonly notifier?: Notifier;
   /** Handed straight to home, so a test can walk a deposit without a provider. */
   readonly paymentSheet?: PaymentSheet;
+  /** Handed straight to home, so a test can put the app away and come back. */
+  readonly appReturn?: AppReturnTrigger;
 }
 
-export function WelcomeScreen({ createRuntime, notifier, paymentSheet }: WelcomeScreenProps = {}) {
+export function WelcomeScreen({
+  createRuntime,
+  notifier,
+  paymentSheet,
+  appReturn,
+}: WelcomeScreenProps = {}) {
   const { state, availability, signIn, signOut } = useSession();
   const theme = useTheme();
   const [busy, setBusy] = useState<IdentityProvider | null>(null);
@@ -91,6 +99,7 @@ export function WelcomeScreen({ createRuntime, notifier, paymentSheet }: Welcome
           {...(createRuntime === undefined ? {} : { createRuntime })}
           {...(notifier === undefined ? {} : { notifier })}
           {...(paymentSheet === undefined ? {} : { paymentSheet })}
+          {...(appReturn === undefined ? {} : { appReturn })}
         />
       </View>
     );

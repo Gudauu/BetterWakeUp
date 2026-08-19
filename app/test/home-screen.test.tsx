@@ -9,6 +9,7 @@ import { fireEvent, render, screen, userEvent, waitFor } from "@testing-library/
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import type { ApiClient } from "../src/api/client.ts";
 import { ApiError } from "../src/api/errors.ts";
+import type { AppReturnTrigger } from "../src/challenges/app-return.ts";
 import { HomeScreen } from "../src/screens/home-screen.tsx";
 import { SessionProvider } from "../src/session/session-context.tsx";
 import { createMemorySessionStore } from "../src/session/session-store.ts";
@@ -22,6 +23,7 @@ import {
   PAUSED_AT,
   taskView,
 } from "./support/fake-api.ts";
+import { fakeAppReturn } from "./support/fake-app-return.ts";
 import {
   type FakeCompletionRuntime,
   type FakeRuntimeOptions,
@@ -64,6 +66,11 @@ async function renderHome(
     paymentSheet?: FakePaymentSheet;
     /** Walks already recorded on this device and not yet sent. */
     seed?: FakeRuntimeOptions["seed"];
+    /**
+     * How home hears that the app came back to the front. Stated so a return
+     * is a call in the test rather than an operating system event.
+     */
+    appReturn?: AppReturnTrigger;
   } = {},
 ) {
   // Home holds a completion runtime for as long as it is on screen, so every
@@ -84,11 +91,40 @@ async function renderHome(
           notifier={options.notifier ?? fakeNotifier()}
           deviceTimeZone={options.deviceTimeZone ?? "America/Los_Angeles"}
           {...(options.paymentSheet === undefined ? {} : { paymentSheet: options.paymentSheet })}
+          {...(options.appReturn === undefined ? {} : { appReturn: options.appReturn })}
           {...(options.onSignOut === undefined ? {} : { onSignOut: options.onSignOut })}
         />
       </SessionProvider>
     </SafeAreaProvider>,
   );
+}
+
+/** How many times the account's challenge has been asked for. */
+function reads(api: FakeApi): number {
+  return api.names().filter((name) => name === "getCurrentChallenge").length;
+}
+
+/** A running challenge with today's task open, which is what a return re-reads. */
+function runningChallenge() {
+  return { lastEnded: null, challenge: challengeView({ currentTask: taskView() }) };
+}
+
+/** A read that never comes back, for asserting what is on screen meanwhile. */
+function pending(): () => Promise<never> {
+  return () => new Promise<never>(() => {});
+}
+
+/**
+ * One answer per call, the last one repeating. A refresh is only interesting
+ * when the second answer differs from the first.
+ */
+function answers(...values: readonly unknown[]): (input: unknown) => unknown {
+  let index = 0;
+  return () => {
+    const value = values[Math.min(index, values.length - 1)];
+    index += 1;
+    return typeof value === "function" ? (value as () => unknown)() : value;
+  };
 }
 
 describe("home reads the account's current challenge", () => {
@@ -794,10 +830,146 @@ describe("home's own actions", () => {
     );
   });
 
+  it("keeps the challenge on screen while a hand refresh is in flight", async () => {
+    // Pressing Refresh used to replace the whole screen with a spinner, hiding
+    // the numbers the press was there to check.
+    const api = fakeApi({ getCurrentChallenge: answers(runningChallenge(), pending()) });
+
+    await renderHome(api);
+    await screen.findByTestId("home-challenge");
+    await userEvent.press(screen.getByTestId("home-refresh"));
+
+    expect(screen.getByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-loading")).toBeNull();
+    expect(screen.getByTestId("home-refresh")).toHaveTextContent("Checking for updates");
+  });
+
   it("offers sign out only when the caller owns it", async () => {
     await renderHome(fakeApi());
     expect(await screen.findByTestId("home")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-sign-out")).toBeNull();
+  });
+});
+
+describe("home and a phone picked up again", () => {
+  it("asks the server again when the app comes back to the front", async () => {
+    // Everything on this screen is tied to a moment: which task is open, when
+    // it is due, whether a recovery offer is still there. A phone that has been
+    // in a pocket overnight is showing last night's answer.
+    const appReturn = fakeAppReturn();
+    const api = fakeApi({ getCurrentChallenge: runningChallenge() });
+
+    await renderHome(api, { appReturn: appReturn.trigger });
+    await screen.findByTestId("home-challenge");
+    const before = reads(api);
+
+    await appReturn.fire();
+
+    await waitFor(() => expect(reads(api)).toBe(before + 1));
+    // And settled: the label is the read's own progress indicator, so waiting
+    // for it back keeps the answer inside the test that asked for it.
+    await waitFor(() => expect(screen.getByTestId("home-refresh")).toHaveTextContent("Refresh"));
+  });
+
+  it("leaves what is on screen alone while the re-read is in flight", async () => {
+    const appReturn = fakeAppReturn();
+    const api = fakeApi({ getCurrentChallenge: answers(runningChallenge(), pending()) });
+
+    await renderHome(api, { appReturn: appReturn.trigger });
+    await screen.findByTestId("home-challenge");
+
+    await appReturn.fire();
+
+    expect(screen.getByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.getByTestId("home-current-task")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-loading")).toBeNull();
+  });
+
+  it("shows what the server now says once the re-read lands", async () => {
+    const appReturn = fakeAppReturn();
+    const api = fakeApi({
+      getCurrentChallenge: answers(runningChallenge(), {
+        lastEnded: null,
+        challenge: challengeView({
+          currentTask: taskView(),
+          progress: {
+            requiredTaskCount: 30,
+            completedTaskCount: 7,
+            skippedTaskCount: 0,
+            forgivenTaskCount: 0,
+          },
+        }),
+      }),
+    });
+
+    await renderHome(api, { appReturn: appReturn.trigger });
+    await screen.findByTestId("home-challenge");
+    expect(screen.getByTestId("home-progress")).toHaveTextContent("0 of 30 days done, 30 to go.");
+
+    await appReturn.fire();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("home-progress")).toHaveTextContent("7 of 30 days done, 23 to go."),
+    );
+  });
+
+  it("does not re-read while another screen is open over home", async () => {
+    // A read landing under the pause screen would take it away mid-decision.
+    const appReturn = fakeAppReturn();
+    const api = fakeApi({ getCurrentChallenge: runningChallenge() });
+
+    await renderHome(api, { appReturn: appReturn.trigger });
+    await userEvent.press(await screen.findByTestId("home-open-pause"));
+    await screen.findByTestId("pause-screen");
+    const before = reads(api);
+
+    await appReturn.fire();
+
+    expect(reads(api)).toBe(before);
+    expect(appReturn.listening()).toBe(0);
+    expect(screen.getByTestId("pause-screen")).toBeOnTheScreen();
+  });
+
+  it("keeps the last answer and says it is the last one when the re-read fails", async () => {
+    const appReturn = fakeAppReturn();
+    const api = fakeApi({
+      getCurrentChallenge: answers(runningChallenge(), () => {
+        throw new ApiError("internal_error", "fetch failed", { status: null });
+      }),
+    });
+
+    await renderHome(api, { appReturn: appReturn.trigger });
+    await screen.findByTestId("home-challenge");
+
+    await appReturn.fire();
+
+    expect(await screen.findByTestId("home-refresh-failed")).toHaveTextContent(
+      /last connection's answer/,
+    );
+    expect(screen.getByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-error")).toBeNull();
+  });
+
+  it("clears the stale warning once a later re-read lands", async () => {
+    const appReturn = fakeAppReturn();
+    const api = fakeApi({
+      getCurrentChallenge: answers(
+        runningChallenge(),
+        () => {
+          throw new ApiError("internal_error", "fetch failed", { status: null });
+        },
+        runningChallenge(),
+      ),
+    });
+
+    await renderHome(api, { appReturn: appReturn.trigger });
+    await screen.findByTestId("home-challenge");
+    await appReturn.fire();
+    await screen.findByTestId("home-refresh-failed");
+
+    await appReturn.fire();
+
+    await waitFor(() => expect(screen.queryByTestId("home-refresh-failed")).toBeNull());
   });
 });
 
