@@ -50,6 +50,7 @@ import {
   unsentPastDeadlineText,
 } from "../completions/time-left.ts";
 import { heldWalksText, type UnsentWork, useUnsentWork } from "../completions/unsent-work.ts";
+import { type BackPressTrigger, useBackPress } from "../device/back-press.ts";
 import {
   createConfiguredSettingsLauncher,
   type OpenSettingsState,
@@ -131,6 +132,12 @@ export interface HomeScreenProps {
    */
   readonly appReturn?: AppReturnTrigger;
   /**
+   * How home hears Android's back press, which is the way out of whatever it
+   * opened. Substituted in tests, so that a back press is drivable without a
+   * device; a build passes nothing.
+   */
+  readonly backPress?: BackPressTrigger;
+  /**
    * How the device's settings page is opened, which is the only way out of a
    * refused notification or motion permission. Substituted in tests so a press
    * opens nothing; a build passes nothing and the real one is used.
@@ -210,6 +217,7 @@ export function HomeScreen({
   paymentSheet,
   movementDevice,
   appReturn,
+  backPress,
   now,
   settings,
 }: HomeScreenProps) {
@@ -285,6 +293,31 @@ export function HomeScreen({
     enabled: route === "home",
     ...(appReturn === undefined ? {} : { trigger: appReturn }),
   });
+  // Android's back gesture, answered with whatever that screen's own "Back to
+  // home" control does. Home itself is the top of the app and keeps the
+  // operating system's own answer, which is to close it.
+  useBackPress(
+    () => {
+      if (route === "timeZone") {
+        // Backing out of the offer is declining it, the same as the link does;
+        // otherwise the banner that sent the user here would be waiting for
+        // them when they arrive back on home.
+        setKeptTimeZone(true);
+        goHome(false);
+        return;
+      }
+      // The form is left with a re-read because leaving an authorized hold
+      // might have changed the account, and home cannot tell from out here
+      // which half of the form the press came from. A spinner on the way back
+      // is the cheaper mistake than a home screen offering to start a second
+      // challenge the server would refuse.
+      goHome(route === "task" || route === "create");
+    },
+    {
+      enabled: route !== "home",
+      ...(backPress === undefined ? {} : { trigger: backPress }),
+    },
+  );
   // Opening the form retires the finish: whatever comes back from it, the last
   // challenge is no longer the thing the screen is about.
   const openCreate = (endedId?: string) => {

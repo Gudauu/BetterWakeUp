@@ -10,6 +10,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import type { ApiClient } from "../src/api/client.ts";
 import { ApiError } from "../src/api/errors.ts";
 import type { AppReturnTrigger } from "../src/challenges/app-return.ts";
+import type { BackPressTrigger } from "../src/device/back-press.ts";
 import { HomeScreen } from "../src/screens/home-screen.tsx";
 import { SessionProvider } from "../src/session/session-context.tsx";
 import { createMemorySessionStore } from "../src/session/session-store.ts";
@@ -26,6 +27,7 @@ import {
   taskView,
 } from "./support/fake-api.ts";
 import { fakeAppReturn } from "./support/fake-app-return.ts";
+import { fakeBackPress } from "./support/fake-back-press.ts";
 import {
   type FakeCompletionRuntime,
   type FakeRuntimeOptions,
@@ -85,6 +87,11 @@ async function renderHome(
      */
     appReturn?: AppReturnTrigger;
     /**
+     * How home hears Android's back press. Stated so a press is a call in the
+     * test rather than a device event nothing in this suite can produce.
+     */
+    backPress?: BackPressTrigger;
+    /**
      * What the clock says while home is on screen. Stated rather than read
      * from the machine, so how long is left on a recovery offer is a fact of
      * the fixture instead of a fact of the day the suite is run on.
@@ -120,6 +127,7 @@ async function renderHome(
           {...(options.paymentSheet === undefined ? {} : { paymentSheet: options.paymentSheet })}
           {...(options.settings === undefined ? {} : { settings: options.settings })}
           {...(options.appReturn === undefined ? {} : { appReturn: options.appReturn })}
+          {...(options.backPress === undefined ? {} : { backPress: options.backPress })}
           {...(options.onSignOut === undefined ? {} : { onSignOut: options.onSignOut })}
         />
       </SessionProvider>
@@ -1555,5 +1563,97 @@ describe("what home says a missed morning would cost", () => {
 
     expect(await screen.findByTestId("home-recovery-offer")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-miss-cost")).toBeNull();
+  });
+});
+
+describe("the back gesture", () => {
+  it("closes the app from home, which is the top of it", async () => {
+    // Nothing to pop: a back press here means "I am done with the app", and
+    // swallowing it would trap the user on the screen they landed on.
+    const back = fakeBackPress();
+    await renderHome(fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } }), {
+      backPress: back.trigger,
+    });
+    await screen.findByTestId("home-no-challenge");
+
+    expect(back.listening()).toBe(0);
+    expect(await back.press()).toBe(false);
+  });
+
+  it("leaves today's task for home instead of leaving the app", async () => {
+    const back = fakeBackPress();
+    const api = fakeApi({
+      getCurrentChallenge: {
+        challenge: challengeView({ currentTask: taskView() }),
+        lastEnded: null,
+      },
+    });
+    await renderHome(api, { backPress: back.trigger });
+    await userEvent.press(await screen.findByTestId("home-open-task"));
+    await screen.findByTestId("daily-completion");
+    const before = reads(api);
+
+    expect(await back.press()).toBe(true);
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    // The same trip the screen's own "Back to home" makes, re-read and all: a
+    // walk may have been saved while the screen was up.
+    expect(reads(api)).toBe(before + 1);
+    // And home is the top again, so the next press is the operating system's.
+    expect(back.listening()).toBe(0);
+  });
+
+  it("leaves the setup form for home without starting anything", async () => {
+    const back = fakeBackPress();
+    const api = fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } });
+    await renderHome(api, { backPress: back.trigger });
+    await userEvent.press(await screen.findByTestId("home-create-challenge"));
+    await screen.findByTestId("create-challenge");
+
+    expect(await back.press()).toBe(true);
+
+    expect(await screen.findByTestId("home-no-challenge")).toBeOnTheScreen();
+    expect(api.names()).not.toContain("createChallenge");
+  });
+
+  it("takes backing out of the time zone offer as choosing to stay put", async () => {
+    // Whatever the way out, declining is declining - a banner waiting on home
+    // for someone who just backed out of it would be asking twice.
+    const back = fakeBackPress();
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          lastEnded: null,
+          challenge: challengeView({ currentTask: taskView() }),
+        },
+      }),
+      { backPress: back.trigger, deviceTimeZone: "America/New_York" },
+    );
+    await userEvent.press(await screen.findByTestId("home-open-time-zone"));
+    await screen.findByTestId("time-zone-screen");
+
+    expect(await back.press()).toBe(true);
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-time-zone-move")).toBeNull();
+  });
+
+  it("leaves the pause decision for home", async () => {
+    const back = fakeBackPress();
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: challengeView({ currentTask: taskView() }),
+          lastEnded: null,
+        },
+      }),
+      { backPress: back.trigger },
+    );
+    await userEvent.press(await screen.findByTestId("home-open-pause"));
+    await screen.findByTestId("pause-screen");
+
+    expect(await back.press()).toBe(true);
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
   });
 });

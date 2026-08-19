@@ -200,6 +200,22 @@ Nothing about the framework changes.
 Start with React hooks and context for local interface state.
 Add a client state library only when an observed state-sharing problem requires one.
 
+### The way back
+
+Home is a stack one screen deep, and it is a stack the app keeps in its own state.
+Everything home opens - today's task, the setup form, the pause decision, the recovery offer, the card, the time zone, deleting the account - is drawn in place of home rather than pushed onto Expo Router, which holds a single route.
+
+That is a deliberate simplification, and it left Android's back gesture with nothing to pop.
+Its default with nothing to pop is to leave the app, so a user on the task screen who swiped back was put on their device's home screen mid-walk, and one who backed out of the setup form lost everything they had typed into it.
+
+`app/src/device/back-press.ts` is the port over React Native's `BackHandler`, and home subscribes to it while it has somewhere to go back to.
+The press is answered with whatever that screen's own `BackLink` does, so there is one answer to where back goes rather than one per way of asking.
+While home itself is on screen nothing is subscribed and the press is left to the operating system, because a back press at the top of an app means to close it.
+
+Two of those answers are not just `setRoute("home")`.
+Backing out of the time zone offer counts as declining it, the same as the link does, or the banner that sent the user there would be waiting for them when they arrive.
+Leaving the setup form re-reads the challenge, because leaving an authorized hold might have changed the account and home cannot tell from outside the form which half of it the press came from.
+
 ### Appearance
 
 `app/src/ui/theme.ts` owns every colour, spacing step, corner radius and text size in the app, as a light theme and a dark one of the same shape.
