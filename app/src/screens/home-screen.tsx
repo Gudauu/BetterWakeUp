@@ -879,7 +879,7 @@ function ChallengeCard({
             <AppText variant="small" tone="warning" testID="home-task-waiting">
               {morningGone
                 ? unsentPastDeadlineText(deadlineTime)
-                : "Walked and saved on this phone. It still has to reach the server before the deadline, so keep the app open where there is signal."}
+                : "Walked and saved on this phone. It still has to reach the server before the deadline, so keep the app open where there is signal - it keeps trying by itself until the walk lands."}
             </AppText>
           ) : unsent.currentTask === "refused" ? (
             <AppText

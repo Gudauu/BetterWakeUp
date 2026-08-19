@@ -1004,6 +1004,22 @@ Each record ends in one of two states:
 
 Every other outcome, including network failure and any 5xx, remains pending and is retried.
 
+#### Retrying a walk nobody is watching
+
+The three moments above - the app opening, reconnecting, and recording a completion - are all things that happen to the app rather than to the record.
+None of them fires while the user is sitting in front of the app watching a walk that a 5xx or a rate limit deferred, which is precisely the case both screens told them to keep the app open for.
+So a pass that leaves anything pending schedules the next one itself.
+
+The wait is the longest any deferred record asked for.
+A pass sends every pending record at once, so going earlier would spend an allowance the server has already refused, while the record that could have gone sooner loses only seconds.
+Where the server named `retryAfterSeconds` - on a rate limit's window or an idempotency lease - that number is used rather than the backoff, because it is a fact rather than a guess.
+Everywhere else the wait doubles from fifteen seconds to a five minute cap.
+
+Only a started sync keeps a clock.
+A direct `syncAll` is one caller asking one question, and a timer outliving it would keep a database handle alive after whatever asked for the pass had gone; `stop()` cancels the outstanding wait with the triggers.
+A record stops holding a clock open after eight failed attempts, a little over twenty minutes of the app trying by itself, which covers a morning's deadline.
+It is still pending and still sent on every trigger: what ends is the app's own waiting, not the record.
+
 The interface exposes these states:
 
 ```text

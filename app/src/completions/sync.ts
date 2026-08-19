@@ -15,6 +15,14 @@
  * the error code, never by a status code or a message: `reject` marks the
  * record rejected and stops retrying it, and everything else, including a
  * request that never reached the server, leaves it pending.
+ *
+ * A record left pending is also tried again on this module's own clock. The
+ * three triggers are all events that happen to the app rather than to the
+ * record: the app opening, the app coming back, and a completion being
+ * recorded. None of them fires while the user is sitting on the task screen
+ * watching a walk that a server error deferred, which is exactly the case the
+ * screen was telling them to keep the app open for. So a pass that leaves
+ * anything pending schedules the next one itself.
  */
 
 import type { CreateCompletionResponse } from "@betterwakeup/contract";
@@ -46,10 +54,18 @@ export interface CompletionSyncResult {
  */
 export type SyncTrigger = (fire: () => void) => () => void;
 
+/**
+ * Somewhere to put a wait. Handed back its own cancel, so a sync that is
+ * stopped leaves no timer behind it. Substituted in tests, which must not spend
+ * real seconds proving that a wait was asked for.
+ */
+export type SyncTimer = (run: () => void, milliseconds: number) => () => void;
+
 export interface CompletionSyncOptions {
   readonly store: PendingCompletionStore;
   readonly client: ApiClient;
   readonly triggers?: readonly SyncTrigger[];
+  readonly timer?: SyncTimer;
 }
 
 export interface CompletionSync {
@@ -68,6 +84,55 @@ export interface CompletionSync {
 const UNSENDABLE_CODE = "validation_failed" as const;
 const UNSENDABLE_MESSAGE = "The stored movement observation is unreadable, so it cannot be sent.";
 
+/** The wait after a record's first failed attempt. */
+export const RETRY_BASE_MS = 15_000;
+/** The longest wait between two passes, however many attempts have failed. */
+export const RETRY_CAP_MS = 5 * 60_000;
+/**
+ * How many failed attempts a record keeps its own clock for.
+ *
+ * With the base and the cap above that is a little over twenty minutes of the
+ * app trying by itself, which covers a morning's deadline. Past it the record
+ * is still pending and is still sent on every trigger - the app coming back,
+ * the network returning - it simply stops holding a timer open for a server
+ * that has refused it eight times in a row.
+ */
+export const RETRY_ATTEMPT_LIMIT = 8;
+
+/** A deferral, as the delay rule reads it. */
+export interface DeferredAttempt {
+  readonly record: PendingCompletionRecord;
+  readonly error: ApiError;
+}
+
+/**
+ * How long before the next pass, or null when no pending record wants one.
+ *
+ * A pass sends every pending record at once, so the wait is the longest any one
+ * of them asked for: going earlier would spend an allowance the server has
+ * already refused, and the record that could have gone sooner loses only
+ * seconds. `retryAfterSeconds` wins over the backoff wherever the server named
+ * one, because a rate limit's window and a lease's remainder are facts rather
+ * than guesses.
+ */
+export function retryDelayFor(deferred: readonly DeferredAttempt[]): number | null {
+  let delay: number | null = null;
+  for (const attempt of deferred) {
+    // `attempts` on the record is what it was before this attempt was counted.
+    const failures = attempt.record.attempts + 1;
+    if (failures > RETRY_ATTEMPT_LIMIT) {
+      continue;
+    }
+    const named = attempt.error.retryAfterSeconds;
+    const wanted =
+      named === undefined
+        ? Math.min(RETRY_BASE_MS * 2 ** (failures - 1), RETRY_CAP_MS)
+        : named * 1000;
+    delay = delay === null ? wanted : Math.max(delay, wanted);
+  }
+  return delay;
+}
+
 export function createCompletionSync(options: CompletionSyncOptions): CompletionSync {
   const listeners = new Set<(event: CompletionSyncEvent) => void>();
   /**
@@ -79,6 +144,19 @@ export function createCompletionSync(options: CompletionSyncOptions): Completion
    */
   const inFlight = new Set<string>();
   let unsubscribes: (() => void)[] = [];
+  const setTimer: SyncTimer =
+    options.timer ??
+    ((run, milliseconds) => {
+      const handle = setTimeout(run, milliseconds);
+      return () => clearTimeout(handle);
+    });
+  /**
+   * The pass this one asked for, if any. Only a started sync keeps a clock:
+   * `syncAll` on its own is one caller asking one question, and a timer left
+   * behind by it would outlive whatever asked.
+   */
+  let started = false;
+  let cancelRetry: (() => void) | null = null;
 
   function publish(event: CompletionSyncEvent): void {
     for (const listener of listeners) {
@@ -137,6 +215,26 @@ export function createCompletionSync(options: CompletionSyncOptions): Completion
     }
   }
 
+  /**
+   * Ask for the next pass, replacing whatever the last one asked for. A pass
+   * that leaves nothing pending cancels the clock rather than idling on it.
+   */
+  function reschedule(deferred: readonly DeferredAttempt[]): void {
+    cancelRetry?.();
+    cancelRetry = null;
+    if (!started) {
+      return;
+    }
+    const delay = retryDelayFor(deferred);
+    if (delay === null) {
+      return;
+    }
+    cancelRetry = setTimer(() => {
+      cancelRetry = null;
+      void pass();
+    }, delay);
+  }
+
   function tally(events: readonly (CompletionSyncEvent | null)[]): CompletionSyncResult {
     let acknowledged = 0;
     let rejected = 0;
@@ -157,12 +255,21 @@ export function createCompletionSync(options: CompletionSyncOptions): Completion
     return { acknowledged, rejected, deferred };
   }
 
-  async function syncAll(): Promise<CompletionSyncResult> {
+  function deferralsIn(events: readonly (CompletionSyncEvent | null)[]): DeferredAttempt[] {
+    return events
+      .filter((event): event is CompletionSyncEvent => event !== null)
+      .filter((event) => event.type === "deferred")
+      .map((event) => ({ record: event.record, error: event.error }));
+  }
+
+  async function pass(): Promise<CompletionSyncResult> {
     const pending = await options.store.listPending();
     // All at once and each on its own: one record's failure is written down
     // without touching any other record's outcome.
     const events = await Promise.all(pending.map((record) => attempt(record)));
-    return tally(events);
+    const result = tally(events);
+    reschedule(deferralsIn(events));
+    return result;
   }
 
   return {
@@ -172,23 +279,30 @@ export function createCompletionSync(options: CompletionSyncOptions): Completion
       // leaves the completion to be sent on the next launch.
       const event = await attempt(stored);
       tally([event]);
+      // The walk the user just took is the one they are watching, so its own
+      // failure asks for the next pass rather than waiting for a trigger.
+      reschedule(deferralsIn([event]));
       return stored;
     },
 
-    syncAll,
+    syncAll: pass,
 
     async start() {
+      started = true;
       if (unsubscribes.length === 0) {
         unsubscribes = (options.triggers ?? []).map((trigger) =>
           trigger(() => {
-            void syncAll();
+            void pass();
           }),
         );
       }
-      return syncAll();
+      return pass();
     },
 
     stop() {
+      started = false;
+      cancelRetry?.();
+      cancelRetry = null;
       for (const unsubscribe of unsubscribes) {
         unsubscribe();
       }

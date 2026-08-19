@@ -607,7 +607,8 @@ const STATUS_ADVICE: Readonly<
   Record<Exclude<DailyCompletionState["status"], "acknowledged">, string>
 > = {
   incomplete: "Start the walk when you are up. The steps are counted while this screen is open.",
-  syncPending: "Your walk is saved on this phone. Keep the app open until the server has it.",
+  syncPending:
+    "Your walk is saved on this phone. Keep the app open where there is signal - it keeps trying to send it by itself.",
   rejected: "This walk was not accepted. The reason is below.",
 };
 

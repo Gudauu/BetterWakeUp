@@ -12,12 +12,18 @@ import { ApiError } from "../src/api/errors.ts";
 import {
   openPendingCompletionStore,
   type PendingCompletionInput,
+  type PendingCompletionRecord,
   type PendingCompletionStore,
 } from "../src/completions/store.ts";
 import {
   type CompletionSync,
   type CompletionSyncEvent,
   createCompletionSync,
+  RETRY_ATTEMPT_LIMIT,
+  RETRY_BASE_MS,
+  RETRY_CAP_MS,
+  retryDelayFor,
+  type SyncTimer,
   type SyncTrigger,
 } from "../src/completions/sync.ts";
 import { createMemoryDatabase, createTestDatabaseFile } from "./support/node-sqlite.ts";
@@ -267,6 +273,196 @@ describe("completion sync", () => {
     fire();
     await new Promise((resolve) => setImmediate(resolve));
     expect(client.attempts).toHaveLength(2);
+  });
+});
+
+/**
+ * A clock the test moves by hand. Nothing here may spend a real second: the
+ * shortest wait the rule can ask for is fifteen of them.
+ */
+interface FakeTimer {
+  readonly timer: SyncTimer;
+  /** The wait the sync last asked for, or null when it is not waiting. */
+  waiting(): number | null;
+  /** Run the outstanding wait now. */
+  fire(): Promise<void>;
+}
+
+function createFakeTimer(): FakeTimer {
+  let pending: { run: () => void; milliseconds: number } | null = null;
+  return {
+    timer: (run, milliseconds) => {
+      pending = { run, milliseconds };
+      return () => {
+        pending = null;
+      };
+    },
+    waiting: () => pending?.milliseconds ?? null,
+    async fire() {
+      const due = pending;
+      pending = null;
+      due?.run();
+      await new Promise((resolve) => setImmediate(resolve));
+    },
+  };
+}
+
+describe("how long before the next pass", () => {
+  function deferral(attempts: number, retryAfterSeconds?: number): PendingCompletionRecord {
+    return {
+      id: "00000000-0000-4000-8000-00000000000f",
+      challengeId: INPUT.challengeId,
+      taskId: INPUT.taskId,
+      completedAt: INPUT.completedAt,
+      observation: OBSERVATION,
+      appVersion: INPUT.appVersion,
+      verificationPolicyVersion: INPUT.verificationPolicyVersion,
+      status: "pending",
+      createdAt: INPUT.completedAt,
+      attempts,
+      lastErrorCode: retryAfterSeconds === undefined ? null : "rate_limited",
+      lastErrorMessage: null,
+    };
+  }
+
+  const failure = (retryAfterSeconds?: number): ApiError =>
+    new ApiError("internal_error", "no", {
+      status: null,
+      ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }),
+    });
+
+  it("asks for nothing when no record is pending", () => {
+    expect(retryDelayFor([])).toBeNull();
+  });
+
+  it("doubles the wait with each failed attempt and stops at the cap", () => {
+    expect(retryDelayFor([{ record: deferral(0), error: failure() }])).toBe(RETRY_BASE_MS);
+    expect(retryDelayFor([{ record: deferral(1), error: failure() }])).toBe(RETRY_BASE_MS * 2);
+    expect(retryDelayFor([{ record: deferral(2), error: failure() }])).toBe(RETRY_BASE_MS * 4);
+    expect(retryDelayFor([{ record: deferral(6), error: failure() }])).toBe(RETRY_CAP_MS);
+  });
+
+  it("takes the wait the server named over the backoff", () => {
+    expect(retryDelayFor([{ record: deferral(0), error: failure(47) }])).toBe(47_000);
+  });
+
+  it("waits as long as the record that asked for most, so no allowance is spent early", () => {
+    expect(
+      retryDelayFor([
+        { record: deferral(0), error: failure() },
+        { record: deferral(0), error: failure(600) },
+      ]),
+    ).toBe(600_000);
+  });
+
+  it("stops holding a clock open once a record has failed its limit of attempts", () => {
+    expect(retryDelayFor([{ record: deferral(RETRY_ATTEMPT_LIMIT - 1), error: failure() }])).toBe(
+      RETRY_CAP_MS,
+    );
+    expect(retryDelayFor([{ record: deferral(RETRY_ATTEMPT_LIMIT), error: failure() }])).toBeNull();
+  });
+});
+
+describe("completion sync retrying on its own", () => {
+  let store: PendingCompletionStore;
+  let client: FakeClient;
+  let clock: FakeTimer;
+  let sync: CompletionSync;
+
+  beforeEach(async () => {
+    store = await openPendingCompletionStore({
+      database: createMemoryDatabase(),
+      newRecordId: ids(),
+    });
+    client = createFakeClient();
+    clock = createFakeTimer();
+    sync = createCompletionSync({ store, client, timer: clock.timer });
+  });
+
+  afterEach(async () => {
+    sync.stop();
+    await store.close();
+  });
+
+  /** A record the server refuses until the test says otherwise. */
+  async function deferredRecord(error: () => ApiError): Promise<string> {
+    const record = await store.record(INPUT);
+    client.answer(record.id, async () => {
+      throw error();
+    });
+    return record.id;
+  }
+
+  it("sends a deferred record again on its own clock, with no trigger and no press", async () => {
+    let reachable = false;
+    const id = await deferredRecord(() => new ApiError("internal_error", "boom", { status: 500 }));
+    client.answer(id, async () => {
+      if (!reachable) {
+        throw new ApiError("internal_error", "boom", { status: 500 });
+      }
+      return acknowledgement();
+    });
+
+    await sync.start();
+    expect(client.attempts).toHaveLength(1);
+    expect(clock.waiting()).toBe(RETRY_BASE_MS);
+
+    reachable = true;
+    await clock.fire();
+
+    expect(client.attempts).toHaveLength(2);
+    expect(await store.list()).toEqual([]);
+    // Nothing is pending, so nothing is waiting: the clock stops with the work.
+    expect(clock.waiting()).toBeNull();
+  });
+
+  it("lengthens the wait as attempts keep failing", async () => {
+    await deferredRecord(() => new ApiError("internal_error", "boom", { status: 500 }));
+
+    await sync.start();
+    expect(clock.waiting()).toBe(RETRY_BASE_MS);
+    await clock.fire();
+    expect(clock.waiting()).toBe(RETRY_BASE_MS * 2);
+    await clock.fire();
+    expect(clock.waiting()).toBe(RETRY_BASE_MS * 4);
+  });
+
+  it("waits the seconds a rate limit named rather than its own backoff", async () => {
+    await deferredRecord(
+      () => new ApiError("rate_limited", "too many", { status: 429, retryAfterSeconds: 90 }),
+    );
+
+    await sync.start();
+
+    expect(clock.waiting()).toBe(90_000);
+  });
+
+  it("asks for nothing after a refusal, which no wait would change", async () => {
+    await deferredRecord(() => new ApiError("step_target_not_met", "short", { status: 422 }));
+
+    await sync.start();
+
+    expect(await store.listRejected()).toHaveLength(1);
+    expect(clock.waiting()).toBeNull();
+  });
+
+  it("leaves no clock behind once it is stopped", async () => {
+    await deferredRecord(() => new ApiError("internal_error", "boom", { status: 500 }));
+
+    await sync.start();
+    expect(clock.waiting()).toBe(RETRY_BASE_MS);
+
+    sync.stop();
+
+    expect(clock.waiting()).toBeNull();
+  });
+
+  it("keeps no clock for a caller that only asked one question", async () => {
+    await deferredRecord(() => new ApiError("internal_error", "boom", { status: 500 }));
+
+    await sync.syncAll();
+
+    expect(clock.waiting()).toBeNull();
   });
 });
 
