@@ -21,6 +21,7 @@ import type {
 } from "@betterwakeup/contract";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
+import { tryAgainMessage, unlistedMessage } from "../api/try-again.ts";
 import { waitMessageFor } from "../api/wait-again.ts";
 import type { CommandOutcome } from "../challenges/lifecycle-commands.ts";
 
@@ -41,13 +42,18 @@ export function needsPaymentMethod(challenge: ChallengeView): boolean {
 }
 
 const NETWORK_MESSAGE = "No connection to BetterWakeUp. Check your network and try again.";
-const GENERIC_MESSAGE = "That card could not be put in place. Try again in a moment.";
+const FAILURE_LEAD = "That card could not be put in place.";
+const GENERIC_MESSAGE = tryAgainMessage(FAILURE_LEAD);
 
 export const DECLINED_MESSAGE =
   "Your bank declined that card, so nothing was held. Try a different one.";
 
 const MESSAGES: Partial<Record<ErrorCode, string>> = {
   payment_declined: DECLINED_MESSAGE,
+  // The card reached the provider and is not one a hold can be placed on, which
+  // no second attempt with the same card changes.
+  payment_method_invalid:
+    "That card cannot be used to hold a deposit. Add a different card, or a different kind of card.",
   challenge_not_active: "This challenge has ended, so it has no deposit left to secure.",
   deposit_required_for_funding: "This challenge has no deposit, so it needs no card.",
   not_found: "This challenge is no longer on your account.",
@@ -94,5 +100,5 @@ function messageFor(cause: unknown): string {
   if (cause.status === null) {
     return NETWORK_MESSAGE;
   }
-  return waitMessageFor(cause) ?? MESSAGES[cause.code] ?? GENERIC_MESSAGE;
+  return waitMessageFor(cause) ?? MESSAGES[cause.code] ?? unlistedMessage(cause, FAILURE_LEAD);
 }

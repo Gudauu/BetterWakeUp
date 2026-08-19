@@ -24,6 +24,7 @@ import {
 } from "@betterwakeup/contract";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
+import { tryAgainMessage, unlistedMessage } from "../api/try-again.ts";
 import { waitMessageFor } from "../api/wait-again.ts";
 import { type ChallengeDraft, configurationOf, readinessOf } from "./draft.ts";
 
@@ -53,7 +54,8 @@ const MESSAGES: Partial<Record<ErrorCode, string>> = {
 };
 
 const NETWORK_MESSAGE = "No connection to BetterWakeUp. Check your network and try again.";
-const GENERIC_MESSAGE = "The challenge could not be created. Try again in a moment.";
+const FAILURE_LEAD = "The challenge could not be created.";
+const GENERIC_MESSAGE = tryAgainMessage(FAILURE_LEAD);
 
 export function maximumDurationSentence(days: number): string {
   return `A challenge with a deposit has to finish within ${days} days of funding. Shorten it, add active days, or run it with no deposit.`;
@@ -193,5 +195,5 @@ function messageFor(cause: unknown): string {
   if (cause.status === null) {
     return NETWORK_MESSAGE;
   }
-  return waitMessageFor(cause) ?? MESSAGES[cause.code] ?? GENERIC_MESSAGE;
+  return waitMessageFor(cause) ?? MESSAGES[cause.code] ?? unlistedMessage(cause, FAILURE_LEAD);
 }

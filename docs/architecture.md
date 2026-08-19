@@ -1052,6 +1052,20 @@ A sub-minute wait is said in seconds, because the shared `formatDuration` reads 
 Each caller supplies the lead sentence, so sign-in still counts sign-in attempts.
 `leaseExpiresAt` is deliberately unread: it is the same instant expressed absolutely, and reading it instead would make the wording depend on the device's clock agreeing with the server's, which for a five second lease it may not.
 
+#### Whether trying again is worth anything
+
+Each command module words the codes it expects and ends everything else with a generic line.
+That line used to be "Try again in a moment" in every module, which is right for exactly one kind of failure.
+The contract sorts every code into `retry` and `reject`, and `reject` means the server will answer the same way forever, so a user sent back to press the button again is being asked for work that is already spent.
+
+`app/src/api/try-again.ts` owns the ending.
+An unlisted code gets "Try again in a moment" when its disposition is `retry` and "Trying again will not change it" when it is `reject`, and the codes any command can meet are worded once there rather than six times.
+`validation_failed` is the one worth naming precisely: on a command path it never means the user typed something wrong, because the app assembles every request body itself and the server parses it against the contract, so it means this build and the server disagree about that contract.
+That is an update rather than a retry, and the difference is invisible from a generic line.
+
+A caller's own table still wins, because a specific sentence is worth more than a general one: `not_found` on a card replacement is "This challenge is no longer on your account", not the shared form.
+The lead half of the sentence stays with the caller, which is the half only the caller knows.
+
 ## Authentication
 
 Version 1 supports Sign in with Apple and Google Sign-In only.

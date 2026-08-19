@@ -10,6 +10,7 @@
 import type { ErrorCode, SessionView } from "@betterwakeup/contract";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
+import { tryAgainMessage, unlistedMessage } from "../api/try-again.ts";
 import { waitMessageFor } from "../api/wait-again.ts";
 import type { ProviderSignIn } from "./provider-sign-in.ts";
 
@@ -32,7 +33,8 @@ const MESSAGES: Partial<Record<ErrorCode, string>> = {
 };
 
 const NETWORK_MESSAGE = "No connection to BetterWakeUp. Check your network and try again.";
-const GENERIC_MESSAGE = "Sign-in failed. Try again in a moment.";
+const FAILURE_LEAD = "Sign-in failed.";
+const GENERIC_MESSAGE = tryAgainMessage(FAILURE_LEAD);
 
 export interface SignInDependencies {
   readonly api: ApiClient;
@@ -71,6 +73,8 @@ function messageFor(cause: unknown): string {
     return NETWORK_MESSAGE;
   }
   return (
-    waitMessageFor(cause, "Too many sign-in attempts.") ?? MESSAGES[cause.code] ?? GENERIC_MESSAGE
+    waitMessageFor(cause, "Too many sign-in attempts.") ??
+    MESSAGES[cause.code] ??
+    unlistedMessage(cause, FAILURE_LEAD)
   );
 }

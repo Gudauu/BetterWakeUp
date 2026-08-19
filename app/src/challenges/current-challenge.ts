@@ -15,6 +15,7 @@ import type { ChallengeView, EndedChallengeSummary } from "@betterwakeup/contrac
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
+import { tryAgainMessage, unlistedMessage } from "../api/try-again.ts";
 import { waitMessageFor } from "../api/wait-again.ts";
 
 export type CurrentChallengeState =
@@ -33,7 +34,8 @@ export type CurrentChallengeState =
   | { readonly status: "failed"; readonly message: string };
 
 const NETWORK_MESSAGE = "No connection to BetterWakeUp. Check your network and try again.";
-const GENERIC_MESSAGE = "Your challenge could not be loaded. Try again in a moment.";
+const FAILURE_LEAD = "Your challenge could not be loaded.";
+const GENERIC_MESSAGE = tryAgainMessage(FAILURE_LEAD);
 
 /**
  * The read, as an outcome. An account with no challenge and an account the app
@@ -153,5 +155,5 @@ function messageFor(cause: unknown): string {
   if (cause.status === null) {
     return NETWORK_MESSAGE;
   }
-  return waitMessageFor(cause) ?? GENERIC_MESSAGE;
+  return waitMessageFor(cause) ?? unlistedMessage(cause, FAILURE_LEAD);
 }

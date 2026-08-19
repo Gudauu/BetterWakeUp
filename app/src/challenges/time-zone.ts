@@ -25,6 +25,7 @@ import type {
 } from "@betterwakeup/contract";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
+import { tryAgainMessage, unlistedMessage } from "../api/try-again.ts";
 import { waitMessageFor } from "../api/wait-again.ts";
 import { ALARM_LEAD_MINUTES } from "../reminders/reminders.ts";
 import { formatDuration, formatTimeOfDay } from "../ui/format.ts";
@@ -250,7 +251,8 @@ export function moveImpact(input: MoveImpactInput): MoveImpact | null {
 }
 
 const NETWORK_MESSAGE = "No connection to BetterWakeUp. Check your network and try again.";
-const GENERIC_MESSAGE = "Your time zone could not be changed. Try again in a moment.";
+const FAILURE_LEAD = "Your time zone could not be changed.";
+const GENERIC_MESSAGE = tryAgainMessage(FAILURE_LEAD);
 
 const MESSAGES: Partial<Record<string, string>> = {
   challenge_not_active:
@@ -304,5 +306,5 @@ function messageFor(cause: unknown): string {
   if (cause.status === null) {
     return NETWORK_MESSAGE;
   }
-  return waitMessageFor(cause) ?? MESSAGES[cause.code] ?? GENERIC_MESSAGE;
+  return waitMessageFor(cause) ?? MESSAGES[cause.code] ?? unlistedMessage(cause, FAILURE_LEAD);
 }

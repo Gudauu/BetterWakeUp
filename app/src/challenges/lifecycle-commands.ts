@@ -24,6 +24,7 @@ import type {
 } from "@betterwakeup/contract";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
+import { tryAgainMessage, unlistedMessage } from "../api/try-again.ts";
 import { waitMessageFor } from "../api/wait-again.ts";
 
 export type CommandOutcome<Value> =
@@ -33,7 +34,8 @@ export type CommandOutcome<Value> =
   | { readonly status: "failed"; readonly message: string };
 
 const NETWORK_MESSAGE = "No connection to BetterWakeUp. Check your network and try again.";
-const GENERIC_MESSAGE = "That did not go through. Try again in a moment.";
+const FAILURE_LEAD = "That did not go through.";
+const GENERIC_MESSAGE = tryAgainMessage(FAILURE_LEAD);
 
 export const RECOVERY_EXPIRED = "That recovery offer expired, so the deposit has been settled.";
 export const FUNDED_CHALLENGE_HOLDS_DELETION =
@@ -174,5 +176,5 @@ function messageFor(cause: unknown): string {
   if (cause.status === null) {
     return NETWORK_MESSAGE;
   }
-  return waitMessageFor(cause) ?? MESSAGES[cause.code] ?? GENERIC_MESSAGE;
+  return waitMessageFor(cause) ?? MESSAGES[cause.code] ?? unlistedMessage(cause, FAILURE_LEAD);
 }
