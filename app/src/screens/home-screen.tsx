@@ -13,8 +13,7 @@
 
 import type { ChallengeStatus, ChallengeView } from "@betterwakeup/contract";
 import { type ReactNode, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useCurrentChallenge } from "../challenges/current-challenge.ts";
 import { formatMoney } from "../challenges/draft.ts";
 import {
@@ -24,6 +23,18 @@ import {
   useCompletionRuntime,
 } from "../completions/runtime.ts";
 import { useSession } from "../session/session-context.tsx";
+import {
+  AppText,
+  Banner,
+  Button,
+  Card,
+  DetailRow,
+  Divider,
+  ProgressBar,
+  Screen,
+  TextButton,
+} from "../ui/components.tsx";
+import { useTheme } from "../ui/theme.ts";
 import { CreateChallengeScreen } from "./create-challenge-screen.tsx";
 import { DailyCompletionScreen } from "./daily-completion-screen.tsx";
 import { DeleteAccountScreen } from "./delete-account-screen.tsx";
@@ -60,9 +71,22 @@ const STATUS_HEADLINE: Readonly<Record<ChallengeStatus, string>> = {
   recovery_pending: "One missed day is waiting on you",
 };
 
+/**
+ * The colour each status is read in. A finished challenge is good news and a
+ * failed one is not, and the headline alone leaves that to the reader.
+ */
+const STATUS_TONE: Readonly<Record<ChallengeStatus, "accent" | "success" | "danger" | "warning">> =
+  {
+    active: "accent",
+    succeeded: "success",
+    failed: "danger",
+    expired: "danger",
+    recovery_pending: "warning",
+  };
+
 export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
   const { api, signOut } = useSession();
-  const insets = useSafeAreaInsets();
+  const theme = useTheme();
   const { state, reload } = useCurrentChallenge(api);
   const [route, setRoute] = useState<Route>("home");
   // The way back from everything home opens. A command that changed the
@@ -93,22 +117,34 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
 
   if (state.status === "loading") {
     return (
-      <View style={styles.centered} testID="home-loading">
-        <ActivityIndicator accessibilityLabel="Loading your challenge" />
-      </View>
+      <Screen centered testID="home-loading">
+        <ActivityIndicator
+          accessibilityLabel="Loading your challenge"
+          color={theme.colors.accent}
+        />
+      </Screen>
     );
   }
 
   if (state.status === "failed") {
     return (
-      <View style={[styles.centered, { paddingTop: insets.top }]} testID="home-error">
-        <Text style={styles.title}>BetterWakeUp</Text>
-        <Text style={styles.error} accessibilityRole="alert" testID="home-error-message">
-          {state.message}
-        </Text>
-        <Action testID="home-retry" label="Try again" onPress={reload} />
+      <Screen centered testID="home-error">
+        <AppText variant="title" accessibilityRole="header">
+          BetterWakeUp
+        </AppText>
+        <Banner tone="danger">
+          <AppText
+            variant="small"
+            tone="danger"
+            accessibilityRole="alert"
+            testID="home-error-message"
+          >
+            {state.message}
+          </AppText>
+        </Banner>
+        <Button testID="home-retry" label="Try again" onPress={reload} style={styles.wide} />
         <SignOut onSignOut={onSignOut} />
-      </View>
+      </Screen>
     );
   }
 
@@ -157,24 +193,28 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
   }
 
   return (
-    <ScrollView
-      testID="home"
-      contentContainerStyle={[styles.container, { paddingTop: insets.top }]}
-    >
-      <Text style={styles.title}>BetterWakeUp</Text>
+    <Screen testID="home">
+      <View style={styles.header}>
+        <AppText variant="caption" tone="accent">
+          {state.challenge === null ? "READY WHEN YOU ARE" : "TODAY"}
+        </AppText>
+        <AppText variant="display" accessibilityRole="header">
+          BetterWakeUp
+        </AppText>
+      </View>
 
       {state.challenge === null ? (
-        <View style={styles.card} testID="home-no-challenge">
-          <Text style={styles.headline}>No challenge running</Text>
-          <Text style={styles.body}>
+        <Card testID="home-no-challenge">
+          <AppText variant="headline">No challenge running</AppText>
+          <AppText variant="small" tone="muted">
             Set a wake-up time, walk when the alarm goes, and keep your deposit.
-          </Text>
-          <Action
+          </AppText>
+          <Button
             testID="home-create-challenge"
             label="Start a challenge"
             onPress={() => setRoute("create")}
           />
-        </View>
+        </Card>
       ) : (
         <ChallengeCard
           challenge={state.challenge}
@@ -184,22 +224,22 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
         />
       )}
 
-      <Pressable accessibilityRole="button" testID="home-refresh" onPress={reload}>
-        <Text style={styles.secondaryLabel}>Refresh</Text>
-      </Pressable>
-
-      <SignOut onSignOut={onSignOut} />
-
-      {/* Deletion is account-level rather than challenge-level, so it sits
-          outside the card and stays reachable for an account holding none. */}
-      <Pressable
-        accessibilityRole="button"
-        testID="home-delete-account"
-        onPress={() => setRoute("delete")}
-      >
-        <Text style={styles.dangerLabel}>Delete account</Text>
-      </Pressable>
-    </ScrollView>
+      {/* The account-level controls sit under a divider, away from the card:
+          they are always available and never the thing to do next. Deletion is
+          account-level rather than challenge-level, so it stays reachable for
+          an account holding none. */}
+      <View style={styles.footer}>
+        <Divider />
+        <TextButton testID="home-refresh" label="Refresh" onPress={reload} />
+        <SignOut onSignOut={onSignOut} />
+        <TextButton
+          testID="home-delete-account"
+          label="Delete account"
+          tone="danger"
+          onPress={() => setRoute("delete")}
+        />
+      </View>
+    </Screen>
   );
 }
 
@@ -225,71 +265,153 @@ function ChallengeCard({
   );
 
   return (
-    <View style={styles.card} testID="home-challenge">
-      <Text style={styles.headline} testID="home-challenge-status">
-        {paused ? "Paused" : STATUS_HEADLINE[challenge.status]}
-      </Text>
-
-      <Text style={styles.body} testID="home-progress">
-        {progress.completedTaskCount} of {progress.requiredTaskCount} days done, {remaining} to go.
-      </Text>
-      <ProgressBar done={progress.completedTaskCount} total={progress.requiredTaskCount} />
-
-      <Detail label="Projected end" value={challenge.projectedEndDate} testID="home-end-date" />
-      <Detail
-        label="Deposit"
-        value={
-          configuration.deposit.amount === 0 ? "None" : formatMoney(configuration.deposit.amount)
-        }
-        testID="home-deposit"
-      />
-      <Detail label="Steps per day" value={String(configuration.stepTarget)} testID="home-steps" />
-
-      {currentTask === null ? (
-        <Text style={styles.note} testID="home-no-task">
-          {paused
-            ? "Nothing is due while this challenge is paused."
-            : "Nothing is due right now. The next task appears on your next active day."}
-        </Text>
-      ) : (
-        <View style={styles.taskRow} testID="home-current-task">
-          <Text style={styles.body}>Next task {currentTask.date}</Text>
-          <Text style={styles.note} testID="home-task-deadline">
+    <View style={styles.stack}>
+      {/* Today's task is the reason the screen exists, so it is its own card
+          above the challenge's numbers rather than a row buried inside them. */}
+      {currentTask === null ? null : (
+        <Card testID="home-current-task" style={styles.taskCard}>
+          <AppText variant="caption" tone="accent">
+            YOUR NEXT WALK
+          </AppText>
+          <AppText variant="title">{currentTask.date}</AppText>
+          <AppText variant="small" tone="muted" testID="home-task-deadline">
             Deadline {formatDeadline(currentTask.deadline, configuration.timeZone)}
-          </Text>
-          <Action testID="home-open-task" label="Open today's task" onPress={onOpenTask} />
-        </View>
-      )}
-
-      {challenge.depositSecured ? null : (
-        <Text style={styles.warning} testID="home-deposit-unsecured" accessibilityRole="alert">
-          Your card no longer secures this deposit. Add a new one to keep the challenge honest.
-        </Text>
+          </AppText>
+          <AppText variant="small" tone="muted">
+            {configuration.stepTarget} steps to keep the day.
+          </AppText>
+          <Button testID="home-open-task" label="Open today's task" onPress={onOpenTask} />
+        </Card>
       )}
 
       {challenge.recoveryOffer === null ? null : (
-        <View style={styles.taskRow} testID="home-recovery-offer">
-          <Text style={styles.warning} accessibilityRole="alert">
+        <Banner tone="warning" testID="home-recovery-offer">
+          <AppText variant="small" tone="warning" accessibilityRole="alert">
             You missed a day. Your one Emergency Recovery can forgive it until{" "}
             {formatDeadline(challenge.recoveryOffer.expiresAt, configuration.timeZone)}.
-          </Text>
-          <Action
+          </AppText>
+          <Button
             testID="home-open-recovery"
             label="Decide on your recovery"
             onPress={onOpenRecovery}
           />
-        </View>
+        </Banner>
       )}
 
-      {/* Pausing belongs to a challenge that can still run. A finished one has
-          nothing to pause, and offering it would be a press the server refuses. */}
-      {challenge.status === "active" ? (
-        <Pressable accessibilityRole="button" testID="home-open-pause" onPress={onOpenPause}>
-          <Text style={styles.secondaryLabel}>
-            {paused ? "Resume the challenge" : "Pause the challenge"}
-          </Text>
-        </Pressable>
-      ) : null}
+      {challenge.depositSecured ? null : (
+        <Banner tone="danger">
+          <AppText
+            variant="small"
+            tone="danger"
+            testID="home-deposit-unsecured"
+            accessibilityRole="alert"
+          >
+            Your card no longer secures this deposit. Add a new one to keep the challenge honest.
+          </AppText>
+        </Banner>
+      )}
+
+      <Card testID="home-challenge">
+        <View style={styles.statusRow}>
+          <StatusPill
+            label={paused ? "Paused" : STATUS_HEADLINE[challenge.status]}
+            tone={paused ? "warning" : STATUS_TONE[challenge.status]}
+          />
+        </View>
+
+        <View style={styles.progressBlock}>
+          <AppText variant="display" testID="home-progress-count">
+            {progress.completedTaskCount}
+            <AppText variant="headline" tone="muted">
+              {" "}
+              / {progress.requiredTaskCount} days
+            </AppText>
+          </AppText>
+          <ProgressBar
+            done={progress.completedTaskCount}
+            total={progress.requiredTaskCount}
+            testID="home-progress-bar"
+          />
+          <AppText variant="small" tone="muted" testID="home-progress">
+            {progress.completedTaskCount} of {progress.requiredTaskCount} days done, {remaining} to
+            go.
+          </AppText>
+        </View>
+
+        {currentTask === null ? (
+          <AppText variant="caption" tone="muted" testID="home-no-task">
+            {paused
+              ? "Nothing is due while this challenge is paused."
+              : "Nothing is due right now. The next task appears on your next active day."}
+          </AppText>
+        ) : null}
+
+        <Divider />
+
+        <DetailRow
+          label="Projected end"
+          value={challenge.projectedEndDate}
+          testID="home-end-date"
+        />
+        <DetailRow
+          label="Deposit"
+          value={
+            configuration.deposit.amount === 0 ? "None" : formatMoney(configuration.deposit.amount)
+          }
+          testID="home-deposit"
+        />
+        <DetailRow
+          label="Steps per day"
+          value={String(configuration.stepTarget)}
+          testID="home-steps"
+        />
+
+        {/* Pausing belongs to a challenge that can still run. A finished one has
+            nothing to pause, and offering it would be a press the server refuses. */}
+        {challenge.status === "active" ? (
+          <TextButton
+            testID="home-open-pause"
+            tone="accent"
+            label={paused ? "Resume the challenge" : "Pause the challenge"}
+            onPress={onOpenPause}
+          />
+        ) : null}
+      </Card>
+    </View>
+  );
+}
+
+/** The challenge's state, said once, in the colour that state deserves. */
+function StatusPill({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: "accent" | "success" | "danger" | "warning";
+}) {
+  const theme = useTheme();
+  const color = theme.colors[tone];
+  const wash = {
+    accent: theme.colors.accentSoft,
+    success: theme.colors.successSoft,
+    danger: theme.colors.dangerSoft,
+    warning: theme.colors.warningSoft,
+  }[tone];
+  return (
+    <View
+      style={[
+        styles.pill,
+        {
+          backgroundColor: wash,
+          borderRadius: theme.radius.pill,
+          paddingHorizontal: theme.space.md,
+        },
+      ]}
+    >
+      <View style={[styles.dot, { backgroundColor: color }]} />
+      <AppText variant="caption" tone={tone} testID="home-challenge-status">
+        {label}
+      </AppText>
     </View>
   );
 }
@@ -312,25 +434,23 @@ function TodayTask({
 }) {
   if (runtime.status === "loading") {
     return (
-      <View style={styles.centered} testID="home-task-loading">
-        <ActivityIndicator accessibilityLabel="Opening today's task" />
-        <Pressable accessibilityRole="button" testID="home-task-back" onPress={onBack}>
-          <Text style={styles.secondaryLabel}>Back to home</Text>
-        </Pressable>
-      </View>
+      <Screen centered testID="home-task-loading">
+        <TaskSpinner />
+        <TextButton testID="home-task-back" label="Back to home" onPress={onBack} />
+      </Screen>
     );
   }
 
   if (runtime.status === "failed") {
     return (
-      <View style={styles.centered} testID="home-task-unavailable">
-        <Text style={styles.error} accessibilityRole="alert">
-          {runtime.message}
-        </Text>
-        <Pressable accessibilityRole="button" testID="home-task-back" onPress={onBack}>
-          <Text style={styles.secondaryLabel}>Back to home</Text>
-        </Pressable>
-      </View>
+      <Screen centered testID="home-task-unavailable">
+        <Banner tone="danger">
+          <AppText variant="small" tone="danger" accessibilityRole="alert">
+            {runtime.message}
+          </AppText>
+        </Banner>
+        <TextButton testID="home-task-back" label="Back to home" onPress={onBack} />
+      </Screen>
     );
   }
 
@@ -347,40 +467,10 @@ function TodayTask({
   );
 }
 
-function ProgressBar({ done, total }: { done: number; total: number }) {
-  const fraction = total === 0 ? 0 : Math.min(1, done / total);
+function TaskSpinner() {
+  const theme = useTheme();
   return (
-    <View
-      style={styles.track}
-      testID="home-progress-bar"
-      accessibilityRole="progressbar"
-      accessibilityValue={{ min: 0, max: total, now: done }}
-    >
-      <View style={[styles.fill, { flex: fraction }]} />
-      <View style={{ flex: 1 - fraction }} />
-    </View>
-  );
-}
-
-function Detail(props: { label: string; value: string; testID: string }) {
-  return (
-    <View style={styles.row} testID={props.testID}>
-      <Text style={styles.label}>{props.label}</Text>
-      <Text style={styles.value}>{props.value}</Text>
-    </View>
-  );
-}
-
-function Action(props: { testID: string; label: string; onPress: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      testID={props.testID}
-      style={styles.button}
-      onPress={props.onPress}
-    >
-      <Text style={styles.buttonLabel}>{props.label}</Text>
-    </Pressable>
+    <ActivityIndicator accessibilityLabel="Opening today's task" color={theme.colors.accent} />
   );
 }
 
@@ -388,11 +478,7 @@ function SignOut({ onSignOut }: { onSignOut: (() => void) | undefined }): ReactN
   if (onSignOut === undefined) {
     return null;
   }
-  return (
-    <Pressable accessibilityRole="button" testID="home-sign-out" onPress={onSignOut}>
-      <Text style={styles.secondaryLabel}>Sign out</Text>
-    </Pressable>
-  );
+  return <TextButton testID="home-sign-out" label="Sign out" onPress={onSignOut} />;
 }
 
 /**
@@ -416,47 +502,13 @@ function formatDeadline(instant: string, timeZone: string): string {
 }
 
 const styles = StyleSheet.create({
-  container: { gap: 20, paddingHorizontal: 24, paddingBottom: 48 },
-  centered: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 16,
-    paddingHorizontal: 24,
-  },
-  title: { fontSize: 28, fontWeight: "600" },
-  headline: { fontSize: 20, fontWeight: "600" },
-  card: {
-    borderColor: "#e2e2e2",
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 12,
-    padding: 20,
-  },
-  body: { fontSize: 15, lineHeight: 21, flexShrink: 1 },
-  label: { fontSize: 15, flexShrink: 1, opacity: 0.7 },
-  value: { fontSize: 15, fontWeight: "500" },
-  note: { fontSize: 13, opacity: 0.6, lineHeight: 18 },
-  warning: { fontSize: 14, color: "#8a5300", lineHeight: 20 },
-  error: { fontSize: 14, color: "#b00020", textAlign: "center", lineHeight: 20 },
-  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  taskRow: { gap: 10 },
-  track: {
-    backgroundColor: "#ededed",
-    borderRadius: 999,
-    flexDirection: "row",
-    height: 8,
-    overflow: "hidden",
-  },
-  fill: { backgroundColor: "#111111" },
-  button: {
-    alignItems: "center",
-    backgroundColor: "#111111",
-    borderRadius: 12,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-  },
-  buttonLabel: { color: "#ffffff", fontSize: 16, fontWeight: "600" },
-  secondaryLabel: { fontSize: 15, opacity: 0.7, textAlign: "center" },
-  dangerLabel: { fontSize: 15, color: "#b00020", textAlign: "center", opacity: 0.8 },
+  header: { gap: 4 },
+  stack: { gap: 16 },
+  footer: { gap: 4, paddingTop: 8 },
+  wide: { alignSelf: "stretch" },
+  taskCard: { gap: 8 },
+  statusRow: { flexDirection: "row" },
+  pill: { alignItems: "center", flexDirection: "row", gap: 8, paddingVertical: 6 },
+  dot: { borderRadius: 999, height: 8, width: 8 },
+  progressBlock: { gap: 10 },
 });

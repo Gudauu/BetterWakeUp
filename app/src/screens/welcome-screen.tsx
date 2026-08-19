@@ -14,16 +14,28 @@
 
 import type { IdentityProvider } from "@betterwakeup/contract";
 import { useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import type { CompletionRuntimeFactory } from "../completions/runtime.ts";
 import { useSession } from "../session/session-context.tsx";
+import { AppText, Banner, Button, Screen } from "../ui/components.tsx";
+import { useTheme } from "../ui/theme.ts";
 import { HomeScreen } from "./home-screen.tsx";
 
 const LABELS: Readonly<Record<IdentityProvider, string>> = {
   apple: "Sign in with Apple",
   google: "Continue with Google",
 };
+
+/**
+ * What the app asks of the user, in the order it happens. Shown before sign-in
+ * because the deal - money on the line, a walk to keep it - is the thing worth
+ * knowing before handing over an identity, and a sentence of prose hides it.
+ */
+const HOW_IT_WORKS: readonly { readonly step: string; readonly line: string }[] = [
+  { step: "1", line: "Pick a wake-up time and put a deposit behind it." },
+  { step: "2", line: "When the alarm goes, walk until you hit your step target." },
+  { step: "3", line: "Finish the run of days and your deposit comes back." },
+];
 
 export interface WelcomeScreenProps {
   /**
@@ -36,7 +48,7 @@ export interface WelcomeScreenProps {
 
 export function WelcomeScreen({ createRuntime }: WelcomeScreenProps = {}) {
   const { state, availability, signIn, signOut } = useSession();
-  const insets = useSafeAreaInsets();
+  const theme = useTheme();
   const [busy, setBusy] = useState<IdentityProvider | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,9 +69,9 @@ export function WelcomeScreen({ createRuntime }: WelcomeScreenProps = {}) {
 
   if (state.status === "loading") {
     return (
-      <View style={styles.container} testID="welcome-loading">
-        <ActivityIndicator accessibilityLabel="Loading" />
-      </View>
+      <Screen centered testID="welcome-loading">
+        <ActivityIndicator accessibilityLabel="Loading" color={theme.colors.accent} />
+      </Screen>
     );
   }
 
@@ -80,63 +92,79 @@ export function WelcomeScreen({ createRuntime }: WelcomeScreenProps = {}) {
     availability === null ? [] : (["apple", "google"] as const).filter((p) => availability[p]);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]} testID="welcome-signed-out">
-      <Text style={styles.title}>BetterWakeUp</Text>
-      <Text style={styles.body}>
-        Put money behind getting up. Set a wake-up time, walk when the alarm goes, and keep your
-        deposit.
-      </Text>
+    <Screen testID="welcome-signed-out" style={styles.signedOut}>
+      <View style={styles.hero}>
+        <AppText variant="caption" tone="accent">
+          WAKE UP ON PURPOSE
+        </AppText>
+        <AppText variant="display" accessibilityRole="header">
+          BetterWakeUp
+        </AppText>
+        <AppText variant="body" tone="muted">
+          Put money behind getting up. Set a wake-up time, walk when the alarm goes, and keep your
+          deposit.
+        </AppText>
+      </View>
 
-      {offered.map((provider) => (
-        <Pressable
-          key={provider}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: busy !== null, busy: busy === provider }}
-          testID={`sign-in-${provider}`}
-          disabled={busy !== null}
-          style={[styles.button, busy !== null && styles.buttonDisabled]}
-          onPress={() => void onSignIn(provider)}
-        >
-          <Text style={styles.buttonLabel}>{LABELS[provider]}</Text>
-        </Pressable>
-      ))}
+      <View style={styles.steps} testID="welcome-how-it-works">
+        {HOW_IT_WORKS.map(({ step, line }) => (
+          <View key={step} style={styles.step}>
+            <View
+              style={[
+                styles.stepBadge,
+                { backgroundColor: theme.colors.accentSoft, borderRadius: theme.radius.pill },
+              ]}
+            >
+              <AppText variant="caption" tone="accent">
+                {step}
+              </AppText>
+            </View>
+            <AppText variant="small" style={styles.stepLine}>
+              {line}
+            </AppText>
+          </View>
+        ))}
+      </View>
 
-      {availability !== null && offered.length === 0 ? (
-        <Text style={styles.note} testID="no-providers">
-          Sign-in is not available on this device.
-        </Text>
-      ) : null}
+      <View style={styles.actions}>
+        {offered.map((provider) => (
+          <Button
+            key={provider}
+            testID={`sign-in-${provider}`}
+            label={LABELS[provider]}
+            disabled={busy !== null && busy !== provider}
+            busy={busy === provider}
+            onPress={() => void onSignIn(provider)}
+          />
+        ))}
 
-      {error === null ? null : (
-        <Text style={styles.error} testID="sign-in-error" accessibilityRole="alert">
-          {error}
-        </Text>
-      )}
-    </View>
+        {availability !== null && offered.length === 0 ? (
+          <AppText variant="caption" tone="muted" center testID="no-providers">
+            Sign-in is not available on this device.
+          </AppText>
+        ) : null}
+
+        {error === null ? null : (
+          <Banner tone="danger">
+            <AppText variant="small" tone="danger" testID="sign-in-error" accessibilityRole="alert">
+              {error}
+            </AppText>
+          </Banner>
+        )}
+      </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  container: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 16,
-    paddingHorizontal: 24,
-  },
-  title: { fontSize: 28, fontWeight: "600" },
-  body: { fontSize: 16, textAlign: "center", lineHeight: 22 },
-  button: {
-    alignItems: "center",
-    borderRadius: 12,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    minWidth: 240,
-    backgroundColor: "#111111",
-  },
-  buttonDisabled: { opacity: 0.4 },
-  buttonLabel: { color: "#ffffff", fontSize: 16, fontWeight: "600" },
-  note: { fontSize: 13, opacity: 0.6, textAlign: "center" },
-  error: { fontSize: 14, color: "#b00020", textAlign: "center", lineHeight: 20 },
+  // The sign-in column sits low: the pitch is read first and the buttons are
+  // where a thumb already is.
+  signedOut: { flexGrow: 1, gap: 28, justifyContent: "center" },
+  hero: { gap: 8 },
+  steps: { gap: 14 },
+  step: { flexDirection: "row", alignItems: "center", gap: 12 },
+  stepBadge: { alignItems: "center", justifyContent: "center", height: 28, width: 28 },
+  stepLine: { flexShrink: 1 },
+  actions: { gap: 12 },
 });

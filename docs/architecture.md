@@ -200,6 +200,16 @@ Nothing about the framework changes.
 Start with React hooks and context for local interface state.
 Add a client state library only when an observed state-sharing problem requires one.
 
+### Appearance
+
+`app/src/ui/theme.ts` owns every colour, spacing step, corner radius and text size in the app, as a light theme and a dark one of the same shape.
+`app/src/ui/components.tsx` owns how the recurring pieces are drawn: the screen frame, cards, buttons, banners, progress bars and labelled rows.
+
+A screen names a role - `textMuted`, a `danger` banner, a `primary` button - and never a hex code or a font size.
+That is what lets the app follow the device between light and dark without a single screen asking which one is in force, and it is why a change to the look of a button is one edit rather than nine.
+
+`useTheme` reads the device setting, which `app.json` already declares the app honours with `userInterfaceStyle: automatic`.
+
 ### Movement
 
 Use the `expo-sensors` Pedometer, which wraps CMPedometer on iOS and the step counter on Android.

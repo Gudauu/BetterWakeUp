@@ -1,0 +1,412 @@
+/**
+ * The pieces every screen is built out of.
+ *
+ * These exist so a screen describes what it is showing - a card, a primary
+ * action, a warning banner - rather than how it is drawn. The drawing lives
+ * here and reads its values from `useTheme`, which is what makes the whole app
+ * follow the device between light and dark without a screen mentioning either.
+ *
+ * A component here owns appearance and touch feedback only. None of them holds
+ * state or knows a rule; every one takes what it renders as a prop.
+ */
+
+import type { ReactNode } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  type PressableStateCallbackType,
+  ScrollView,
+  type StyleProp,
+  StyleSheet,
+  Text,
+  type TextStyle,
+  View,
+  type ViewStyle,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { type Theme, useTheme } from "./theme.ts";
+
+type TextVariant = "display" | "title" | "headline" | "body" | "small" | "caption";
+type TextTone = "default" | "muted" | "accent" | "warning" | "danger" | "success" | "onAccent";
+
+const TONE_COLOR: Readonly<Record<TextTone, (theme: Theme) => string>> = {
+  default: (theme) => theme.colors.text,
+  muted: (theme) => theme.colors.textMuted,
+  accent: (theme) => theme.colors.accent,
+  warning: (theme) => theme.colors.warning,
+  danger: (theme) => theme.colors.danger,
+  success: (theme) => theme.colors.success,
+  onAccent: (theme) => theme.colors.onAccent,
+};
+
+export interface AppTextProps {
+  readonly variant?: TextVariant;
+  readonly tone?: TextTone;
+  readonly center?: boolean;
+  readonly style?: StyleProp<TextStyle>;
+  readonly testID?: string;
+  readonly accessibilityRole?: "alert" | "header";
+  readonly children: ReactNode;
+}
+
+/** Every string the user reads goes through here, so the type scale is the only one. */
+export function AppText({
+  variant = "body",
+  tone = "default",
+  center = false,
+  style,
+  testID,
+  accessibilityRole,
+  children,
+}: AppTextProps) {
+  const theme = useTheme();
+  return (
+    <Text
+      testID={testID}
+      accessibilityRole={accessibilityRole}
+      style={[
+        theme.type[variant],
+        { color: TONE_COLOR[tone](theme) },
+        center && { textAlign: "center" },
+        style,
+      ]}
+    >
+      {children}
+    </Text>
+  );
+}
+
+export interface ScreenProps {
+  readonly testID?: string;
+  /**
+   * Centres the content in the middle of the screen and stops it scrolling.
+   * For the short screens - a spinner, an error, a sign-in prompt - where a
+   * top-aligned column would leave the content stranded under the notch.
+   */
+  readonly centered?: boolean;
+  readonly style?: StyleProp<ViewStyle>;
+  readonly children: ReactNode;
+}
+
+/**
+ * The frame: the background colour, the safe area, and the horizontal gutter.
+ * Scrolls by default, because any screen can overflow once the device is set
+ * to a large text size even if it fits at the default one.
+ */
+export function Screen({ testID, centered = false, style, children }: ScreenProps) {
+  const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const padding = {
+    paddingTop: insets.top + theme.space.lg,
+    paddingBottom: insets.bottom + theme.space.xxl,
+    paddingHorizontal: theme.space.xl,
+  };
+
+  if (centered) {
+    return (
+      <View
+        testID={testID}
+        style={[
+          styles.fill,
+          styles.center,
+          { backgroundColor: theme.colors.background, gap: theme.space.lg },
+          padding,
+          style,
+        ]}
+      >
+        {children}
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView
+      testID={testID}
+      style={{ backgroundColor: theme.colors.background }}
+      contentContainerStyle={[{ gap: theme.space.lg }, padding, style]}
+      keyboardShouldPersistTaps="handled"
+    >
+      {children}
+    </ScrollView>
+  );
+}
+
+/** A raised block of related things. The app's only container with an edge. */
+export function Card({
+  testID,
+  children,
+  style,
+}: {
+  readonly testID?: string;
+  readonly children: ReactNode;
+  readonly style?: StyleProp<ViewStyle>;
+}) {
+  const theme = useTheme();
+  return (
+    <View
+      testID={testID}
+      style={[
+        {
+          backgroundColor: theme.colors.surface,
+          borderColor: theme.colors.border,
+          borderRadius: theme.radius.lg,
+          borderWidth: 1,
+          gap: theme.space.md,
+          padding: theme.space.xl,
+        },
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
+
+export type ButtonVariant = "primary" | "secondary" | "danger";
+
+export interface ButtonProps {
+  readonly testID: string;
+  readonly label: string;
+  readonly onPress: () => void;
+  readonly variant?: ButtonVariant;
+  readonly disabled?: boolean;
+  /** Draws a spinner in place of the label and reports the button as busy. */
+  readonly busy?: boolean;
+  readonly style?: StyleProp<ViewStyle>;
+}
+
+/**
+ * The filled action. `primary` is the one thing the screen wants next, so a
+ * screen should show at most one; `secondary` is the reversible alternative
+ * and `danger` is the one that destroys something.
+ */
+export function Button({
+  testID,
+  label,
+  onPress,
+  variant = "primary",
+  disabled = false,
+  busy = false,
+  style,
+}: ButtonProps) {
+  const theme = useTheme();
+  const filled = variant !== "secondary";
+  const background = variant === "danger" ? theme.colors.danger : theme.colors.accent;
+  const labelColor = filled
+    ? variant === "danger"
+      ? "#ffffff"
+      : theme.colors.onAccent
+    : theme.colors.text;
+  const inactive = disabled || busy;
+
+  const pressedStyle = ({ pressed }: PressableStateCallbackType): StyleProp<ViewStyle> => [
+    styles.button,
+    {
+      backgroundColor: filled ? background : "transparent",
+      borderColor: filled ? "transparent" : theme.colors.border,
+      borderRadius: theme.radius.md,
+      borderWidth: filled ? 0 : 1,
+      paddingHorizontal: theme.space.xl,
+    },
+    // Touch feedback the user can see without a ripple: the whole control
+    // dims, which reads the same on both platforms and in both themes.
+    pressed && !inactive && styles.pressed,
+    inactive && styles.inactive,
+    style,
+  ];
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: inactive, busy }}
+      testID={testID}
+      disabled={inactive}
+      onPress={onPress}
+      style={pressedStyle}
+    >
+      {busy ? (
+        <ActivityIndicator accessibilityLabel={label} color={labelColor} />
+      ) : (
+        <Text style={[theme.type.headline, { color: labelColor }]}>{label}</Text>
+      )}
+    </Pressable>
+  );
+}
+
+export interface TextButtonProps {
+  readonly testID: string;
+  readonly label: string;
+  readonly onPress: () => void;
+  readonly tone?: "muted" | "accent" | "danger";
+  readonly disabled?: boolean;
+}
+
+/**
+ * A tappable line of text, for the actions that should stay reachable without
+ * competing with the screen's real one. It still carries the full touch target
+ * a finger needs; only the paint is quiet.
+ */
+export function TextButton({
+  testID,
+  label,
+  onPress,
+  tone = "muted",
+  disabled = false,
+}: TextButtonProps) {
+  const theme = useTheme();
+  const color =
+    tone === "danger"
+      ? theme.colors.danger
+      : tone === "accent"
+        ? theme.colors.accent
+        : theme.colors.textMuted;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      testID={testID}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.textButton,
+        pressed && !disabled && styles.pressed,
+        disabled && styles.inactive,
+      ]}
+    >
+      <Text style={[theme.type.small, { color, fontWeight: "600", textAlign: "center" }]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+export type BannerTone = "info" | "warning" | "danger" | "success";
+
+/**
+ * A short piece of news about the user's situation - a missed day, a card that
+ * no longer works, a challenge finished. The wash is what separates it from
+ * the body text around it; the tone is what says how worried to be.
+ */
+export function Banner({
+  tone,
+  testID,
+  children,
+}: {
+  readonly tone: BannerTone;
+  readonly testID?: string;
+  readonly children: ReactNode;
+}) {
+  const theme = useTheme();
+  const wash = {
+    info: theme.colors.accentSoft,
+    warning: theme.colors.warningSoft,
+    danger: theme.colors.dangerSoft,
+    success: theme.colors.successSoft,
+  }[tone];
+  const edge = {
+    info: theme.colors.accent,
+    warning: theme.colors.warning,
+    danger: theme.colors.danger,
+    success: theme.colors.success,
+  }[tone];
+  return (
+    <View
+      testID={testID}
+      style={{
+        backgroundColor: wash,
+        borderLeftColor: edge,
+        borderLeftWidth: 3,
+        borderRadius: theme.radius.sm,
+        gap: theme.space.md,
+        padding: theme.space.lg,
+      }}
+    >
+      {children}
+    </View>
+  );
+}
+
+/** How far through a challenge, or a day's steps, the user is. */
+export function ProgressBar({
+  done,
+  total,
+  testID,
+}: {
+  readonly done: number;
+  readonly total: number;
+  readonly testID?: string;
+}) {
+  const theme = useTheme();
+  const fraction = total === 0 ? 0 : Math.min(1, Math.max(0, done / total));
+  return (
+    <View
+      testID={testID}
+      accessibilityRole="progressbar"
+      accessibilityValue={{ min: 0, max: total, now: done }}
+      style={{
+        backgroundColor: theme.colors.track,
+        borderRadius: theme.radius.pill,
+        flexDirection: "row",
+        height: 10,
+        overflow: "hidden",
+      }}
+    >
+      <View style={{ flex: fraction, backgroundColor: theme.colors.accent }} />
+      <View style={{ flex: 1 - fraction }} />
+    </View>
+  );
+}
+
+/** A labelled fact, read left to right. */
+export function DetailRow({
+  label,
+  value,
+  testID,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly testID?: string;
+}) {
+  const theme = useTheme();
+  return (
+    <View testID={testID} style={[styles.row, { gap: theme.space.md }]}>
+      <AppText variant="small" tone="muted" style={styles.shrink}>
+        {label}
+      </AppText>
+      <AppText variant="small" style={styles.value}>
+        {value}
+      </AppText>
+    </View>
+  );
+}
+
+/** The hairline that separates two groups inside one card. */
+export function Divider() {
+  const theme = useTheme();
+  return (
+    <View style={{ backgroundColor: theme.colors.border, height: StyleSheet.hairlineWidth }} />
+  );
+}
+
+const styles = StyleSheet.create({
+  fill: { flex: 1 },
+  center: { alignItems: "center", justifyContent: "center" },
+  button: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 50,
+    paddingVertical: 14,
+  },
+  // Every tap target clears the 44pt minimum, including the quiet ones.
+  textButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    paddingVertical: 10,
+  },
+  pressed: { opacity: 0.65 },
+  inactive: { opacity: 0.4 },
+  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  shrink: { flexShrink: 1 },
+  value: { fontWeight: "600" },
+});
