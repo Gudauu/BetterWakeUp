@@ -368,4 +368,61 @@ describe("one account's life through the app's own screens", () => {
     );
     expect(screen.getByTestId("home-current-task")).toBeOnTheScreen();
   });
+
+  it("walks a day with no signal and says so on home until the walk lands", async () => {
+    // The case the on-device store exists for, end to end. Before home could
+    // read the store, someone who walked in a basement came back to a screen
+    // that looked exactly as it had before they got up - no sign the walk
+    // existed, and nothing to say it still had to reach the server.
+    const server = journeyServer();
+    await launch(server);
+    const user = userEvent.setup();
+
+    await user.press(await screen.findByTestId("sign-in-apple"));
+    await user.press(await screen.findByTestId("home-create-challenge"));
+    await waitFor(() => expect(screen.queryByTestId("projection")).not.toBeNull());
+    await fireEvent(screen.getByTestId("confirm-time-zone"), "valueChange", true);
+    for (const disclosure of disclosuresFor(0)) {
+      await fireEvent(screen.getByTestId(`disclosure-${disclosure.id}`), "valueChange", true);
+    }
+    await user.press(screen.getByTestId("start-challenge"));
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+
+    // The walk happens where there is no signal.
+    await user.press(screen.getByTestId("home-open-task"));
+    expect(await screen.findByTestId("daily-completion")).toBeOnTheScreen();
+    await user.press(screen.getByTestId("start-capture"));
+    server.setOffline(true);
+    await user.press(screen.getByTestId("simulate-enough-steps"));
+    await user.press(screen.getByTestId("stop-capture"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("progression")).toHaveTextContent(/waiting for the server/),
+    );
+    expect(server.completions()).toHaveLength(0);
+
+    // Back in signal, but nothing has re-sent it yet: home is where the user
+    // looks, and home says the walk is real and not yet counted.
+    server.setOffline(false);
+    await user.press(screen.getByTestId("daily-back"));
+
+    expect(await screen.findByTestId("home-task-waiting")).toHaveTextContent(
+      /Walked and saved on this phone/,
+    );
+    expect(screen.getByTestId("home-progress")).toHaveTextContent(
+      new RegExp(`0 of ${REQUIRED_TASK_COUNT} days done`),
+    );
+
+    // And the card leads back to the walk, where sending it can be retried.
+    await user.press(screen.getByTestId("home-open-task"));
+    await user.press(await screen.findByTestId("retry-sync"));
+
+    await waitFor(() => expect(server.completions()).toHaveLength(1));
+    await user.press(screen.getByTestId("daily-back"));
+
+    expect(await screen.findByTestId("home-progress")).toHaveTextContent(
+      new RegExp(`1 of ${REQUIRED_TASK_COUNT} days done`),
+    );
+    expect(screen.queryByTestId("home-task-waiting")).toBeNull();
+  });
 });

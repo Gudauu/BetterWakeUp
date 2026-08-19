@@ -23,6 +23,7 @@ import {
 } from "./support/fake-api.ts";
 import {
   type FakeCompletionRuntime,
+  type FakeRuntimeOptions,
   fakeCompletionRuntimeFactory,
 } from "./support/fake-completion-runtime.ts";
 import { type FakeNotifier, fakeNotifier } from "./support/fake-notifier.ts";
@@ -60,13 +61,16 @@ async function renderHome(
     notifier?: FakeNotifier;
     /** How a card is asked for, once home offers to replace one that lapsed. */
     paymentSheet?: FakePaymentSheet;
+    /** Walks already recorded on this device and not yet sent. */
+    seed?: FakeRuntimeOptions["seed"];
   } = {},
 ) {
   // Home holds a completion runtime for as long as it is on screen, so every
   // one of these tests gets one with no device under it.
-  const createRuntime = fakeCompletionRuntimeFactory(
-    options.onRuntimeOpened === undefined ? {} : { onOpened: options.onRuntimeOpened },
-  );
+  const createRuntime = fakeCompletionRuntimeFactory({
+    ...(options.onRuntimeOpened === undefined ? {} : { onOpened: options.onRuntimeOpened }),
+    ...(options.seed === undefined ? {} : { seed: options.seed }),
+  });
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <SessionProvider
@@ -415,6 +419,83 @@ describe("home is the door to today's task", () => {
     screen.unmount();
 
     await waitFor(() => expect(runtime.disposals()).toBe(1));
+  });
+});
+
+describe("home says what this device is still holding", () => {
+  const TASK_ID = "44444444-4444-4444-8444-444444444444";
+
+  function walk(taskId: string) {
+    return {
+      challengeId: "33333333-3333-4333-8333-333333333333",
+      taskId,
+      completedAt: "2026-09-01T13:40:00.000Z",
+      observation: {
+        startedAt: "2026-09-01T13:30:00.000Z",
+        endedAt: "2026-09-01T13:40:00.000Z",
+        steps: 300,
+        provenance: "live-foreground",
+        source: "expo-pedometer-ios",
+      },
+      appVersion: "1.0.0-test",
+      verificationPolicyVersion: "live-foreground-steps.1",
+    } as const;
+  }
+
+  const runningWithTask = fakeApi({
+    getCurrentChallenge: {
+      challenge: challengeView({ currentTask: taskView({ id: TASK_ID }) }),
+      lastEnded: null,
+    },
+  });
+
+  it("shows the step target when nothing has been walked yet", async () => {
+    await renderHome(runningWithTask);
+
+    expect(await screen.findByTestId("home-current-task")).toHaveTextContent(
+      /250 steps to keep the day/,
+    );
+    expect(screen.queryByTestId("home-task-waiting")).toBeNull();
+    expect(screen.getByTestId("home-open-task")).toHaveTextContent("Open today's task");
+  });
+
+  it("says today's walk is saved here and not yet at the server", async () => {
+    // The case that used to be invisible: a walk taken with no signal left home
+    // reading exactly as it did before the user got up.
+    await renderHome(runningWithTask, { seed: [{ input: walk(TASK_ID) }] });
+
+    expect(await screen.findByTestId("home-task-waiting")).toHaveTextContent(
+      /Walked and saved on this phone/,
+    );
+    expect(screen.getByTestId("home-open-task")).toHaveTextContent("See today's walk");
+  });
+
+  it("says the server refused today's walk, which no retry will change", async () => {
+    await renderHome(runningWithTask, {
+      seed: [
+        {
+          input: walk(TASK_ID),
+          rejected: { code: "validation_failed", message: "The observation was not accepted." },
+        },
+      ],
+    });
+
+    expect(await screen.findByTestId("home-task-refused")).toHaveTextContent(
+      /would not take today's walk/,
+    );
+    expect(screen.queryByTestId("home-task-waiting")).toBeNull();
+  });
+
+  it("names a walk left over from an earlier day", async () => {
+    await renderHome(runningWithTask, {
+      seed: [{ input: walk("66666666-6666-4666-8666-666666666666") }],
+    });
+
+    expect(await screen.findByTestId("home-earlier-unsent")).toHaveTextContent(
+      /An earlier walk is still waiting/,
+    );
+    // Today is untouched by it: the user has still not walked today.
+    expect(screen.queryByTestId("home-task-waiting")).toBeNull();
   });
 });
 

@@ -23,6 +23,7 @@ import {
   createConfiguredCompletionRuntime,
   useCompletionRuntime,
 } from "../completions/runtime.ts";
+import { type UnsentWork, useUnsentWork } from "../completions/unsent-work.ts";
 import { createConfiguredPaymentSheet, type PaymentSheet } from "../payments/payment-sheet.ts";
 import { needsPaymentMethod } from "../payments/replace-payment-method.ts";
 import {
@@ -172,6 +173,13 @@ export function HomeScreen({
   const reminders = useReminders(
     state.status === "loaded" ? state.challenge : undefined,
     reminderNotifier,
+  );
+  // What this device is still holding. Home is where someone who walked with no
+  // signal comes back to, so it has to be able to say that the walk exists and
+  // has not been counted yet.
+  const unsent = useUnsentWork(
+    runtime,
+    state.status === "loaded" ? (state.challenge?.currentTask?.id ?? null) : null,
   );
   // Opening the form retires the finish: whatever comes back from it, the last
   // challenge is no longer the thing the screen is about.
@@ -363,6 +371,7 @@ export function HomeScreen({
         <ChallengeCard
           challenge={state.challenge}
           reminders={reminders}
+          unsent={unsent}
           timeZoneMove={keptTimeZone ? null : timeZoneMoveFor(state.challenge, here)}
           onOpenTask={() => setRoute("task")}
           onOpenPause={() => setRoute("pause")}
@@ -394,6 +403,7 @@ export function HomeScreen({
 function ChallengeCard({
   challenge,
   reminders,
+  unsent,
   timeZoneMove,
   onOpenTask,
   onOpenPause,
@@ -403,6 +413,7 @@ function ChallengeCard({
 }: {
   challenge: ChallengeView;
   reminders: RemindersState;
+  unsent: UnsentWork;
   timeZoneMove: TimeZoneMove | null;
   onOpenTask: () => void;
   onOpenPause: () => void;
@@ -427,17 +438,51 @@ function ChallengeCard({
       {currentTask === null ? null : (
         <Card testID="home-current-task" style={styles.taskCard}>
           <AppText variant="caption" tone="accent">
-            YOUR NEXT WALK
+            {unsent.currentTask === "none" ? "YOUR NEXT WALK" : "TODAY'S WALK"}
           </AppText>
           <AppText variant="title">{formatDay(currentTask.date)}</AppText>
           <AppText variant="small" tone="muted" testID="home-task-deadline">
             Deadline {formatDeadline(currentTask.deadline, configuration.timeZone)}
           </AppText>
-          <AppText variant="small" tone="muted">
-            {configuration.stepTarget} steps to keep the day.
-          </AppText>
-          <Button testID="home-open-task" label="Open today's task" onPress={onOpenTask} />
+          {/* What this device is holding for today, in place of the step
+              target: someone who has already walked is asking a different
+              question, and the target is no longer the answer to it. */}
+          {unsent.currentTask === "waiting" ? (
+            <AppText variant="small" tone="warning" testID="home-task-waiting">
+              Walked and saved on this phone. It still has to reach the server before the deadline,
+              so keep the app open where there is signal.
+            </AppText>
+          ) : unsent.currentTask === "refused" ? (
+            <AppText
+              variant="small"
+              tone="danger"
+              testID="home-task-refused"
+              accessibilityRole="alert"
+            >
+              The server would not take today's walk. Open it to see why.
+            </AppText>
+          ) : (
+            <AppText variant="small" tone="muted">
+              {configuration.stepTarget} steps to keep the day.
+            </AppText>
+          )}
+          <Button
+            testID="home-open-task"
+            label={unsent.currentTask === "none" ? "Open today's task" : "See today's walk"}
+            onPress={onOpenTask}
+          />
         </Card>
+      )}
+
+      {/* A walk from an earlier day that the server never took. Nothing to
+          press: sync retries it on every trigger, and saying so is the point -
+          the day is not lost work sitting unnoticed on the phone. */}
+      {unsent.earlierWaiting === 0 ? null : (
+        <AppText variant="small" tone="warning" testID="home-earlier-unsent">
+          {unsent.earlierWaiting === 1
+            ? "An earlier walk is still waiting to reach the server. It sends itself as soon as you are online."
+            : `${unsent.earlierWaiting} earlier walks are still waiting to reach the server. They send themselves as soon as you are online.`}
+        </AppText>
       )}
 
       <Reminders challenge={challenge} reminders={reminders} />

@@ -65,6 +65,12 @@ export interface JourneyServer extends ApiClient {
    * challenge runs on. Nothing the app does causes this either.
    */
   lapsePaymentMethod(): void;
+  /**
+   * The phone losing signal, as a test can press it. Requests fail the way a
+   * failed fetch does - not an answer from the server - which is the case the
+   * on-device store exists for.
+   */
+  setOffline(offline: boolean): void;
 }
 
 export interface JourneyServerOptions {
@@ -98,6 +104,7 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
   /** The configuration a hold was authorized for, until its webhook lands. */
   let authorized: ChallengeView["configuration"] | null = null;
   let accountExists = true;
+  let offline = false;
   let taskCounter = 0;
 
   function nextTask(): TaskView {
@@ -349,8 +356,17 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
       challenge = { ...current, depositSecured: false };
     },
 
+    setOffline(next: boolean) {
+      offline = next;
+    },
+
     async request<Name extends ClientEndpointName>(name: Name, input: ApiRequest<Name>) {
       calls.push({ name, input });
+      if (offline) {
+        // Not an ApiError: nothing reached a server, which is exactly what the
+        // client sees when the request never leaves the phone.
+        throw new TypeError("Network request failed");
+      }
       const definition = ENDPOINTS[name];
 
       if (!accountExists && definition.auth === "session") {

@@ -365,6 +365,11 @@ Completed locally, synchronization pending
 
 Mobile background execution is not part of correctness.
 
+Home reads the store as well as the challenge.
+The task screen shows these states while it is open, but home is the screen someone opens after walking, and a walk still on the phone is invisible in the challenge the server answers with: the task is still scheduled and the day count has not moved.
+So home reports what this device is holding - today's walk saved but not yet sent, today's walk refused, or a walk left over from an earlier day - and a walk from an earlier day is reported without any action beside it, because sync retries it on its own and the task it belonged to is closed.
+The store is read again whenever sync publishes an outcome, so the moment a walk lands home stops saying it is waiting.
+
 ## Authentication
 
 Version 1 supports Sign in with Apple and Google Sign-In only.

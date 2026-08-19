@@ -9,6 +9,7 @@
 
 import type { ApiClient } from "../../src/api/client.ts";
 import type { CompletionRuntime, CompletionRuntimeFactory } from "../../src/completions/runtime.ts";
+import type { PendingCompletionInput } from "../../src/completions/store.ts";
 import { openPendingCompletionStore } from "../../src/completions/store.ts";
 import { createCompletionSync } from "../../src/completions/sync.ts";
 import { createMovementCapture } from "../../src/movement/capture.ts";
@@ -27,6 +28,16 @@ export interface FakeRuntimeOptions {
   readonly now?: () => Date;
   /** Left unset so the fake is reused; set to inspect the runtime a test built. */
   readonly onOpened?: (runtime: FakeCompletionRuntime) => void;
+  /**
+   * Completions already on this device before anything renders, which is the
+   * state a phone is in after a walk taken with no signal. Written straight to
+   * the store rather than through sync, so they stay pending; the second field
+   * marks one as the refusal the server already gave.
+   */
+  readonly seed?: readonly {
+    readonly input: PendingCompletionInput;
+    readonly rejected?: { code: string; message: string };
+  }[];
 }
 
 /**
@@ -61,6 +72,13 @@ export async function openFakeCompletionRuntime(
     },
     now,
   });
+  for (const seeded of options.seed ?? []) {
+    const record = await store.record(seeded.input);
+    if (seeded.rejected !== undefined) {
+      await store.markRejected(record.id, seeded.rejected);
+    }
+  }
+
   const pedometer = createFakePedometer();
   const foreground = createFakeForeground();
   const sync = createCompletionSync({ store, client: api });
