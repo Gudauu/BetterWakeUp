@@ -143,6 +143,38 @@ export function historyLabel(history: ChallengeHistory): string {
 }
 
 /**
+ * What the marks in the row mean, in the order the row would meet them.
+ *
+ * Only the states actually on the row are named. A user four days into a clean
+ * challenge has no missed day and no forgiven one, and a taxonomy of six terms
+ * under a row of four squares is a manual rather than a key - worse, it names
+ * outcomes as though they had happened.
+ */
+export function historyLegend(history: ChallengeHistory): readonly LegendEntry[] {
+  const present = new Set(history.days.map((day) => day.state));
+  return LEGEND.filter((entry) => present.has(entry.state));
+}
+
+export interface LegendEntry {
+  readonly state: DayState;
+  readonly label: string;
+}
+
+/**
+ * The words for the marks. `skipped` is read back as the pause that caused it
+ * rather than as the server's own term, which describes what the sweep did and
+ * not what the user chose.
+ */
+const LEGEND: readonly LegendEntry[] = [
+  { state: "kept", label: "Walked" },
+  { state: "missed", label: "Missed" },
+  { state: "forgiven", label: "Forgiven" },
+  { state: "skipped", label: "Paused" },
+  { state: "due", label: "Due now" },
+  { state: "ahead", label: "Still to come" },
+];
+
+/**
  * The line over the row of days, or null when there is nothing worth saying.
  *
  * One kept day is not a streak, and saying "1 day in a row" on the morning

@@ -8,7 +8,12 @@
  */
 
 import type { ChallengeDay } from "@betterwakeup/contract";
-import { challengeHistory, historyLabel, streakSentence } from "../src/challenges/history.ts";
+import {
+  challengeHistory,
+  historyLabel,
+  historyLegend,
+  streakSentence,
+} from "../src/challenges/history.ts";
 import { challengeView } from "./support/fake-api.ts";
 
 /** A challenge whose calendar is exactly these statuses, in order. */
@@ -116,5 +121,44 @@ describe("the row read aloud", () => {
     );
 
     expect(label).toBe("Your days: 1 kept, 1 missed, 1 forgiven, 1 skipped, 1 still to come.");
+  });
+});
+
+describe("the key to the row", () => {
+  it("names only the marks the row actually draws", () => {
+    // Four days into a clean challenge there is no missed day and no forgiven
+    // one. Naming them anyway would read as a list of things that happened.
+    const legend = historyLegend(
+      challengeHistory(withDays(["completed", "scheduled", "scheduled"])),
+    );
+
+    expect(legend.map((entry) => entry.label)).toEqual(["Walked", "Due now", "Still to come"]);
+  });
+
+  it("names every outcome once the challenge has had them", () => {
+    const legend = historyLegend(
+      challengeHistory(withDays(["completed", "missed", "forgiven", "skipped", "scheduled"])),
+    );
+
+    expect(legend.map((entry) => entry.state)).toEqual([
+      "kept",
+      "missed",
+      "forgiven",
+      "skipped",
+      "due",
+    ]);
+  });
+
+  it("reads a skipped day back as the pause that caused it", () => {
+    // "Skipped" is what the sweep did. The user paused, and never chose to skip
+    // anything.
+    const legend = historyLegend(challengeHistory(withDays(["skipped", "scheduled"])));
+
+    expect(legend.map((entry) => entry.label)).toContain("Paused");
+    expect(legend.map((entry) => entry.label)).not.toContain("Skipped");
+  });
+
+  it("has nothing to explain about a challenge with no days", () => {
+    expect(historyLegend(challengeHistory(challengeView({ days: [] })))).toEqual([]);
   });
 });

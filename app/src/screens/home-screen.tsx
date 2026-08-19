@@ -21,6 +21,7 @@ import {
   challengeHistory,
   type DayState,
   historyLabel,
+  historyLegend,
   streakSentence,
 } from "../challenges/history.ts";
 import { missCost } from "../challenges/miss-cost.ts";
@@ -84,6 +85,8 @@ import {
   Banner,
   Button,
   Card,
+  DayLegend,
+  type DayMark,
   type DayMarkTone,
   DayStrip,
   DetailRow,
@@ -225,6 +228,28 @@ const DAY_TONE: Readonly<Record<DayState, DayMarkTone>> = {
   due: "accent",
   ahead: "muted",
 };
+
+/**
+ * Which days are drawn as a ring rather than a block: the one being asked for
+ * now, and the ones a pause meant nobody was asked about. A filled mark is a
+ * day that resolved into something - a walk, a miss, a spent allowance - and a
+ * ring is a day that did not, which is also what keeps a skipped day from being
+ * the same mark as a forgiven one when they share a colour.
+ */
+const DAY_OUTLINED: Readonly<Record<DayState, boolean>> = {
+  kept: false,
+  missed: false,
+  forgiven: false,
+  skipped: true,
+  due: true,
+  ahead: false,
+};
+
+function dayMarkFor(state: DayState): DayMark {
+  return DAY_OUTLINED[state]
+    ? { tone: DAY_TONE[state], outlined: true }
+    : { tone: DAY_TONE[state] };
+}
 
 export function HomeScreen({
   onSignOut,
@@ -916,9 +941,16 @@ function ChallengeCard({
               <DayStrip
                 testID="home-day-strip"
                 accessibilityLabel={historyLabel(history)}
-                days={history.days.map((day) => ({
-                  tone: DAY_TONE[day.state],
-                  ...(day.state === "due" ? { outlined: true } : {}),
+                days={history.days.map((day) => dayMarkFor(day.state))}
+              />
+              {/* Which square is which. The row is otherwise colour alone, and
+                  the two colours it leans on hardest - a kept morning and a
+                  missed one - are the pair most commonly seen as one. */}
+              <DayLegend
+                testID="home-day-legend"
+                items={historyLegend(history).map((entry) => ({
+                  mark: dayMarkFor(entry.state),
+                  label: entry.label,
                 }))}
               />
               {streak === null ? null : (

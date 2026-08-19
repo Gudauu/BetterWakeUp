@@ -480,13 +480,6 @@ export function DayStrip({
   readonly testID?: string;
 }) {
   const theme = useTheme();
-  const colors: Readonly<Record<DayMarkTone, string>> = {
-    success: theme.colors.success,
-    danger: theme.colors.danger,
-    warning: theme.colors.warning,
-    accent: theme.colors.accent,
-    muted: theme.colors.track,
-  };
   return (
     <View
       testID={testID}
@@ -500,17 +493,71 @@ export function DayStrip({
           // be the same mark without being the same day.
           // biome-ignore lint/suspicious/noArrayIndexKey: position is the day
           key={index}
-          style={[
-            styles.dayMark,
-            { borderRadius: theme.radius.sm },
-            day.outlined === true
-              ? { borderColor: colors[day.tone], borderWidth: 2 }
-              : { backgroundColor: colors[day.tone] },
-          ]}
+          style={dayMarkStyle(theme, day)}
         />
       ))}
     </View>
   );
+}
+
+/**
+ * What each mark in the row means, spelled out.
+ *
+ * Without it the row is colour and nothing else, which is a fact withheld from
+ * anyone who cannot separate the green of a kept morning from the red of a
+ * missed one - and a guess for everyone else, since no screen ever said which
+ * was which.
+ *
+ * It is hidden from a screen reader on purpose: `DayStrip` already carries the
+ * counts as a sentence, and a legend explaining colours to someone who is not
+ * looking at them is six announcements that help nobody.
+ */
+export function DayLegend({
+  items,
+  testID,
+}: {
+  readonly items: readonly { readonly mark: DayMark; readonly label: string }[];
+  readonly testID?: string;
+}) {
+  const theme = useTheme();
+  return (
+    <View
+      testID={testID}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={styles.dayLegend}
+    >
+      {items.map(({ mark, label }) => (
+        <View key={label} style={styles.dayLegendItem}>
+          <View style={dayMarkStyle(theme, mark)} />
+          <AppText variant="caption" tone="muted">
+            {label}
+          </AppText>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/**
+ * One mark, drawn the same way wherever it appears. The legend is a lie the
+ * moment it draws a swatch the row would not draw, so both go through here.
+ */
+function dayMarkStyle(theme: Theme, mark: DayMark) {
+  const colors: Readonly<Record<DayMarkTone, string>> = {
+    success: theme.colors.success,
+    danger: theme.colors.danger,
+    warning: theme.colors.warning,
+    accent: theme.colors.accent,
+    muted: theme.colors.track,
+  };
+  return [
+    styles.dayMark,
+    { borderRadius: theme.radius.sm },
+    mark.outlined === true
+      ? { borderColor: colors[mark.tone], borderWidth: 2 }
+      : { backgroundColor: colors[mark.tone] },
+  ];
 }
 
 export interface FieldProps {
@@ -824,4 +871,6 @@ const styles = StyleSheet.create({
   // one glance, and a row the user has to swipe hides the days behind the edge.
   dayStrip: { flexDirection: "row", flexWrap: "wrap", gap: 5 },
   dayMark: { height: 14, width: 14 },
+  dayLegend: { flexDirection: "row", flexWrap: "wrap", columnGap: 14, rowGap: 6 },
+  dayLegendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
 });

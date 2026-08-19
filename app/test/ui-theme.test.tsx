@@ -12,6 +12,7 @@ import {
   AppText,
   Button,
   Chip,
+  DayLegend,
   DayStrip,
   Field,
   Screen,
@@ -324,5 +325,45 @@ describe("the row of days", () => {
       borderColor: lightTheme.colors.accent,
       borderWidth: 2,
     });
+  });
+});
+
+describe("the key to the row of days", () => {
+  it("draws each swatch exactly as the row draws that day", async () => {
+    // A legend whose green is not the row's green explains nothing.
+    await draw(
+      <DayLegend
+        testID="legend"
+        items={[
+          { mark: { tone: "success" }, label: "Walked" },
+          { mark: { tone: "accent", outlined: true }, label: "Due now" },
+        ]}
+      />,
+    );
+
+    // Queried through hidden elements on purpose: the legend is deliberately
+    // out of the accessibility tree, which is also what takes it out of the
+    // default query set.
+    const [walked, due] = screen.getByTestId("legend", { includeHiddenElements: true })
+      .children as unknown as {
+      props: { children: { props: { style: unknown } }[] };
+    }[];
+    expect(StyleSheet.flatten(walked?.props.children[0]?.props.style)).toMatchObject({
+      backgroundColor: lightTheme.colors.success,
+    });
+    expect(StyleSheet.flatten(due?.props.children[0]?.props.style)).toMatchObject({
+      borderColor: lightTheme.colors.accent,
+      borderWidth: 2,
+    });
+  });
+
+  it("is not read out, because the row already says the counts in words", async () => {
+    await draw(
+      <DayLegend testID="legend" items={[{ mark: { tone: "success" }, label: "Walked" }]} />,
+    );
+
+    const legend = screen.getByTestId("legend", { includeHiddenElements: true });
+    expect(legend).toHaveProp("accessibilityElementsHidden", true);
+    expect(legend).toHaveProp("importantForAccessibility", "no-hide-descendants");
   });
 });

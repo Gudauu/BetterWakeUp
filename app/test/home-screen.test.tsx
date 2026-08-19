@@ -6,6 +6,7 @@
 
 import type { ChallengeDay } from "@betterwakeup/contract";
 import { act, fireEvent, render, screen, userEvent, waitFor } from "@testing-library/react-native";
+import { StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import type { ApiClient } from "../src/api/client.ts";
 import { ApiError } from "../src/api/errors.ts";
@@ -16,6 +17,7 @@ import { HomeScreen } from "../src/screens/home-screen.tsx";
 import { SessionProvider } from "../src/session/session-context.tsx";
 import { createMemorySessionStore } from "../src/session/session-store.ts";
 import { CLOCK_INTERVAL_MS } from "../src/ui/clock.ts";
+import { lightTheme } from "../src/ui/theme.ts";
 import {
   challengeDays,
   challengeView,
@@ -281,6 +283,46 @@ describe("home's row of days", () => {
 
     expect(await screen.findByTestId("home-day-strip")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-streak")).toBeNull();
+  });
+
+  it("says which square is which, for a reader who cannot separate the colours", async () => {
+    // Kept and missed are drawn in green and red - the pair most commonly seen
+    // as one colour - and until the key was drawn nothing on any screen said
+    // which was which.
+    await renderHome(withDays(["completed", "missed", "scheduled", "scheduled"]));
+
+    await screen.findByTestId("home-day-strip");
+    const legend = screen.getByTestId("home-day-legend", { includeHiddenElements: true });
+    expect(legend).toHaveTextContent(/Walked/);
+    expect(legend).toHaveTextContent(/Missed/);
+    expect(legend).toHaveTextContent(/Due now/);
+    expect(legend).toHaveTextContent(/Still to come/);
+  });
+
+  it("leaves outcomes the challenge has not had out of the key", async () => {
+    await renderHome(withDays(["completed", "scheduled", "scheduled"]));
+
+    await screen.findByTestId("home-day-strip");
+    const legend = screen.getByTestId("home-day-legend", { includeHiddenElements: true });
+    expect(legend).not.toHaveTextContent(/Missed/);
+    expect(legend).not.toHaveTextContent(/Forgiven/);
+    expect(legend).not.toHaveTextContent(/Paused/);
+  });
+
+  it("marks a paused day apart from a forgiven one, which shares its colour", async () => {
+    // Both are amber, so colour alone would make them the same square and the
+    // key would name one mark twice.
+    await renderHome(withDays(["forgiven", "skipped", "scheduled"]));
+
+    const [forgiven, skipped] = (await screen.findByTestId("home-day-strip"))
+      .children as unknown as { props: { style: unknown } }[];
+    expect(StyleSheet.flatten(forgiven?.props.style)).toMatchObject({
+      backgroundColor: lightTheme.colors.warning,
+    });
+    expect(StyleSheet.flatten(skipped?.props.style)).toMatchObject({
+      borderColor: lightTheme.colors.warning,
+      borderWidth: 2,
+    });
   });
 
   it("draws no row for a challenge whose days do not exist yet", async () => {

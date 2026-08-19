@@ -322,6 +322,17 @@ A broken run is not mentioned either: the row already shows the day that broke i
 `DayStrip` draws the row as one accessible element carrying a sentence its caller wrote, not as thirty unlabelled squares.
 Colour is the whole of what the row says visually, so without that sentence a screen reader would reach thirty announcements of nothing.
 
+`DayLegend` says which square is which, because that same "colour is the whole of it" is a problem for a sighted reader too.
+A kept morning is green and a missed one is red, which is the pair most commonly seen as one colour, and no screen in the app had ever said which was which - the row was a code with no key.
+It names only the states actually on the row: a taxonomy of six terms under a run of four clean days is a manual rather than a key, and it names outcomes as though they had happened.
+`skipped` is read back as "Paused", which is what the user did; "skipped" is what the sweep did to the day afterwards.
+
+A mark is filled when the day resolved into something - a walk, a miss, a spent allowance - and drawn as a ring when it did not.
+That is what separates a skipped day from a forgiven one, which share the warning colour, and it is why the day due now is a ring rather than a block.
+The legend and the row draw a mark through the same code, since a legend whose green is not the row's green explains nothing.
+
+The legend is deliberately out of the accessibility tree: the row already carries the counts as a sentence, and explaining colours to someone who is not looking at them is six announcements that help nobody.
+
 ### The end of a challenge
 
 `GET /challenges/current` answers null in `challenge` for every terminal challenge: "current" is the challenge holding the account's slot, and a challenge that ended holds nothing and offers nothing to act on.
