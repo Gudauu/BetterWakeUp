@@ -53,6 +53,7 @@ import {
   unsentPastDeadlineText,
 } from "../completions/time-left.ts";
 import { heldWalksText, type UnsentWork, useUnsentWork } from "../completions/unsent-work.ts";
+import { attemptsText, waitingReading } from "../completions/waiting-reason.ts";
 import { type BackPressTrigger, useBackPress } from "../device/back-press.ts";
 import {
   createConfiguredSettingsLauncher,
@@ -810,6 +811,11 @@ function ChallengeCard({
   // Past the deadline nothing walked now can count, so the card stops asking
   // for a walk and says what happened instead.
   const morningGone = left !== null && left.urgency === "expired";
+  // Why a walk this phone is holding has not landed. Without it the card
+  // blames the signal for every delay, including the two the server itself
+  // asked for.
+  const waiting = unsent.currentPending === null ? null : waitingReading(unsent.currentPending);
+  const attempts = unsent.currentPending === null ? null : attemptsText(unsent.currentPending);
   // What one missed morning would do, which turns on the deposit and on an
   // allowance only the server can speak for.
   const miss = missCost(challenge);
@@ -876,11 +882,23 @@ function ChallengeCard({
               target: someone who has already walked is asking a different
               question, and the target is no longer the answer to it. */}
           {unsent.currentTask === "waiting" ? (
-            <AppText variant="small" tone="warning" testID="home-task-waiting">
-              {morningGone
-                ? unsentPastDeadlineText(deadlineTime)
-                : "Walked and saved on this phone. It still has to reach the server before the deadline, so keep the app open where there is signal - it keeps trying by itself until the walk lands."}
-            </AppText>
+            <>
+              <AppText variant="small" tone="warning" testID="home-task-waiting">
+                {morningGone
+                  ? unsentPastDeadlineText(deadlineTime)
+                  : `Walked and saved on this phone. It still has to reach the server before the deadline. ${waiting?.advice ?? ""}`.trim()}
+              </AppText>
+              {/* Why it has not landed. Worth saying even once the deadline
+                  has gone by: the walk is still being sent, and what is
+                  holding it up is the difference between a phone to move and
+                  a server to wait for. */}
+              {waiting?.reason == null ? null : (
+                <AppText variant="small" tone="muted" testID="home-task-waiting-reason">
+                  {waiting.reason}
+                  {attempts === null ? "" : ` ${attempts}`}
+                </AppText>
+              )}
+            </>
           ) : unsent.currentTask === "refused" ? (
             <AppText
               variant="small"

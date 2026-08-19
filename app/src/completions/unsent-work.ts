@@ -31,27 +31,39 @@ export interface UnsentWork {
   readonly currentTask: CurrentTaskRecord;
   /** Walks recorded for some earlier task that the server still has not taken. */
   readonly earlierWaiting: number;
+  /**
+   * The current task's own record while it is still pending, so home can say
+   * why it has not landed rather than only that it has not. Null in every
+   * other state, refusals included: a refused record is read for its refusal.
+   */
+  readonly currentPending: PendingCompletionRecord | null;
 }
 
-export const NO_UNSENT_WORK: UnsentWork = { currentTask: "none", earlierWaiting: 0 };
+export const NO_UNSENT_WORK: UnsentWork = {
+  currentTask: "none",
+  earlierWaiting: 0,
+  currentPending: null,
+};
 
 export function unsentWork(
   records: readonly PendingCompletionRecord[],
   currentTaskId: string | null,
 ): UnsentWork {
   const mine = currentTaskId === null ? [] : records.filter((r) => r.taskId === currentTaskId);
+  const minePending = mine.find((r) => r.status === "pending") ?? null;
   const currentTask: CurrentTaskRecord = mine.some((r) => r.status === "rejected")
     ? "refused"
-    : mine.some((r) => r.status === "pending")
+    : minePending !== null
       ? "waiting"
       : "none";
+  const currentPending = currentTask === "waiting" ? minePending : null;
   // Only pending records are counted here. A record refused on an earlier day
   // cannot be acted on from anywhere - the task it belonged to is closed - so
   // reporting it on home would be a worry with no press behind it.
   const earlierWaiting = records.filter(
     (r) => r.status === "pending" && r.taskId !== currentTaskId,
   ).length;
-  return { currentTask, earlierWaiting };
+  return { currentTask, earlierWaiting, currentPending };
 }
 
 /**

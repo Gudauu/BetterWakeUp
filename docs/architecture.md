@@ -1020,6 +1020,25 @@ A direct `syncAll` is one caller asking one question, and a timer outliving it w
 A record stops holding a clock open after eight failed attempts, a little over twenty minutes of the app trying by itself, which covers a morning's deadline.
 It is still pending and still sent on every trigger: what ends is the app's own waiting, not the record.
 
+#### Why a walk is still waiting
+
+The store writes down `lastErrorCode`, `lastErrorMessage` and a running `attempts` count on every failed attempt, and for a long time nothing read any of it on a record that was still pending.
+Both surfaces that mention a waiting walk - home's today card and the task screen's advice line - said one fixed sentence: keep the app open where there is signal.
+That is right for exactly one of the ways an attempt fails.
+A walk the server itself deferred, on a rate limit or on a command it is still working on, reached the server perfectly well, so telling its owner to go and find signal sends them to fix something that is not broken on the morning their money is at stake.
+
+`app/src/completions/waiting-reason.ts` reads the record into a cause, the sentence for it, and the advice that follows.
+A rate limit says the server is limiting how often this phone may send and that nothing here is wrong; an in-progress command says the server already has this walk and the app is waiting for its answer rather than sending it twice.
+
+One ambiguity is deliberately not papered over.
+The contract has no error code for "this request never left the phone", so the API client raises both that and a server that answered 500 as `internal_error`, and the record cannot tell them apart after the fact.
+That reading is therefore worded to be true either way - the attempt did not get through, either because this phone could not reach BetterWakeUp or because the server could not take it - rather than guessing which happened and being confidently wrong half the time.
+
+The advice also follows the retry clock.
+Inside the eight attempts sync keeps a timer for, "keep the app open" is a true description of what will send the walk.
+Past it the record is still pending but nothing is counting down, so the advice becomes the two things that do send it: reopening the app, or the connection coming back.
+The attempt count is said only from two failures up, because one is ordinary and saying so is noise.
+
 The interface exposes these states:
 
 ```text

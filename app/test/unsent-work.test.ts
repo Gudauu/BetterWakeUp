@@ -43,13 +43,18 @@ describe("unsent work", () => {
   });
 
   it("reports today's walk as waiting while its record is pending", () => {
-    expect(unsentWork([record()], TASK)).toEqual({ currentTask: "waiting", earlierWaiting: 0 });
+    expect(unsentWork([record()], TASK)).toEqual({
+      currentTask: "waiting",
+      earlierWaiting: 0,
+      currentPending: record(),
+    });
   });
 
   it("reports a refusal for today's task, which a retry would not change", () => {
     expect(unsentWork([record({ status: "rejected" })], TASK)).toEqual({
       currentTask: "refused",
       earlierWaiting: 0,
+      currentPending: null,
     });
   });
 
@@ -60,12 +65,30 @@ describe("unsent work", () => {
 
   it("counts a pending record from an earlier task as earlier work", () => {
     const records = [record(), record({ id: "record-2", taskId: OTHER_TASK })];
-    expect(unsentWork(records, TASK)).toEqual({ currentTask: "waiting", earlierWaiting: 1 });
+    expect(unsentWork(records, TASK)).toEqual({
+      currentTask: "waiting",
+      earlierWaiting: 1,
+      currentPending: record(),
+    });
   });
 
   it("counts every held record as earlier work when no task is open", () => {
     const records = [record(), record({ id: "record-2", taskId: OTHER_TASK })];
-    expect(unsentWork(records, null)).toEqual({ currentTask: "none", earlierWaiting: 2 });
+    expect(unsentWork(records, null)).toEqual({
+      currentTask: "none",
+      earlierWaiting: 2,
+      currentPending: null,
+    });
+  });
+
+  it("hands back the pending record itself, so the screen can say why it is waiting", () => {
+    const mine = record({ attempts: 3, lastErrorCode: "rate_limited" });
+    expect(unsentWork([mine], TASK).currentPending).toBe(mine);
+  });
+
+  it("hands back no record once a refusal outranks the one still pending", () => {
+    const records = [record(), record({ id: "record-2", status: "rejected" })];
+    expect(unsentWork(records, TASK).currentPending).toBeNull();
   });
 
   it("leaves an earlier refusal out, because nothing can be pressed about it", () => {

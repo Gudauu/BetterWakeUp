@@ -244,6 +244,45 @@ describe("what the screen says to do", () => {
     );
   });
 
+  it("says what stopped the walk reaching the server, not only that it has not", async () => {
+    const given = await harness(
+      fakeApi({ createCompletion: new TypeError("Network request failed") }),
+    );
+    await renderScreen(given);
+
+    await completeLocally(given);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("waiting-reason")).toHaveTextContent(/did not get through/),
+    );
+  });
+
+  it("does not send the user looking for signal when the server deferred the walk", async () => {
+    const given = await harness(
+      fakeApi({
+        createCompletion: new ApiError("rate_limited", "Too many requests.", { status: 429 }),
+      }),
+    );
+    await renderScreen(given);
+
+    await completeLocally(given);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("waiting-reason")).toHaveTextContent(
+        /limiting how often this phone can send/,
+      ),
+    );
+    expect(screen.getByTestId("daily-advice")).not.toHaveTextContent(/signal/);
+    expect(screen.getByTestId("daily-advice")).toHaveTextContent(/nothing to fix on this phone/);
+  });
+
+  it("says nothing about a reason before an attempt has come back", async () => {
+    const given = await harness();
+    await renderScreen(given);
+
+    expect(screen.queryByTestId("waiting-reason")).toBeNull();
+  });
+
   it("shows the walk against its target while the steps are being counted", async () => {
     const given = await harness();
     await renderScreen(given);

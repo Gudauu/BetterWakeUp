@@ -769,6 +769,63 @@ describe("home says what this device is still holding", () => {
     expect(screen.getByTestId("home-open-task")).toHaveTextContent("See today's walk");
   });
 
+  it("says nothing about a reason while the first attempt is still in the air", async () => {
+    await renderHome(runningWithTask, { seed: [{ input: walk(TASK_ID) }] });
+
+    await screen.findByTestId("home-task-waiting");
+    expect(screen.queryByTestId("home-task-waiting-reason")).toBeNull();
+  });
+
+  it("says an attempt did not get through without blaming the phone for it", async () => {
+    await renderHome(runningWithTask, {
+      seed: [
+        {
+          input: walk(TASK_ID),
+          failed: { code: "internal_error", message: "The request did not reach the server." },
+        },
+      ],
+    });
+
+    expect(await screen.findByTestId("home-task-waiting-reason")).toHaveTextContent(
+      /did not get through/,
+    );
+    expect(screen.getByTestId("home-task-waiting")).toHaveTextContent(/where there is signal/);
+  });
+
+  it("stops sending the user to find signal for a walk the server itself deferred", async () => {
+    await renderHome(runningWithTask, {
+      seed: [
+        {
+          input: walk(TASK_ID),
+          failed: { code: "rate_limited", message: "Too many requests.", times: 3 },
+        },
+      ],
+    });
+
+    expect(await screen.findByTestId("home-task-waiting-reason")).toHaveTextContent(
+      /limiting how often this phone can send/,
+    );
+    expect(screen.getByTestId("home-task-waiting")).not.toHaveTextContent(/signal/);
+    expect(screen.getByTestId("home-task-waiting")).toHaveTextContent(
+      /nothing to fix on this phone/,
+    );
+  });
+
+  it("counts the attempts once they are a pattern", async () => {
+    await renderHome(runningWithTask, {
+      seed: [
+        {
+          input: walk(TASK_ID),
+          failed: { code: "internal_error", message: "No.", times: 4 },
+        },
+      ],
+    });
+
+    expect(await screen.findByTestId("home-task-waiting-reason")).toHaveTextContent(
+      /Tried 4 times so far\./,
+    );
+  });
+
   it("says the server refused today's walk, which no retry will change", async () => {
     await renderHome(runningWithTask, {
       seed: [

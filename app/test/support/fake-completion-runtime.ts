@@ -33,10 +33,15 @@ export interface FakeRuntimeOptions {
    * state a phone is in after a walk taken with no signal. Written straight to
    * the store rather than through sync, so they stay pending; the second field
    * marks one as the refusal the server already gave.
+   *
+   * `failed` notes attempts that were made and did not land, leaving the
+   * record pending with the last failure written down - the state a walk is in
+   * when the phone has been trying all morning.
    */
   readonly seed?: readonly {
     readonly input: PendingCompletionInput;
     readonly rejected?: { code: string; message: string };
+    readonly failed?: { code: string; message: string; times?: number };
   }[];
 }
 
@@ -76,6 +81,15 @@ export async function openFakeCompletionRuntime(
     const record = await store.record(seeded.input);
     if (seeded.rejected !== undefined) {
       await store.markRejected(record.id, seeded.rejected);
+    }
+    if (seeded.failed !== undefined) {
+      const times = seeded.failed.times ?? 1;
+      for (let attempt = 0; attempt < times; attempt += 1) {
+        await store.noteAttemptFailed(record.id, {
+          code: seeded.failed.code,
+          message: seeded.failed.message,
+        });
+      }
     }
   }
 

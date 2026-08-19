@@ -35,6 +35,7 @@ import { refusalReading } from "../completions/refusal.ts";
 import type { PendingCompletionRecord, PendingCompletionStore } from "../completions/store.ts";
 import type { CompletionSync } from "../completions/sync.ts";
 import { deadlineMissedText, finishByText, timeLeft } from "../completions/time-left.ts";
+import { attemptsText, waitingReading } from "../completions/waiting-reason.ts";
 import {
   createConfiguredSettingsLauncher,
   type SettingsLauncher,
@@ -294,13 +295,21 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
   // outranks the day that ended it, a closed window outranks the invitation to
   // walk, and a kept day names the morning the challenge actually holds next
   // rather than assuming there is one tomorrow.
+  // Why a walk saved here has not landed yet, and what that makes worth doing.
+  // The store has recorded the last failure all along and no screen read it, so
+  // a walk the server itself deferred was reported as one this phone could not
+  // send.
+  const waiting = state.pendingRecord === null ? null : waitingReading(state.pendingRecord);
+  const attempts = state.pendingRecord === null ? null : attemptsText(state.pendingRecord);
   const advice = finished
     ? FINISHED_ADVICE
     : missed
       ? MISSED_ADVICE
       : state.status === "acknowledged"
         ? keptMorningText(nextMorningAfter(challenge, task))
-        : STATUS_ADVICE[state.status];
+        : state.status === "syncPending" && waiting !== null
+          ? `${SAVED_HERE} ${waiting.advice}`
+          : STATUS_ADVICE[state.status];
   // The receipt on the walk, drawn only where there is one to draw.
   const acceptedAt =
     state.status === "acknowledged"
@@ -378,6 +387,13 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
         {acceptedAt === null ? null : (
           <AppText variant="small" tone="muted" testID="acknowledged-at">
             {acceptedAt}
+          </AppText>
+        )}
+        {/* What is holding it up, under the advice that follows from it. */}
+        {waiting?.reason == null ? null : (
+          <AppText variant="small" tone="muted" testID="waiting-reason">
+            {waiting.reason}
+            {attempts === null ? "" : ` ${attempts}`}
           </AppText>
         )}
 
@@ -603,12 +619,17 @@ const PROGRESSION_HEADLINE: Readonly<Record<DailyCompletionState["status"], stri
  * acknowledged state is absent on purpose: what comes after a kept morning
  * depends on the challenge's own calendar, so `keptMorningText` says it.
  */
+/**
+ * The one fact that opens every waiting sentence, wherever the delay came
+ * from: the walk is not going to have to be taken again.
+ */
+const SAVED_HERE = "Your walk is saved on this phone.";
+
 const STATUS_ADVICE: Readonly<
   Record<Exclude<DailyCompletionState["status"], "acknowledged">, string>
 > = {
   incomplete: "Start the walk when you are up. The steps are counted while this screen is open.",
-  syncPending:
-    "Your walk is saved on this phone. Keep the app open where there is signal - it keeps trying to send it by itself.",
+  syncPending: `${SAVED_HERE} Keep the app open where there is signal - it keeps trying to send it by itself.`,
   rejected: "This walk was not accepted. The reason is below.",
 };
 
