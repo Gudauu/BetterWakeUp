@@ -10,11 +10,19 @@ import { disclosuresFor, type SessionView } from "@betterwakeup/contract";
 import { fireEvent, render, screen, userEvent, waitFor } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { type ChallengeDraft, createDraft } from "../src/challenges/draft.ts";
+import { NO_PROVIDER_MESSAGE, type PaymentSheet } from "../src/payments/payment-sheet.ts";
 import { CreateChallengeScreen } from "../src/screens/create-challenge-screen.tsx";
 import { SessionProvider } from "../src/session/session-context.tsx";
 import { createMemorySessionStore } from "../src/session/session-store.ts";
 import { formatDay } from "../src/ui/format.ts";
-import { challengeView, type FakeApi, fakeApi, PROJECTION } from "./support/fake-api.ts";
+import {
+  challengeView,
+  type FakeApi,
+  FUNDING_INTENT,
+  fakeApi,
+  PROJECTION,
+} from "./support/fake-api.ts";
+import { fakePaymentSheet } from "./support/fake-payment-sheet.ts";
 import { fakeProvider, fakeProviders } from "./support/fake-providers.ts";
 
 const SESSION: SessionView = {
@@ -42,7 +50,13 @@ function readyDraft(depositMinorUnits = 0): ChallengeDraft {
   });
 }
 
-async function renderScreen(draft: ChallengeDraft, api: FakeApi = fakeApi()) {
+async function renderScreen(
+  draft: ChallengeDraft,
+  api: FakeApi = fakeApi(),
+  // A card the user confirms, which is what every test not about the sheet
+  // itself assumes; the real one belongs to a provider and a device.
+  paymentSheet: PaymentSheet = fakePaymentSheet(),
+) {
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <SessionProvider
@@ -50,7 +64,7 @@ async function renderScreen(draft: ChallengeDraft, api: FakeApi = fakeApi()) {
         createClient={() => api}
         providers={fakeProviders({ google: fakeProvider() })}
       >
-        <CreateChallengeScreen initialDraft={draft} />
+        <CreateChallengeScreen initialDraft={draft} paymentSheet={paymentSheet} />
       </SessionProvider>
     </SafeAreaProvider>,
   );
@@ -142,8 +156,96 @@ describe("a funded challenge", () => {
     // And it is watching for the challenge rather than telling the user to
     // come back later: the hold is confirmed by the provider, not by any
     // press on this screen.
-    expect(screen.getByTestId("funding-waiting")).toBeOnTheScreen();
+    expect(await screen.findByTestId("funding-waiting")).toBeOnTheScreen();
     await waitFor(() => expect(api.names()).toContain("getCurrentChallenge"));
+  });
+
+  it("asks for a card, with the intent's own secret and the amount at stake", async () => {
+    // The hold is authorized on the device. Without this the app waited for a
+    // bank nobody had asked anything of: the user was never shown a sheet.
+    const sheet = fakePaymentSheet();
+    const api = await renderScreen(readyDraft(2000), fakeApi(), sheet);
+
+    await userEvent.press(screen.getByTestId("deposit-and-start"));
+
+    await waitFor(() => expect(sheet.presented).toHaveLength(1));
+    expect(sheet.presented[0]).toEqual({
+      clientSecret: FUNDING_INTENT.providerClientSecret,
+      amountMinorUnits: 2000,
+      currency: "USD",
+    });
+    // The intent is what the sheet completes, so it is asked for first.
+    expect(api.names().indexOf("createFundingIntent")).toBeLessThan(
+      api.names().indexOf("getCurrentChallenge"),
+    );
+  });
+
+  it("goes back to the form when the user closes the sheet, saying nothing was charged", async () => {
+    const api = await renderScreen(
+      readyDraft(2000),
+      fakeApi(),
+      fakePaymentSheet({ answer: { status: "cancelled" } }),
+    );
+
+    await userEvent.press(screen.getByTestId("deposit-and-start"));
+
+    expect(await screen.findByTestId("create-challenge")).toBeOnTheScreen();
+    expect(screen.getByTestId("funding-notice")).toHaveTextContent(/Nothing was charged/);
+    // A cancelled sheet authorized nothing, so there is nothing to watch for.
+    expect(api.names()).not.toContain("getCurrentChallenge");
+  });
+
+  it("lets a declined card be tried again on the same intent", async () => {
+    const sheet = fakePaymentSheet({
+      answer: (attempt) =>
+        attempt === 0
+          ? { status: "failed", message: "Your card was declined." }
+          : { status: "authorized" },
+    });
+    await renderScreen(readyDraft(2000), fakeApi(), sheet);
+
+    await userEvent.press(screen.getByTestId("deposit-and-start"));
+
+    expect(await screen.findByTestId("funding-card-error")).toHaveTextContent(/declined/);
+    await userEvent.press(screen.getByTestId("funding-card-retry"));
+
+    expect(await screen.findByTestId("funding-waiting")).toBeOnTheScreen();
+    expect(sheet.presented).toHaveLength(2);
+    expect(sheet.presented[1]?.clientSecret).toBe(FUNDING_INTENT.providerClientSecret);
+  });
+
+  it("survives a sheet that could not be opened at all", async () => {
+    await renderScreen(readyDraft(2000), fakeApi(), fakePaymentSheet({ throws: true }));
+
+    await userEvent.press(screen.getByTestId("deposit-and-start"));
+
+    expect(await screen.findByTestId("funding-card-error")).toHaveTextContent(
+      /Nothing was charged/,
+    );
+  });
+
+  it("offers the same challenge without a deposit when this build takes no cards", async () => {
+    // The honest answer to a build with no payment provider: the product that
+    // works today is the one with nothing but the habit at stake, and the user
+    // is one press away from it rather than stuck at a sheet that never opens.
+    await renderScreen(
+      readyDraft(2000),
+      fakeApi(),
+      fakePaymentSheet({ answer: { status: "unavailable", message: NO_PROVIDER_MESSAGE } }),
+    );
+
+    await userEvent.press(screen.getByTestId("deposit-and-start"));
+
+    expect(await screen.findByTestId("funding-unavailable")).toHaveTextContent(
+      /not available in this build/,
+    );
+
+    await userEvent.press(screen.getByTestId("funding-without-deposit"));
+
+    expect(await screen.findByTestId("create-challenge")).toBeOnTheScreen();
+    expect(screen.getByTestId("field-deposit")).toHaveProp("value", "");
+    expect(screen.getByTestId("start-challenge")).toBeOnTheScreen();
+    expect(screen.getByTestId("funding-notice")).toHaveTextContent(/deposit is off/);
   });
 
   it("moves on by itself once the hold clears and the challenge exists", async () => {
@@ -163,7 +265,11 @@ describe("a funded challenge", () => {
           }
           providers={fakeProviders({ google: fakeProvider() })}
         >
-          <CreateChallengeScreen initialDraft={readyDraft(2000)} onCreated={created} />
+          <CreateChallengeScreen
+            initialDraft={readyDraft(2000)}
+            onCreated={created}
+            paymentSheet={fakePaymentSheet()}
+          />
         </SessionProvider>
       </SafeAreaProvider>,
     );
@@ -300,7 +406,11 @@ describe("the form the user fills in", () => {
           createClient={() => fakeApi()}
           providers={fakeProviders({ google: fakeProvider() })}
         >
-          <CreateChallengeScreen initialDraft={readyDraft(2000)} onCancel={cancelled} />
+          <CreateChallengeScreen
+            initialDraft={readyDraft(2000)}
+            onCancel={cancelled}
+            paymentSheet={fakePaymentSheet()}
+          />
         </SessionProvider>
       </SafeAreaProvider>,
     );

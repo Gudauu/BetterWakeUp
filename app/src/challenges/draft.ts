@@ -21,6 +21,13 @@ import {
   type Weekday,
 } from "@betterwakeup/contract";
 
+/**
+ * The one currency the product takes a deposit in. Named here so the payment
+ * sheet asks for the same money the configuration states, rather than the two
+ * spelling it separately.
+ */
+export const DEPOSIT_CURRENCY = "USD";
+
 /** Monday first, which is how the weekly schedule reads to a user. */
 export const WEEKDAY_ORDER: readonly Weekday[] = [
   "monday",
@@ -161,7 +168,7 @@ export function configurationOf(draft: ChallengeDraft): DraftConfiguration {
     stepTarget: draft.stepTarget,
     noRegretMinutes: draft.noRegretMinutes,
     timeZone: draft.timeZone,
-    deposit: { amount: draft.depositMinorUnits, currency: "USD" },
+    deposit: { amount: draft.depositMinorUnits, currency: DEPOSIT_CURRENCY },
   });
   if (!parsed.success) {
     for (const issue of parsed.error.issues) {

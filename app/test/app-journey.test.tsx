@@ -22,6 +22,7 @@ import { SessionProvider } from "../src/session/session-context.tsx";
 import { createMemorySessionStore } from "../src/session/session-store.ts";
 import { simulatedCompletionRuntimeFactory } from "./support/fake-completion-runtime.ts";
 import { fakeNotifier } from "./support/fake-notifier.ts";
+import { fakePaymentSheet } from "./support/fake-payment-sheet.ts";
 import { fakeProviders } from "./support/fake-providers.ts";
 import { type JourneyServer, journeyServer } from "./support/journey-server.ts";
 
@@ -50,14 +51,21 @@ async function launch(server: JourneyServer) {
   // A device that has not been asked about notifications yet, which is the
   // state a freshly installed app is in.
   const notifier = fakeNotifier({ permission: "undetermined" });
+  // The provider's sheet, which a test machine has no version of either: the
+  // user confirms the card, and the hold is still confirmed by the webhook.
+  const paymentSheet = fakePaymentSheet();
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <SessionProvider store={store} createClient={() => server} providers={fakeProviders()}>
-        <WelcomeScreen createRuntime={simulatedCompletionRuntimeFactory()} notifier={notifier} />
+        <WelcomeScreen
+          createRuntime={simulatedCompletionRuntimeFactory()}
+          notifier={notifier}
+          paymentSheet={paymentSheet}
+        />
       </SessionProvider>
     </SafeAreaProvider>,
   );
-  return { store, notifier };
+  return { store, notifier, paymentSheet };
 }
 
 describe("one account's life through the app's own screens", () => {
@@ -150,7 +158,7 @@ describe("one account's life through the app's own screens", () => {
     // not exist when the app finishes asking for it: the provider confirms the
     // hold out of band, so the app has to notice on its own.
     const server = journeyServer();
-    await launch(server);
+    const { paymentSheet } = await launch(server);
     const user = userEvent.setup();
 
     await user.press(await screen.findByTestId("sign-in-apple"));
@@ -167,9 +175,14 @@ describe("one account's life through the app's own screens", () => {
     await waitFor(() => expect(screen.queryByTestId("deposit-and-start")).not.toBeNull());
     await user.press(screen.getByTestId("deposit-and-start"));
 
-    // A hold, not a challenge: the app is waiting on somebody else.
+    // A card first: the hold is authorized on the device, at the provider's own
+    // sheet, with the secret the funding intent carried.
     expect(await screen.findByTestId("challenge-funding")).toBeOnTheScreen();
-    expect(screen.getByTestId("funding-waiting")).toBeOnTheScreen();
+    await waitFor(() => expect(paymentSheet.presented).toHaveLength(1));
+    expect(paymentSheet.presented[0]?.amountMinorUnits).toBe(DEPOSIT_MINOR_UNITS);
+
+    // A hold, not a challenge: the app is waiting on somebody else.
+    expect(await screen.findByTestId("funding-waiting")).toBeOnTheScreen();
     expect(server.names()).toContain("createFundingIntent");
     expect(server.names()).not.toContain("createChallenge");
     expect(server.challenge()).toBeNull();

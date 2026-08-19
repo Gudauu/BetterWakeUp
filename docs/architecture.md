@@ -256,6 +256,22 @@ Permission is requested from a press and never on launch.
 iOS gives an app one prompt for the lifetime of an install, and spending it in front of a user who has not yet seen what the app is for is how an app ends up permanently unable to remind anyone of anything.
 Home therefore offers the switch by naming the time the nudge would arrive rather than the feature, and says where to turn notifications back on for a device that has already refused.
 
+### The payment sheet
+
+A funded challenge is authorized on the device, not on the server.
+`POST /challenges/funding-intents` answers with `providerClientSecret` precisely because the hold is completed at the provider's own sheet, in front of the user, and confirmed back to us by a webhook.
+
+`app/src/payments/payment-sheet.ts` is the app's half of that: a port with `present(request)` and four answers - authorized, cancelled, unavailable, failed.
+It exists for the same reason the notifier's and the pedometer's ports do.
+The provider's SDK only runs on a device, while what the screen does with each answer is exactly what is worth testing without one.
+
+The sheet reports that the user completed the authorization and nothing more.
+Whether a hold exists is the server's answer, read from `GET /challenges/current` after the webhook lands, so the wait for the bank starts only once a card has actually been given.
+
+There is no processor yet, so `createConfiguredPaymentSheet` answers `unavailable` and the setup screen offers the same challenge with the deposit dropped.
+It is deliberately not a stub that claims success: a sheet that lied would leave the user waiting for a bank nobody had asked anything of, while believing they had paid.
+Replacing it with a real provider's sheet is a new implementation of that one function.
+
 ### Movement
 
 Use the `expo-sensors` Pedometer, which wraps CMPedometer on iOS and the step counter on Android.

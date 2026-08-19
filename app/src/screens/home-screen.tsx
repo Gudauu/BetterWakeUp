@@ -23,6 +23,7 @@ import {
   createConfiguredCompletionRuntime,
   useCompletionRuntime,
 } from "../completions/runtime.ts";
+import type { PaymentSheet } from "../payments/payment-sheet.ts";
 import {
   createConfiguredNotifier,
   type Notifier,
@@ -72,6 +73,11 @@ export interface HomeScreenProps {
    * and the real scheduler is used.
    */
   readonly notifier?: Notifier;
+  /**
+   * How a card is asked for when a challenge carries a deposit. Handed to the
+   * form; substituted in tests, and a build passes nothing.
+   */
+  readonly paymentSheet?: PaymentSheet;
 }
 
 /**
@@ -112,6 +118,7 @@ export function HomeScreen({
   createRuntime,
   deviceTimeZone,
   notifier,
+  paymentSheet,
 }: HomeScreenProps) {
   const { api, signOut } = useSession();
   const theme = useTheme();
@@ -173,6 +180,7 @@ export function HomeScreen({
         // The server is the record of what exists, so the new challenge is read
         // back rather than trusted from the response the form held.
         onCreated={() => goHome(true)}
+        {...(paymentSheet === undefined ? {} : { paymentSheet })}
       />
     );
   }

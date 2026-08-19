@@ -16,6 +16,7 @@ import type { IdentityProvider } from "@betterwakeup/contract";
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import type { CompletionRuntimeFactory } from "../completions/runtime.ts";
+import type { PaymentSheet } from "../payments/payment-sheet.ts";
 import type { Notifier } from "../reminders/notifier.ts";
 import { useSession } from "../session/session-context.tsx";
 import { AppText, Banner, Button, Screen } from "../ui/components.tsx";
@@ -47,9 +48,11 @@ export interface WelcomeScreenProps {
   readonly createRuntime?: CompletionRuntimeFactory;
   /** Handed straight to home for the same reason, so a test schedules nothing. */
   readonly notifier?: Notifier;
+  /** Handed straight to home, so a test can walk a deposit without a provider. */
+  readonly paymentSheet?: PaymentSheet;
 }
 
-export function WelcomeScreen({ createRuntime, notifier }: WelcomeScreenProps = {}) {
+export function WelcomeScreen({ createRuntime, notifier, paymentSheet }: WelcomeScreenProps = {}) {
   const { state, availability, signIn, signOut } = useSession();
   const theme = useTheme();
   const [busy, setBusy] = useState<IdentityProvider | null>(null);
@@ -87,6 +90,7 @@ export function WelcomeScreen({ createRuntime, notifier }: WelcomeScreenProps = 
           onSignOut={() => void signOut()}
           {...(createRuntime === undefined ? {} : { createRuntime })}
           {...(notifier === undefined ? {} : { notifier })}
+          {...(paymentSheet === undefined ? {} : { paymentSheet })}
         />
       </View>
     );

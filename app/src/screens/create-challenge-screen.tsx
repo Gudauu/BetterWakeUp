@@ -33,6 +33,7 @@ import {
 import {
   type ChallengeDraft,
   createDraft,
+  DEPOSIT_CURRENCY,
   type DraftReadiness,
   draftReducer,
   formatMoney,
@@ -43,6 +44,11 @@ import {
   awaitFundedChallenge,
   type FundedChallengeOutcome,
 } from "../challenges/funded-challenge.ts";
+import {
+  createConfiguredPaymentSheet,
+  type PaymentSheet,
+  type PaymentSheetResult,
+} from "../payments/payment-sheet.ts";
 import { useSession } from "../session/session-context.tsx";
 import {
   AppText,
@@ -70,6 +76,21 @@ const WEEKDAY_LABELS: Readonly<Record<Weekday, string>> = {
   sunday: "Sun",
 };
 
+/**
+ * What the user is told after backing out of the payment sheet. It says the
+ * money part explicitly, because "nothing happened" is the one thing somebody
+ * who has just closed a card screen wants confirmed.
+ */
+const CANCELLED_NOTICE =
+  "Your deposit was not confirmed, so no challenge was started. Nothing was charged.";
+
+/** After the deposit was dropped for them, so the button below has changed. */
+const NO_DEPOSIT_NOTICE =
+  "The deposit is off. You can start this challenge now - it runs the same way, with nothing but the habit at stake.";
+
+/** A sheet that could not even be opened, which is not the card's fault. */
+const SHEET_FAILED_MESSAGE = "Your card could not be confirmed. Nothing was charged.";
+
 export interface CreateChallengeScreenProps {
   /** Injected in tests so the zone is not the machine running them. */
   readonly initialDraft?: ChallengeDraft;
@@ -87,6 +108,12 @@ export interface CreateChallengeScreenProps {
    * that reads the account has to ask again in that case.
    */
   readonly onCancel?: (accountChanged: boolean) => void;
+  /**
+   * How a card is asked for. Substituted in tests so a deposit can be walked
+   * without a provider's SDK; a build passes nothing and the configured sheet
+   * is used.
+   */
+  readonly paymentSheet?: PaymentSheet;
 }
 
 export function CreateChallengeScreen({
@@ -94,6 +121,7 @@ export function CreateChallengeScreen({
   onSignOut,
   onCreated,
   onCancel,
+  paymentSheet,
 }: CreateChallengeScreenProps) {
   const { api } = useSession();
   const [draft, dispatch] = useReducer(draftReducer, initialDraft ?? null, (given) =>
@@ -104,6 +132,14 @@ export function CreateChallengeScreen({
   const [busy, setBusy] = useState(false);
   // What the wait for the bank has come to. Null while it is still watching.
   const [funding, setFunding] = useState<FundedChallengeOutcome | null>(null);
+  // What the payment sheet came back with. Null while it is still up.
+  const [card, setCard] = useState<PaymentSheetResult | null>(null);
+  // What happened to an attempt the user has already left behind, said beside
+  // the action that would try it again.
+  const [notice, setNotice] = useState<string | null>(null);
+  // Built once for as long as the screen lives, so the effect that presents it
+  // is not re-run by a new object on every render.
+  const [sheet] = useState<PaymentSheet>(() => paymentSheet ?? createConfiguredPaymentSheet());
 
   const readiness = readinessOf(draft);
   const funded = draft.depositMinorUnits > 0;
@@ -140,10 +176,47 @@ export function CreateChallengeScreen({
     };
   }, [api, configurationKey]);
 
+  // The card is asked for as soon as the intent exists, because the intent is
+  // only useful at a sheet: the client secret is what the provider's sheet
+  // completes the authorization with. A user who never sees a sheet has never
+  // paid, however long the app waits afterwards.
+  const clientSecret =
+    outcome?.status === "fundingRequired" ? outcome.intent.providerClientSecret : null;
+  const deposit = draft.depositMinorUnits;
+
+  const askForCard = useCallback(
+    (secret: string) => {
+      setCard(null);
+      void sheet
+        .present({ clientSecret: secret, amountMinorUnits: deposit, currency: DEPOSIT_CURRENCY })
+        .then(
+          (result) => {
+            setCard(result);
+            if (result.status === "cancelled") {
+              // Back to the form rather than to a screen about a hold that was
+              // never taken. Nothing exists at the server but an intent, which
+              // costs nothing and expires on its own.
+              setOutcome(null);
+              setNotice(CANCELLED_NOTICE);
+            }
+          },
+          () => setCard({ status: "failed", message: SHEET_FAILED_MESSAGE }),
+        );
+    },
+    [sheet, deposit],
+  );
+
+  useEffect(() => {
+    if (clientSecret === null) {
+      return;
+    }
+    askForCard(clientSecret);
+  }, [clientSecret, askForCard]);
+
   // The hold is authorized and the challenge does not exist yet: the provider
   // confirms it out of band, so the app watches for the challenge to appear
   // rather than leaving the user on a screen that never changes.
-  const waitingForFunding = outcome?.status === "fundingRequired";
+  const waitingForFunding = card?.status === "authorized";
   const created = useRef(onCreated);
   created.current = onCreated;
   // The wait in flight, so that pressing "check again" replaces it rather than
@@ -179,6 +252,7 @@ export function CreateChallengeScreen({
 
   const onStart = useCallback(async () => {
     setBusy(true);
+    setNotice(null);
     try {
       const result = await startChallenge({ api, draft, projection });
       setOutcome(result);
@@ -226,9 +300,62 @@ export function CreateChallengeScreen({
           moment your bank confirms the hold.
         </AppText>
 
-        {funding === null ? (
+        {/* The sheet is the provider's own, over this screen. What is under it
+            says which step the user is on, so backing out of it lands on a
+            screen that makes sense rather than on a bare spinner. */}
+        {card === null ? (
+          <View style={styles.waiting} testID="funding-card">
+            <FundingSpinner label="Confirming your card" />
+            <AppText variant="small" tone="muted" center>
+              Confirm the hold with your card. Nothing is charged unless you miss a day.
+            </AppText>
+          </View>
+        ) : null}
+
+        {card?.status === "unavailable" ? (
+          <Banner tone="warning">
+            <AppText
+              variant="small"
+              tone="warning"
+              testID="funding-unavailable"
+              accessibilityRole="alert"
+            >
+              {card.message}
+            </AppText>
+            <Button
+              testID="funding-without-deposit"
+              label="Set it up without a deposit"
+              onPress={() => {
+                dispatch({ type: "setDeposit", minorUnits: 0 });
+                setCard(null);
+                setOutcome(null);
+                setNotice(NO_DEPOSIT_NOTICE);
+              }}
+            />
+          </Banner>
+        ) : null}
+
+        {card?.status === "failed" ? (
+          <Banner tone="danger">
+            <AppText
+              variant="small"
+              tone="danger"
+              testID="funding-card-error"
+              accessibilityRole="alert"
+            >
+              {card.message}
+            </AppText>
+            <Button
+              testID="funding-card-retry"
+              label="Try your card again"
+              onPress={() => askForCard(outcome.intent.providerClientSecret)}
+            />
+          </Banner>
+        ) : null}
+
+        {card?.status === "authorized" && funding === null ? (
           <View style={styles.waiting} testID="funding-waiting">
-            <FundingSpinner />
+            <FundingSpinner label="Waiting for your bank" />
             <AppText variant="small" tone="muted" center>
               Waiting for your bank. This usually takes a few seconds.
             </AppText>
@@ -454,6 +581,14 @@ export function CreateChallengeScreen({
         ))}
       </Card>
 
+      {notice === null ? null : (
+        <Banner tone="info">
+          <AppText variant="small" testID="funding-notice">
+            {notice}
+          </AppText>
+        </Banner>
+      )}
+
       {outcome?.status === "failed" ? (
         <Banner tone="danger">
           <AppText variant="small" tone="danger" testID="start-error" accessibilityRole="alert">
@@ -574,12 +709,10 @@ function SectionTitle({ title, step }: { title: string; step?: number }): ReactN
   );
 }
 
-/** The wait for the bank, drawn in the theme's own accent. */
-function FundingSpinner(): ReactNode {
+/** A wait on somebody else - the card, then the bank - in the theme's accent. */
+function FundingSpinner({ label }: { label: string }): ReactNode {
   const theme = useTheme();
-  return (
-    <ActivityIndicator accessibilityLabel="Waiting for your bank" color={theme.colors.accent} />
-  );
+  return <ActivityIndicator accessibilityLabel={label} color={theme.colors.accent} />;
 }
 
 const styles = StyleSheet.create({
