@@ -477,6 +477,19 @@ export interface FieldProps {
   readonly onChangeText: (text: string) => void;
   /** The sentence under the label saying what the number is for. */
   readonly hint?: string;
+  /**
+   * What is wrong with what has been typed, drawn under the box in the danger
+   * tone and read out as an alert. It belongs to the field rather than to a
+   * summary elsewhere on the screen, because a user fixing a value should not
+   * have to find the complaint about it.
+   */
+  readonly problem?: string;
+  /**
+   * What the typed value comes to, drawn under the box once it is understood -
+   * `7:00 AM` under a typed `7`. Suppressed while there is a problem, since the
+   * reading of an unaccepted value is nothing to state.
+   */
+  readonly reading?: string;
   /** Drawn inside the box after the value, for a unit the user should not type. */
   readonly suffix?: string;
   /** Drawn inside the box before the value, for a currency symbol. */
@@ -502,12 +515,29 @@ export function Field({
   value,
   onChangeText,
   hint,
+  problem,
+  reading,
   suffix,
   prefix,
   keyboardType,
   compact = false,
 }: FieldProps) {
   const theme = useTheme();
+  const footnote =
+    problem !== undefined ? (
+      <AppText
+        variant="caption"
+        tone="danger"
+        accessibilityRole="alert"
+        testID={`${testID}-problem`}
+      >
+        {problem}
+      </AppText>
+    ) : reading !== undefined ? (
+      <AppText variant="caption" tone="muted" testID={`${testID}-reading`}>
+        {reading}
+      </AppText>
+    ) : null;
   const box = (
     <View
       style={[
@@ -515,7 +545,9 @@ export function Field({
         compact ? styles.fieldBoxCompact : styles.fieldBoxWide,
         {
           backgroundColor: theme.colors.background,
-          borderColor: theme.colors.border,
+          // The box itself carries the complaint too: the sentence under it is
+          // easy to miss on a form of eight fields.
+          borderColor: problem === undefined ? theme.colors.border : theme.colors.danger,
           borderRadius: theme.radius.sm,
           gap: theme.space.xs,
           paddingHorizontal: theme.space.md,
@@ -545,11 +577,14 @@ export function Field({
 
   if (compact) {
     return (
-      <View style={[styles.row, { gap: theme.space.md }]}>
-        <AppText variant="small" style={styles.shrink}>
-          {label}
-        </AppText>
-        {box}
+      <View style={{ gap: theme.space.xs }}>
+        <View style={[styles.row, { gap: theme.space.md }]}>
+          <AppText variant="small" style={styles.shrink}>
+            {label}
+          </AppText>
+          {box}
+        </View>
+        {footnote}
       </View>
     );
   }
@@ -565,6 +600,7 @@ export function Field({
         </AppText>
       )}
       {box}
+      {footnote}
     </View>
   );
 }

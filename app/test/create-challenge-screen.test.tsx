@@ -395,6 +395,63 @@ describe("the form the user fills in", () => {
     expect(screen.getByTestId("deposit-and-start")).toHaveTextContent(/Deposit \$12\.50 and start/);
   });
 
+  it("takes a deadline typed the way a person says it, not only as HH:MM", async () => {
+    const api = await renderScreen(readyDraft());
+
+    await fireEvent.changeText(screen.getByTestId("deadline-monday"), "6:15 am");
+
+    // What was typed stays on screen, and what it comes to is stated under it
+    // so nobody is left guessing which of the two the challenge will use.
+    expect(screen.getByTestId("deadline-monday")).toHaveProp("value", "6:15 am");
+    expect(screen.getByTestId("deadline-monday-reading")).toHaveTextContent(/That is 6:15 AM/);
+
+    await userEvent.press(screen.getByTestId("start-challenge"));
+
+    const created = api.calls.find((call) => call.name === "createChallenge");
+    const schedule = (
+      created?.input as { body: { configuration: { schedule: readonly unknown[] } } }
+    ).body.configuration.schedule;
+    expect(schedule).toContainEqual({ weekday: "monday", deadline: "06:15" });
+  });
+
+  it("names what is wrong beside the deadline rather than as a schema path", async () => {
+    await renderScreen(readyDraft());
+
+    await fireEvent.changeText(screen.getByTestId("deadline-monday"), "morning");
+
+    expect(screen.getByTestId("deadline-monday-problem")).toHaveTextContent(/Not a time yet/);
+    // The old behaviour: a zod message naming a path into the request body,
+    // in a card two sections below the field that caused it.
+    expect(screen.getByTestId("create-challenge")).not.toHaveTextContent(/schedule\./);
+  });
+
+  it("will not start a challenge against a deadline the user is midway through replacing", async () => {
+    await renderScreen(readyDraft());
+
+    await fireEvent.changeText(screen.getByTestId("deadline-monday"), "6:");
+
+    expect(screen.queryByTestId("start-challenge")).toBeNull();
+    expect(screen.getByTestId("not-ready")).toHaveTextContent(/deadlines is not a time yet/);
+
+    await fireEvent.changeText(screen.getByTestId("deadline-monday"), "6:45");
+
+    expect(screen.getByTestId("start-challenge")).toBeOnTheScreen();
+  });
+
+  it("stops blocking on a weekday whose field is no longer on screen", async () => {
+    await renderScreen(readyDraft());
+
+    // Saturday is off in the default draft, so turn it on, break it, turn it
+    // back off: the form must not stay stuck on a field nobody can see.
+    await userEvent.press(screen.getByTestId("weekday-saturday"));
+    await fireEvent.changeText(screen.getByTestId("deadline-saturday"), "nope");
+    expect(screen.queryByTestId("start-challenge")).toBeNull();
+
+    await userEvent.press(screen.getByTestId("weekday-saturday"));
+
+    expect(screen.getByTestId("start-challenge")).toBeOnTheScreen();
+  });
+
   it("says how many mornings a week the chosen weekdays come to", async () => {
     await renderScreen(readyDraft());
 

@@ -45,6 +45,26 @@ export function formatDay(date: string): string {
 }
 
 /**
+ * A wall-clock time of day that carries no date, as a person reads it.
+ *
+ * The schedule is written in 24-hour `HH:MM` because that is what the contract
+ * accepts, and `07:00` is not what somebody setting an alarm calls the time.
+ * It goes through the same formatter as an instant's clock time, so a deadline
+ * being configured and the same deadline once it is running read alike.
+ */
+export function formatWallClock(wallClock: string): string {
+  const match = /^(\d{2}):(\d{2})$/.exec(wallClock);
+  if (match === null) {
+    return wallClock;
+  }
+  return format(`1970-01-01T${match[1]}:${match[2]}:00.000Z`, {
+    timeZone: "UTC",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/**
  * A duration a person would say out loud. Minutes alone past an hour - "127
  * minutes" - is a number to be converted rather than read, and the last minute
  * is named as what it is rather than as "0 minutes", which reads as expired.

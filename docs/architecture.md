@@ -203,7 +203,7 @@ Add a client state library only when an observed state-sharing problem requires 
 ### Appearance
 
 `app/src/ui/theme.ts` owns every colour, spacing step, corner radius and text size in the app, as a light theme and a dark one of the same shape.
-`app/src/ui/components.tsx` owns how the recurring pieces are drawn: the screen frame, cards, buttons, banners, progress bars, labelled rows, the status pill that names the state a challenge is in, the row of days a month is read as, and the form controls a screen collects a configuration with - a labelled field, a selectable chip, a statement toggle.
+`app/src/ui/components.tsx` owns how the recurring pieces are drawn: the screen frame, cards, buttons, banners, progress bars, labelled rows, the status pill that names the state a challenge is in, the row of days a month is read as, and the form controls a screen collects a configuration with - a labelled field with its own complaint or read-back line, a selectable chip, a statement toggle.
 
 A screen names a role - `textMuted`, a `danger` banner, a `primary` button - and never a hex code or a font size.
 That is what lets the app follow the device between light and dark without a single screen asking which one is in force, and it is why a change to the look of a button is one edit rather than nine.
@@ -212,6 +212,19 @@ That is what lets the app follow the device between light and dark without a sin
 
 `app/src/ui/format.ts` owns how instants and dates are read out loud, so no screen prints an ISO string at a person.
 A deadline is only true in the challenge's own time zone, so every screen that shows one formats it there rather than in the device's zone, and falls back to the raw instant when the runtime has no zone data.
+
+### The wake-up time being typed
+
+The contract's `localTime` is a strict 24-hour `HH:MM`, and it stays strict: the server computes a real instant from it, so a loosely parsed schedule entry would be a wrong deadline rather than a rejected one.
+
+What is loose is the typing. `app/src/challenges/wake-time.ts` reads what a person actually enters - `7`, `700`, `7am`, `7:30 pm`, `19:30` - and answers either the canonical form or one sentence saying it is not a time yet.
+It refuses rather than guesses where a guess would be a real cost: `7:5` is ambiguous between five past and half past, and `19 pm` is not a correctable typo but a contradiction, so both are refused. `12 AM` is midnight and `12 PM` is noon, which is the one pair the arithmetic has to state explicitly.
+
+The complaint is drawn under the field that caused it, because a user fixing a value should not have to find the complaint about it somewhere else on a long form.
+That is what `Field`'s `problem` and `reading` are for: what is wrong, or - once the text is understood - what it comes to, so nobody has to guess whether a typed `7` means seven in the morning.
+
+The draft only ever receives text that reads as a time, so the schedule it holds is always valid. Text that does not read as one is therefore invisible to `configurationOf`, and the setup screen holds the affected weekdays itself and withholds the action that commits while any of them stands.
+Without that, a challenge could be started against the last accepted deadline while the field on screen showed something else. A weekday turned off drops out of that set, so a half-typed Saturday cannot block a form from a field that is no longer drawn.
 
 ### The month as a row of days
 

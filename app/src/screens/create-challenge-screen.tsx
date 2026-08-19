@@ -44,6 +44,7 @@ import {
   awaitFundedChallenge,
   type FundedChallengeOutcome,
 } from "../challenges/funded-challenge.ts";
+import { readWakeTime } from "../challenges/wake-time.ts";
 import {
   createConfiguredSettingsLauncher,
   type OpenSettingsState,
@@ -79,7 +80,7 @@ import {
   TextButton,
   Toggle,
 } from "../ui/components.tsx";
-import { formatDay } from "../ui/format.ts";
+import { formatDay, formatWallClock } from "../ui/format.ts";
 import { useTheme } from "../ui/theme.ts";
 import { OpenSettingsAction } from "./open-settings-action.tsx";
 
@@ -167,6 +168,11 @@ export function CreateChallengeScreen({
   // What happened to an attempt the user has already left behind, said beside
   // the action that would try it again.
   const [notice, setNotice] = useState<string | null>(null);
+  // The weekdays whose deadline field currently holds text that is not a time.
+  // The draft keeps the last accepted deadline for those days, so this is what
+  // stops a challenge being started against a time the user is mid-way through
+  // replacing - without it the form would look wrong and start anyway.
+  const [unreadableDeadlines, setUnreadableDeadlines] = useState<readonly Weekday[]>([]);
   // Built once for as long as the screen lives, so the effect that presents it
   // is not re-run by a new object on every render.
   const [sheet] = useState<PaymentSheet>(() => paymentSheet ?? createConfiguredPaymentSheet());
@@ -183,6 +189,12 @@ export function CreateChallengeScreen({
   const phoneCanWalk = canStartChallengeOn(movement.readiness);
 
   const readiness = readinessOf(draft);
+  // A weekday turned off takes its unreadable text with it, so a half-typed
+  // Saturday cannot go on blocking the form from a field that is no longer
+  // drawn.
+  const deadlinesReadable = !unreadableDeadlines.some((weekday) =>
+    draft.schedule.some((day) => day.weekday === weekday),
+  );
   const funded = draft.depositMinorUnits > 0;
   // The maximum duration is the server's answer, not the app's, so the action
   // waits for a projection before it is offered on a funded challenge.
@@ -495,18 +507,26 @@ export function CreateChallengeScreen({
               Deadlines
             </AppText>
             <AppText variant="caption" tone="muted">
-              The time each morning's walk has to be finished by, as HH:MM.
+              The time each morning's walk has to be finished by. Type it however you say it.
             </AppText>
             {draft.schedule.map((day) => (
-              <Field
+              <DeadlineField
                 key={day.weekday}
-                compact
                 label={`${WEEKDAY_LABELS[day.weekday]} deadline`}
                 testID={`deadline-${day.weekday}`}
-                value={day.deadline}
-                onChangeText={(deadline) =>
-                  dispatch({ type: "setDeadline", weekday: day.weekday, deadline })
-                }
+                deadline={day.deadline}
+                onChange={(deadline) => {
+                  setUnreadableDeadlines((current) =>
+                    deadline === null
+                      ? current.includes(day.weekday)
+                        ? current
+                        : [...current, day.weekday]
+                      : current.filter((weekday) => weekday !== day.weekday),
+                  );
+                  if (deadline !== null) {
+                    dispatch({ type: "setDeadline", weekday: day.weekday, deadline });
+                  }
+                }}
               />
             ))}
           </View>
@@ -646,7 +666,7 @@ export function CreateChallengeScreen({
         </Banner>
       ) : null}
 
-      {readiness.ready && withinDuration && phoneCanWalk ? (
+      {readiness.ready && withinDuration && phoneCanWalk && deadlinesReadable ? (
         <Button
           testID={funded ? "deposit-and-start" : "start-challenge"}
           label={funded ? `Deposit ${formatMoney(draft.depositMinorUnits)} and start` : "Start"}
@@ -656,7 +676,7 @@ export function CreateChallengeScreen({
       ) : (
         <Banner tone="info">
           <AppText variant="small" testID="not-ready">
-            {nextStep(readiness, withinDuration, phoneCanWalk)}
+            {nextStep(readiness, withinDuration, phoneCanWalk, deadlinesReadable)}
           </AppText>
         </Banner>
       )}
@@ -670,6 +690,48 @@ export function CreateChallengeScreen({
         )}
       </View>
     </Screen>
+  );
+}
+
+/**
+ * One morning's deadline, asked for in the time the user says out loud.
+ *
+ * The draft holds the contract's strict `HH:MM`, and this field is what stands
+ * between that and a person typing `7am` at bedtime. The typed text lives here
+ * so a half-written `7:` survives the keystroke, and the draft is told only
+ * about text that reads as a time - which is also why an unreadable field is
+ * reported upward rather than written down, since the challenge must not start
+ * against a deadline the user is halfway through replacing.
+ */
+function DeadlineField({
+  label,
+  testID,
+  deadline,
+  onChange,
+}: {
+  label: string;
+  testID: string;
+  deadline: string;
+  onChange: (wallClock: string | null) => void;
+}) {
+  // Seeded from the draft's own value rather than from what it reads as, so a
+  // field the user has not touched shows the canonical form it will be sent in.
+  const [text, setText] = useState(deadline);
+  const reading = readWakeTime(text);
+  return (
+    <Field
+      compact
+      label={label}
+      testID={testID}
+      value={text}
+      {...(reading.problem === null
+        ? { reading: `That is ${formatWallClock(reading.wallClock ?? deadline)}.` }
+        : { problem: reading.problem })}
+      onChangeText={(next) => {
+        setText(next);
+        onChange(readWakeTime(next).wallClock);
+      }}
+    />
   );
 }
 
@@ -735,11 +797,17 @@ function nextStep(
   readiness: DraftReadiness,
   withinDuration: boolean,
   phoneCanWalk: boolean,
+  deadlinesReadable: boolean,
 ): string {
   // First, because nothing else about the draft matters on a phone that could
   // never complete a day of it.
   if (!phoneCanWalk) {
     return "A challenge cannot be started on a phone with no step counter.";
+  }
+  // Before the configuration, because the draft still holds the last accepted
+  // deadline and so has no complaint of its own to make about this.
+  if (!deadlinesReadable) {
+    return "One of your deadlines is not a time yet. Fix it to continue.";
   }
   if (!readiness.configuration.ok) {
     return "Check the days, deadlines, and deposit above.";
