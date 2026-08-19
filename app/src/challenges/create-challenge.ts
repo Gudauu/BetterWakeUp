@@ -24,6 +24,7 @@ import {
 } from "@betterwakeup/contract";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
+import { noAnswerMessage } from "../api/no-answer.ts";
 import { tryAgainMessage, unlistedMessage } from "../api/try-again.ts";
 import { waitMessageFor } from "../api/wait-again.ts";
 import { type ChallengeDraft, configurationOf, readinessOf } from "./draft.ts";
@@ -53,7 +54,6 @@ const MESSAGES: Partial<Record<ErrorCode, string>> = {
   unauthenticated: "Sign in again to create this challenge.",
 };
 
-const NETWORK_MESSAGE = "No connection to BetterWakeUp. Check your network and try again.";
 const FAILURE_LEAD = "The challenge could not be created.";
 const GENERIC_MESSAGE = tryAgainMessage(FAILURE_LEAD);
 
@@ -145,6 +145,8 @@ export type ProjectionOutcome =
 
 const PROJECTION_NETWORK_MESSAGE =
   "No connection to BetterWakeUp, so the end date could not be worked out.";
+const PROJECTION_TIMEOUT_MESSAGE =
+  "BetterWakeUp did not answer in time, so the end date could not be worked out.";
 const PROJECTION_GENERIC_MESSAGE = "The end date could not be worked out just now.";
 
 /**
@@ -176,7 +178,9 @@ export async function projectChallenge(
 
 function projectionMessageFor(cause: unknown): string {
   if (cause instanceof ApiError && cause.status === null) {
-    return PROJECTION_NETWORK_MESSAGE;
+    // The projection persists nothing, so a timeout costs the user only the
+    // wait: there is nothing to warn them about having half-happened.
+    return cause.timedOut ? PROJECTION_TIMEOUT_MESSAGE : PROJECTION_NETWORK_MESSAGE;
   }
   return PROJECTION_GENERIC_MESSAGE;
 }
@@ -192,8 +196,9 @@ function messageFor(cause: unknown): string {
   if (!(cause instanceof ApiError)) {
     return GENERIC_MESSAGE;
   }
-  if (cause.status === null) {
-    return NETWORK_MESSAGE;
+  const silence = noAnswerMessage(cause, "command");
+  if (silence !== null) {
+    return silence;
   }
   return waitMessageFor(cause) ?? MESSAGES[cause.code] ?? unlistedMessage(cause, FAILURE_LEAD);
 }

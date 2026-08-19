@@ -508,6 +508,34 @@ describe("home when the read fails", () => {
     expect(await screen.findByTestId("home-error-message")).toHaveTextContent(/No connection/);
   });
 
+  it("does not blame the network when the server was asked and never answered", async () => {
+    // A timeout says nothing about the connection: sending the user to their
+    // Wi-Fi settings is advice about the wrong thing.
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: new ApiError("internal_error", "no answer", {
+          status: null,
+          timedOut: true,
+        }),
+      }),
+    );
+
+    const message = await screen.findByTestId("home-error-message");
+    expect(message).toHaveTextContent(/did not answer in time/);
+    expect(message).not.toHaveTextContent(/No connection/);
+  });
+
+  it("names what it is waiting for while the first read is in flight", async () => {
+    // A bare spinner is the whole app to someone holding the phone on the
+    // morning of a deadline, and it said nothing at all.
+    await renderHome(fakeApi({ getCurrentChallenge: () => new Promise(() => undefined) }));
+
+    expect(await screen.findByTestId("home-loading")).toBeOnTheScreen();
+    expect(screen.getByTestId("home-loading-message")).toHaveTextContent(
+      /Reading your challenge from BetterWakeUp/,
+    );
+  });
+
   it("says the walks on this phone are safe when the read fails with work held", async () => {
     // The read fails exactly when there is no connection, which is exactly when
     // a walk stays on the phone: an error screen alone reads, to someone who

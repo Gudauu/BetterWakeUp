@@ -518,6 +518,14 @@ export function HomeScreen({
           accessibilityLabel="Loading your challenge"
           color={theme.colors.accent}
         />
+        {/* A spinner on its own says only that something is happening. The
+            client now stops waiting after REQUEST_TIMEOUT_MS, so this state is
+            bounded - but for as long as it is on screen it should name what is
+            being waited for, because it is the whole app to the person holding
+            the phone on the morning of a deadline. */}
+        <AppText variant="small" tone="muted" testID="home-loading-message">
+          Reading your challenge from BetterWakeUp.
+        </AppText>
       </Screen>
     );
   }

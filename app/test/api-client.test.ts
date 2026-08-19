@@ -25,7 +25,7 @@ function jsonResponse(status: number, body: unknown): Response {
 
 function harness(
   responder: (call: Call) => Response | Promise<Response>,
-  options: { session?: SessionView | null } = {},
+  options: { session?: SessionView | null; timeoutMs?: number } = {},
 ) {
   const calls: Call[] = [];
   const store = createMemorySessionStore(options.session === undefined ? SESSION : options.session);
@@ -40,6 +40,7 @@ function harness(
       return await responder(call);
     }) as unknown as typeof globalThis.fetch,
     newIdempotencyKey: () => "generated-key",
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
   });
   return { calls, client, store, invalidated };
 }
@@ -210,6 +211,91 @@ describe("the API client turns every failure into one error type", () => {
     await expect(client.request("deleteSession", {})).resolves.toEqual({});
   });
 });
+
+describe("the API client stops waiting for a request that never comes back", () => {
+  it("gives up after its own deadline and says nobody knows whether it landed", async () => {
+    const { client } = harness((call) => neverAnswers(call), { timeoutMs: 5 });
+
+    const error: ApiError = await client.request("getCurrentChallenge", {}).catch((t) => t);
+
+    expect(error.code).toBe("internal_error");
+    expect(error.status).toBeNull();
+    expect(error.timedOut).toBe(true);
+    // The one failure where the device cannot say whether the server heard it.
+    expect(error.reachedServer).toBeNull();
+    expect(error.retryable).toBe(true);
+  });
+
+  it("distinguishes a send that failed, which proves the command never ran", async () => {
+    const { client } = harness(() => {
+      throw new TypeError("Network request failed");
+    });
+
+    const error: ApiError = await client.request("getCurrentChallenge", {}).catch((t) => t);
+
+    expect(error.timedOut).toBe(false);
+    expect(error.reachedServer).toBe(false);
+  });
+
+  it("passes its deadline to fetch so the socket is closed rather than left open", async () => {
+    const aborted: boolean[] = [];
+    const { client } = harness(
+      (call) => {
+        call.init.signal?.addEventListener("abort", () => aborted.push(true));
+        return neverAnswers(call);
+      },
+      { timeoutMs: 5 },
+    );
+
+    await client.request("getCurrentChallenge", {}).catch(() => undefined);
+
+    expect(aborted).toEqual([true]);
+  });
+
+  it("still ends a request the caller itself abandoned, and calls that no answer at all", async () => {
+    const caller = new AbortController();
+    const { client } = harness((call) => neverAnswers(call), { timeoutMs: 60_000 });
+
+    const pending = client.request("getCurrentChallenge", { signal: caller.signal });
+    caller.abort();
+    const error: ApiError = await pending.catch((t) => t);
+
+    // A screen that went away is not a slow server, so this is the ordinary
+    // "did not reach" answer rather than a timeout.
+    expect(error.timedOut).toBe(false);
+  });
+
+  it("reports a body that stops mid-read as an answer the server did give", async () => {
+    const { client } = harness(
+      () =>
+        ({
+          status: 200,
+          ok: true,
+          text: () => Promise.reject(new TypeError("Network request failed")),
+        }) as unknown as Response,
+    );
+
+    const error: ApiError = await client.request("getCurrentChallenge", {}).catch((t) => t);
+
+    expect(error.code).toBe("internal_error");
+    expect(error.status).toBe(200);
+    expect(error.reachedServer).toBe(true);
+  });
+});
+
+/** A server that accepts the connection and then says nothing at all. */
+function neverAnswers(call: Call): Promise<Response> {
+  return new Promise((_resolve, reject) => {
+    const give = () => reject(new DOMException("Aborted", "AbortError"));
+    // `fetch` rejects at once for a signal that was already aborted when it was
+    // handed over, which is the case when the caller gave up first.
+    if (call.init.signal?.aborted === true) {
+      give();
+      return;
+    }
+    call.init.signal?.addEventListener("abort", give);
+  });
+}
 
 describe("the API client reacts to a session the server refuses", () => {
   it("clears stored session material on session_expired", async () => {

@@ -21,6 +21,7 @@ import type {
 } from "@betterwakeup/contract";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
+import { noAnswerMessage } from "../api/no-answer.ts";
 import { tryAgainMessage, unlistedMessage } from "../api/try-again.ts";
 import { waitMessageFor } from "../api/wait-again.ts";
 import type { CommandOutcome } from "../challenges/lifecycle-commands.ts";
@@ -41,7 +42,6 @@ export function needsPaymentMethod(challenge: ChallengeView): boolean {
   return challenge.status === "active" || challenge.status === "recovery_pending";
 }
 
-const NETWORK_MESSAGE = "No connection to BetterWakeUp. Check your network and try again.";
 const FAILURE_LEAD = "That card could not be put in place.";
 const GENERIC_MESSAGE = tryAgainMessage(FAILURE_LEAD);
 
@@ -97,8 +97,9 @@ function messageFor(cause: unknown): string {
   if (!(cause instanceof ApiError)) {
     return GENERIC_MESSAGE;
   }
-  if (cause.status === null) {
-    return NETWORK_MESSAGE;
+  const silence = noAnswerMessage(cause, "command");
+  if (silence !== null) {
+    return silence;
   }
   return waitMessageFor(cause) ?? MESSAGES[cause.code] ?? unlistedMessage(cause, FAILURE_LEAD);
 }

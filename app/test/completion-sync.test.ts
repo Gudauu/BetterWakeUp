@@ -162,6 +162,36 @@ describe("completion sync", () => {
     expect(await store.list()).toEqual([]);
   });
 
+  it("records the offline case as one, because a failed send proves nothing arrived", async () => {
+    const record = await store.record(INPUT);
+    client.answer(record.id, async () => {
+      throw new ApiError("internal_error", "The request did not reach the server.", {
+        status: null,
+      });
+    });
+
+    await sync.syncAll();
+
+    expect(await store.listPending()).toMatchObject([{ lastErrorReachedServer: false }]);
+  });
+
+  it("leaves a walk the client stopped waiting for saying nobody knows", async () => {
+    const record = await store.record(INPUT);
+    client.answer(record.id, async () => {
+      throw new ApiError("internal_error", "BetterWakeUp did not answer in time.", {
+        status: null,
+        timedOut: true,
+      });
+    });
+
+    await sync.syncAll();
+
+    // The bytes may well have landed, so the record must not claim this phone
+    // was offline - the unknown column is the honest answer, and the wording
+    // that follows it covers both.
+    expect(await store.listPending()).toMatchObject([{ lastErrorReachedServer: null }]);
+  });
+
   it("retains a rejected record, surfaces it, and never sends it again", async () => {
     const record = await store.record(INPUT);
     client.answer(record.id, async () => {

@@ -24,6 +24,7 @@ import type {
 } from "@betterwakeup/contract";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
+import { noAnswerMessage } from "../api/no-answer.ts";
 import { tryAgainMessage, unlistedMessage } from "../api/try-again.ts";
 import { waitMessageFor } from "../api/wait-again.ts";
 
@@ -33,7 +34,6 @@ export type CommandOutcome<Value> =
   | { readonly status: "blocked"; readonly reasons: readonly string[] }
   | { readonly status: "failed"; readonly message: string };
 
-const NETWORK_MESSAGE = "No connection to BetterWakeUp. Check your network and try again.";
 const FAILURE_LEAD = "That did not go through.";
 const GENERIC_MESSAGE = tryAgainMessage(FAILURE_LEAD);
 
@@ -173,8 +173,9 @@ function messageFor(cause: unknown): string {
   if (!(cause instanceof ApiError)) {
     return GENERIC_MESSAGE;
   }
-  if (cause.status === null) {
-    return NETWORK_MESSAGE;
+  const silence = noAnswerMessage(cause, "command");
+  if (silence !== null) {
+    return silence;
   }
   return waitMessageFor(cause) ?? MESSAGES[cause.code] ?? unlistedMessage(cause, FAILURE_LEAD);
 }

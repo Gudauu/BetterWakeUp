@@ -1123,6 +1123,22 @@ That is an update rather than a retry, and the difference is invisible from a ge
 A caller's own table still wins, because a specific sentence is worth more than a general one: `not_found` on a card replacement is "This challenge is no longer on your account", not the shared form.
 The lead half of the sentence stays with the caller, which is the half only the caller knows.
 
+#### When nothing comes back at all
+
+`fetch` has no deadline of its own.
+A phone behind a captive portal, or on a connection that opens a socket and then goes nowhere, leaves the promise pending for as long as the platform feels like it, and the app above has no state for that beyond "still loading" - which on home is a spinner, on a morning with a deadline running.
+
+The client carries its own clock: `REQUEST_TIMEOUT_MS` in `app/src/api/no-answer.ts`, applied through an `AbortController` that also follows the caller's own signal, and covering the body read as well, because a response that stalls halfway is the same silence as a request that stalls at the start.
+Twenty seconds is long enough that a slow morning on mobile data is not cut off and short enough that the user gets a screen they can act on while there is still time to walk.
+
+Two silences then have to be told apart, and until now they shared one sentence.
+A request that could not be sent proves the command never ran, and "check your network" is exactly right.
+A request that was sent and never answered proves nothing: the network may be fine, the server may be busy, and the command may already have run.
+`ApiError.timedOut` records which one it was, `reachedServer` reads it as true, false or - for a timeout alone - null, and `noAnswerMessage` words it: a read is told the server did not answer in time, and a command is additionally told that it may have gone through and that trying again is safe, which is true because every command the app sends carries an idempotency key.
+
+The same distinction is what a saved walk stores.
+Completion sync writes `reachedServer` from the error rather than from the status, so a timed-out attempt records the unknown rather than claiming the phone was offline, and the record falls back to the wording that is true either way.
+
 ## Authentication
 
 Version 1 supports Sign in with Apple and Google Sign-In only.

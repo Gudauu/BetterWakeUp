@@ -23,6 +23,13 @@ export class ApiError extends Error {
   readonly details: readonly ErrorDetail[] | undefined;
   readonly retryAfterSeconds: number | undefined;
   readonly leaseExpiresAt: string | undefined;
+  /**
+   * The client gave up waiting rather than being told anything. A timed-out
+   * request is not the same failure as one that could not be sent: the bytes
+   * may well have arrived and been acted on, so nothing here may be said about
+   * whether the command ran.
+   */
+  readonly timedOut: boolean;
 
   constructor(
     code: ErrorCode,
@@ -32,6 +39,7 @@ export class ApiError extends Error {
       details?: readonly ErrorDetail[] | undefined;
       retryAfterSeconds?: number | undefined;
       leaseExpiresAt?: string | undefined;
+      timedOut?: boolean;
       cause?: unknown;
     } = {},
   ) {
@@ -43,6 +51,20 @@ export class ApiError extends Error {
     this.details = options.details;
     this.retryAfterSeconds = options.retryAfterSeconds;
     this.leaseExpiresAt = options.leaseExpiresAt;
+    this.timedOut = options.timedOut ?? false;
+  }
+
+  /**
+   * Whether the request was answered by the server, as far as this device can
+   * tell. True when a status came back, false when the send itself failed, and
+   * null when the client stopped waiting - a timeout is the one failure where
+   * the honest answer is that nobody knows.
+   */
+  get reachedServer(): boolean | null {
+    if (this.status !== null) {
+      return true;
+    }
+    return this.timedOut ? null : false;
   }
 
   static fromResponse(status: number, body: ErrorResponse): ApiError {

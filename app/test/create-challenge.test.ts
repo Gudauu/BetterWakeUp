@@ -226,6 +226,21 @@ describe("the projection", () => {
     expect(outcome.status === "unavailable" && outcome.message).toMatch(/No connection/);
   });
 
+  it("separates a server that never answered from a phone with no connection", async () => {
+    const api = fakeApi({
+      createChallengeProjection: new ApiError("internal_error", "no answer", {
+        status: null,
+        timedOut: true,
+      }),
+    });
+
+    const outcome = await projectChallenge(api, readyDraft());
+
+    const message = outcome.status === "unavailable" ? outcome.message : "";
+    expect(message).toMatch(/did not answer in time/);
+    expect(message).not.toMatch(/No connection/);
+  });
+
   it("does not repeat the server's own words to the user", async () => {
     const api = fakeApi({
       createChallengeProjection: new ApiError("internal_error", "connection pool exhausted", {

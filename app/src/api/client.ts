@@ -20,6 +20,7 @@ import {
 import { randomUUID } from "expo-crypto";
 import type { SessionStore } from "../session/session-store.ts";
 import { ApiError } from "./errors.ts";
+import { REQUEST_TIMEOUT_MS } from "./no-answer.ts";
 
 /**
  * Every endpoint except the payment webhook, which the provider calls and the
@@ -69,6 +70,8 @@ export interface ApiClientOptions {
    * that used it rather than left on screen as if it still worked.
    */
   readonly onSessionInvalid?: () => void;
+  /** How long a request may take before the client stops waiting for it. */
+  readonly timeoutMs?: number;
 }
 
 interface LooseRequest {
@@ -95,6 +98,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
   const doFetch = options.fetch ?? globalThis.fetch;
   const newKey = options.newIdempotencyKey ?? randomUUID;
+  const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
 
   return {
     async request<Name extends ClientEndpointName>(
@@ -145,25 +149,57 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
         headers["idempotency-key"] = loose.idempotencyKey ?? newKey();
       }
 
-      let response: Response;
-      try {
-        response = await doFetch(`${baseUrl}${path}`, {
-          method: definition.method,
-          headers,
-          ...(payload === undefined ? {} : { body: payload }),
-          ...(loose.signal === undefined ? {} : { signal: loose.signal }),
-        });
-      } catch (cause) {
-        // Never reached the server, so the command may or may not have run;
-        // `retry` is safe because every command that changes anything carries
-        // an idempotency key.
-        throw new ApiError("internal_error", "The request did not reach the server.", {
-          status: null,
-          cause,
-        });
+      // A request with no deadline of its own is not a request: a phone behind
+      // a captive portal, or on a connection that opens a socket and then goes
+      // nowhere, leaves `fetch` pending for as long as the platform feels like
+      // it, and the app above has no state for that but "still loading". The
+      // clock covers reading the body as well, because a stalled response is
+      // the same silence as a stalled request.
+      const deadline = new AbortController();
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        deadline.abort();
+      }, timeoutMs);
+      const followCaller = () => deadline.abort();
+      loose.signal?.addEventListener("abort", followCaller);
+      if (loose.signal?.aborted === true) {
+        deadline.abort();
       }
 
-      const text = await response.text();
+      let response: Response;
+      let text: string;
+      try {
+        try {
+          response = await doFetch(`${baseUrl}${path}`, {
+            method: definition.method,
+            headers,
+            ...(payload === undefined ? {} : { body: payload }),
+            signal: deadline.signal,
+          });
+        } catch (cause) {
+          // Never reached the server, so the command may or may not have run;
+          // `retry` is safe because every command that changes anything carries
+          // an idempotency key.
+          throw noAnswer(timedOut, cause);
+        }
+
+        try {
+          text = await response.text();
+        } catch (cause) {
+          // The server answered and then the connection went: the status is
+          // known, so this is not the offline case, and saying so is what keeps
+          // a walk's stored reason honest.
+          throw new ApiError("internal_error", `Unreadable response body for ${name}.`, {
+            status: response.status,
+            cause,
+          });
+        }
+      } finally {
+        clearTimeout(timer);
+        loose.signal?.removeEventListener("abort", followCaller);
+      }
+
       const decoded = decodeJson(text);
 
       if (!response.ok) {
@@ -199,6 +235,25 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       return parsed.data as ResponseOf<Name>;
     },
   };
+}
+
+/**
+ * Nothing came back. Which of the two silences it was decides what the app may
+ * say afterwards: a send that failed proves the command never ran, while a
+ * client that stopped waiting proves nothing at all.
+ */
+function noAnswer(timedOut: boolean, cause: unknown): ApiError {
+  if (timedOut) {
+    return new ApiError("internal_error", "BetterWakeUp did not answer in time.", {
+      status: null,
+      timedOut: true,
+      cause,
+    });
+  }
+  return new ApiError("internal_error", "The request did not reach the server.", {
+    status: null,
+    cause,
+  });
 }
 
 /** An empty body is `{}`: the two no-content commands answer with no bytes. */
