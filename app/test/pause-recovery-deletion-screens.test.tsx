@@ -113,7 +113,11 @@ describe("PauseScreen while paused", () => {
 
     expect(screen.getByTestId("pause-status")).toHaveTextContent(/paused/);
     expect(screen.getByTestId("pause-status")).not.toHaveTextContent(/is running/);
-    expect(screen.getByTestId("paused-banner")).toHaveTextContent(/nothing can be failed/);
+    // This fixture's task was past its pause cutoff, so it stayed live: the
+    // banner has to say the deadline still counts rather than that nothing is
+    // due, which is what it said before and was not true of this challenge.
+    expect(screen.getByTestId("paused-banner")).toHaveTextContent(/its deadline still counts/);
+    expect(screen.getByTestId("paused-banner")).toHaveTextContent(/never starts again on its own/);
     // No pause control and no named task: both would suggest the challenge is
     // still running even while the heading says otherwise.
     expect(screen.queryByTestId("pause")).toBeNull();

@@ -24,6 +24,12 @@ import {
   streakSentence,
 } from "../challenges/history.ts";
 import {
+  pausedForSentence,
+  pausedRestSentence,
+  pauseExpirySentence,
+  pausePresentation,
+} from "../challenges/pause.ts";
+import {
   type RecoveryWindow,
   recoveryOfferSummary,
   recoveryWindow,
@@ -502,6 +508,10 @@ function ChallengeCard({
   onOpenPaymentMethod: () => void;
 }) {
   const paused = challenge.pause.pausedAt !== null;
+  // How long the pause has stood and how close it is to the year that closes
+  // the challenge. Read here as well as on the pause screen, because a pause
+  // ends only when its owner ends it and home is the only screen they open.
+  const pause = pausePresentation({ challenge, now });
   const { progress, configuration, currentTask } = challenge;
   // How much of this morning is left. Home is the screen most people open
   // first, and a deadline stated as "7:00 AM" alone leaves the reader to work
@@ -587,6 +597,34 @@ function ChallengeCard({
           />
         </Card>
       )}
+
+      {/* A pause standing still. The status pill in the card below says the
+          word, and the word alone is easy to read as a state the app is
+          managing - it is not. Nothing is due, nothing will ring, and no day
+          passes until the user comes back here and resumes, so the way to do
+          that is the button in this banner rather than a quiet link under the
+          challenge's numbers. */}
+      {paused && challenge.status === "active" ? (
+        <Banner tone={pause.expiryWarning ? "danger" : "warning"} testID="home-paused">
+          <AppText variant="headline" testID="home-paused-days">
+            {pausedForSentence(pause.pausedDays)}
+          </AppText>
+          <AppText variant="small" tone="muted" testID="home-paused-explainer">
+            {pausedRestSentence(currentTask !== null)}
+          </AppText>
+          {pause.expiryWarning && pause.daysUntilExpiry !== null ? (
+            <AppText
+              variant="small"
+              tone="danger"
+              accessibilityRole="alert"
+              testID="home-pause-expiry"
+            >
+              {pauseExpirySentence(pause.daysUntilExpiry)}
+            </AppText>
+          ) : null}
+          <Button testID="home-open-pause" label="Resume the challenge" onPress={onOpenPause} />
+        </Banner>
+      ) : null}
 
       {/* A walk from an earlier day that the server never took. Nothing to
           press: sync retries it on every trigger, and saying so is the point -
@@ -749,12 +787,14 @@ function ChallengeCard({
         />
 
         {/* Pausing belongs to a challenge that can still run. A finished one has
-            nothing to pause, and offering it would be a press the server refuses. */}
-        {challenge.status === "active" ? (
+            nothing to pause, and offering it would be a press the server refuses.
+            A paused one is resumed from the banner above instead, where the
+            reason to press it is on screen beside the button. */}
+        {challenge.status === "active" && !paused ? (
           <TextButton
             testID="home-open-pause"
             tone="accent"
-            label={paused ? "Resume the challenge" : "Pause the challenge"}
+            label="Pause the challenge"
             onPress={onOpenPause}
           />
         ) : null}

@@ -127,3 +127,33 @@ describe("database harness", () => {
     });
   });
 });
+
+/**
+ * A connection nobody is using can still fail: the database restarts, an
+ * administrator terminates the backend, a proxy drops the socket. Node's
+ * EventEmitter throws when an `error` arrives with nobody listening, so a pool
+ * with no handler takes the whole process down for a socket no request was
+ * holding - on Lambda, the container serving the next request.
+ */
+describe("a pooled connection that dies while idle", () => {
+  it("is survived, and the next query opens a new one", async () => {
+    const test = testDatabase();
+    // Opens the pooled connection and then leaves it idle.
+    await test.db.execute(sql`select 1`);
+
+    // A second session plays the administrator, so the kill arrives from
+    // outside the pool exactly as a restart would.
+    const killer = test.connect();
+    await killer.db.execute(
+      sql`select pg_terminate_backend(pid) from pg_stat_activity
+          where datname = current_database() and pid <> pg_backend_pid()`,
+    );
+    // The socket error reaches the pool on a later tick than the kill.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const rows = await executeRows<{ ok: number }>(test.db, sql`select 1 as ok`);
+    // The harness closes what `connect()` handed out, so this one is not
+    // closed here: ending a pool twice is an error in its own right.
+    expect(rows[0]?.ok).toBe(1);
+  });
+});

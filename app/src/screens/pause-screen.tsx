@@ -22,7 +22,12 @@ import {
   pauseChallenge,
   resumeChallenge,
 } from "../challenges/lifecycle-commands.ts";
-import { pauseExpirySentence, pausePresentation } from "../challenges/pause.ts";
+import {
+  pausedForSentence,
+  pausedRestSentence,
+  pauseExpirySentence,
+  pausePresentation,
+} from "../challenges/pause.ts";
 import { AppText, Banner, Card, Divider, Screen, StatusPill } from "../ui/components.tsx";
 import { formatDay } from "../ui/format.ts";
 import { BackLink } from "./back-link.tsx";
@@ -126,14 +131,16 @@ export function PauseScreen(props: PauseScreenProps) {
         </>
       ) : (
         <>
+          {/* The same sentence home leads with, for the same reason: a task
+              whose cutoff had passed when the pause was set stays live, so a
+              flat promise that no task is due would be wrong about the one day
+              that can still be lost. */}
           <Banner tone="info" testID="paused-banner">
-            <AppText variant="small">
-              No task is due and nothing can be failed. Deadlines start again only when you resume.
-            </AppText>
+            <AppText variant="small">{pausedRestSentence(challenge.currentTask !== null)}</AppText>
           </Banner>
           <Card>
             <AppText variant="title" testID="paused-days">
-              {pausedDaysSentence(view.pausedDays)}
+              {pausedForSentence(view.pausedDays)}
             </AppText>
             <AppText variant="small" tone="muted">
               Every day you spend paused is a day your end date moves later, and nothing else.
@@ -185,13 +192,6 @@ function nextSkippedSentence(task: { date: string } | null, cutoffPassed: boolea
 
 function pauseConsequence(task: { date: string } | null, cutoffPassed: boolean): string {
   return `${nextSkippedSentence(task, cutoffPassed)} A skipped task does not count toward your required total, so your end date moves later. You can resume at any time.`;
-}
-
-function pausedDaysSentence(pausedDays: number | null): string {
-  if (pausedDays === null || pausedDays <= 0) {
-    return "Paused since today.";
-  }
-  return pausedDays === 1 ? "Paused for 1 day." : `Paused for ${pausedDays} days.`;
 }
 
 const styles = StyleSheet.create({

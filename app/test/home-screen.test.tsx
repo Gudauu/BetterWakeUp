@@ -700,6 +700,100 @@ describe("home is the door to pausing", () => {
     expect(await screen.findByTestId("home-open-pause")).toHaveTextContent("Resume the challenge");
   });
 
+  it("says how long a pause has stood and that it never ends by itself", async () => {
+    // The pill says "Paused" and nothing else, which reads like a state the app
+    // is managing. It is not: no deadline arrives and no alarm sounds until the
+    // user comes back here, so home says so rather than leaving it to the one
+    // screen they have no reason to open again.
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          lastEnded: null,
+          challenge: challengeView({
+            currentTask: null,
+            pause: { pausedAt: "2026-08-29T12:00:00.000Z", expiresAt: PAUSE_EXPIRES_AT },
+          }),
+        },
+      }),
+    );
+
+    expect(await screen.findByTestId("home-paused-days")).toHaveTextContent("Paused for 3 days.");
+    expect(screen.getByTestId("home-paused-explainer")).toHaveTextContent(
+      /never starts again on its own/,
+    );
+    expect(screen.getByTestId("home-paused-explainer")).toHaveTextContent(/no alarm will sound/);
+    expect(screen.queryByTestId("home-pause-expiry")).toBeNull();
+  });
+
+  it("names the walk that stayed live rather than promising no deadline counts", async () => {
+    // A task past its pause cutoff runs through the pause, and home still draws
+    // it, so the banner beside it must not claim nothing is due.
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          lastEnded: null,
+          challenge: challengeView({
+            currentTask: taskView(),
+            pause: { pausedAt: PAUSED_AT, expiresAt: PAUSE_EXPIRES_AT },
+          }),
+        },
+      }),
+    );
+
+    expect(await screen.findByTestId("home-current-task")).toBeOnTheScreen();
+    expect(screen.getByTestId("home-paused-explainer")).toHaveTextContent(
+      /its deadline still counts/,
+    );
+  });
+
+  it("states what happens when the pause reaches the year", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          lastEnded: null,
+          challenge: challengeView({
+            currentTask: null,
+            pause: {
+              pausedAt: "2025-09-15T12:00:00.000Z",
+              expiresAt: "2026-09-15T12:00:00.000Z",
+            },
+          }),
+        },
+      }),
+    );
+
+    expect(await screen.findByTestId("home-pause-expiry")).toHaveTextContent(/In 14 days/);
+    expect(screen.getByTestId("home-pause-expiry")).toHaveTextContent(
+      /neither a success nor a failure/,
+    );
+  });
+
+  it("opens the pause screen from the banner a paused challenge draws", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          lastEnded: null,
+          challenge: challengeView({ pause: { pausedAt: PAUSED_AT, expiresAt: PAUSE_EXPIRES_AT } }),
+        },
+      }),
+    );
+
+    await userEvent.press(await screen.findByTestId("home-open-pause"));
+
+    expect(await screen.findByTestId("pause-screen")).toBeOnTheScreen();
+    expect(screen.getByTestId("pause-status")).toHaveTextContent("Your challenge is paused");
+  });
+
+  it("draws no pause banner over a challenge that is running", async () => {
+    await renderHome(
+      fakeApi({ getCurrentChallenge: { challenge: challengeView(), lastEnded: null } }),
+    );
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-paused")).toBeNull();
+    expect(screen.getByTestId("home-open-pause")).toHaveTextContent("Pause the challenge");
+  });
+
   it("offers no pause for a challenge that has already ended", async () => {
     // Pausing a finished challenge is a press the server refuses, so it is not
     // offered rather than offered and rejected.

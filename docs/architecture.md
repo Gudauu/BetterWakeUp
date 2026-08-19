@@ -406,6 +406,23 @@ Neither of them says what became of the money: a zero-deposit challenge settles 
 
 The duration wording itself lives in `app/src/ui/format.ts` as `formatDuration`, because two countdowns now use it and "2 hours 30 minutes" must not be said two ways.
 
+### A pause standing still
+
+A pause is the one state in the app that nothing ends but the user.
+No deadline arrives, no day is failed, and the reminders that would otherwise be on the device are deliberately not scheduled, so a challenge left paused makes no sound of any kind until the year runs out and it closes as `expired`.
+
+Home used to say the word "Paused" in a pill and nothing else, which reads like a state the app is managing on the user's behalf.
+It now draws a banner: how long the pause has stood, that no alarm will sound, that the challenge never starts again on its own, and the way to resume it.
+That is also where resuming is pressed - the quiet link under the challenge's numbers stays for pausing a running challenge, but a paused one has the button beside the reason to press it.
+
+The sentences are `pausedForSentence` and `pausedRestSentence` in `app/src/challenges/pause.ts`, beside the derivation that produces the numbers, so the pause screen and home cannot count the same days two ways.
+
+A task whose pause cutoff had already passed stays live through the pause, which is why the sentence is written twice.
+With a task still open the banner names the deadline that still counts instead of promising that none does, because the promise would be a lie about the one day that can still be lost.
+
+The year is stated the same way on both screens, through `pauseExpirySentence`, and the banner turns red inside `PAUSE_EXPIRY_WARNING_DAYS`.
+It asks for nothing: expiry is neither a success nor a failure, and nothing is charged, so the sentence states the outcome and leaves resuming to the user.
+
 ### Pending completion store
 
 The app writes a pending completion to SQLite before displaying the local check.
@@ -890,6 +907,10 @@ Naming those areas explicitly avoids relitigating the choice at every query.
 Connect with the Neon serverless driver's WebSocket `Pool`, not its HTTP driver.
 This is a correctness requirement, not a preference.
 The HTTP driver supports only single statements and non-interactive batches, which cannot express `FOR UPDATE SKIP LOCKED` or the multi-statement transactions this design depends on.
+
+Every pool carries an `error` listener, on both drivers.
+A pool emits `error` when a connection fails while it is idle - the database restarted, an administrator terminated the backend, a proxy dropped the socket - and a Node `EventEmitter` with no listener for `error` throws, which would end the execution environment over a socket no request was holding.
+The pool has already discarded the client by then, so the handler only says what happened and the next query opens a fresh connection.
 
 Keep Lambda and Neon in the same supported region to reduce transaction latency.
 

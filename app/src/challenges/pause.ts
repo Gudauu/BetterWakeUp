@@ -91,6 +91,40 @@ function wholeDaysBetween(fromMs: number, toMs: number): number {
 }
 
 /**
+ * How long the pause has lasted, as a person would say it.
+ *
+ * Shared by the pause screen and home so the two cannot word the same length
+ * of time differently. A pause set today reads as today rather than as zero
+ * days, because "Paused for 0 days" is a number nobody says.
+ */
+export function pausedForSentence(pausedDays: number | null): string {
+  if (pausedDays === null || pausedDays <= 0) {
+    return "Paused since today.";
+  }
+  return pausedDays === 1 ? "Paused for 1 day." : `Paused for ${pausedDays} days.`;
+}
+
+/**
+ * What being paused means from here, said on the screen the user lands on.
+ *
+ * The single most expensive thing about a pause is that it never ends by
+ * itself: no deadline arrives, no alarm sounds, and nothing on the device will
+ * ever ask again. Someone who paused for a weekend and forgot has a challenge
+ * that quietly stands still until the year runs out, so home says so every
+ * time rather than only on the screen that set it.
+ *
+ * A task whose pause cutoff had already passed stays live through the pause,
+ * so when one is still open the promise of "no deadline counts" would be a
+ * lie and the sentence names the exception instead.
+ */
+export function pausedRestSentence(hasLiveTask: boolean): string {
+  if (hasLiveTask) {
+    return "Today's walk was already too far along to skip, so its deadline still counts. Everything after it waits until you resume - the challenge never starts again on its own.";
+  }
+  return "No deadline counts, no day can be failed, and no alarm will sound. The challenge never starts again on its own, so it waits here until you resume it.";
+}
+
+/**
  * The sentence shown as a pause nears its bound. It states the outcome and
  * asks for nothing, because resuming and letting the year arrive are both
  * acceptable and neither costs the user money.

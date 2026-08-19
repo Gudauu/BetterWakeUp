@@ -16,7 +16,32 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import pg from "pg";
 import { WebSocket } from "ws";
 
+import { createLogger } from "../observability/logger.ts";
 import * as schema from "./schema.ts";
+
+const log = createLogger();
+
+/**
+ * Keeps a connection dying while nobody is using it from taking the process
+ * with it.
+ *
+ * node-postgres emits `error` on the pool when an *idle* connection fails -
+ * the database restarted, an administrator terminated the backend, a proxy
+ * dropped the socket - and an `EventEmitter` with no `error` listener throws,
+ * which on Lambda means the whole container dies for a socket no request was
+ * holding. The pool has already discarded the client by the time this runs, so
+ * the next query opens a fresh one and the only thing left to do is say what
+ * happened.
+ */
+function reportIdleFailures(pool: {
+  on(event: "error", listener: (error: Error) => void): unknown;
+}) {
+  pool.on("error", (error) => {
+    // The reason goes in the message: `LogFields` is a closed set of the
+    // things the system reports on, and a driver's error text is not one.
+    log.warn(`a pooled database connection failed while idle: ${error.message}`);
+  });
+}
 
 export type Schema = typeof schema;
 
@@ -64,6 +89,7 @@ export function createDatabase(config: DatabaseConfig): DatabaseHandle {
     // explicit implementation.
     neonConfig.webSocketConstructor = WebSocket;
     const pool = new NeonPool({ connectionString: config.connectionString, max });
+    reportIdleFailures(pool);
     return {
       db: drizzleNeon({ client: pool, schema }),
       driver,
@@ -73,6 +99,7 @@ export function createDatabase(config: DatabaseConfig): DatabaseHandle {
   }
 
   const pool = new pg.Pool({ connectionString: config.connectionString, max });
+  reportIdleFailures(pool);
   return {
     db: drizzleNodePostgres({ client: pool, schema }),
     driver,

@@ -10,6 +10,8 @@
 import { MAXIMUM_PAUSE_DAYS } from "@betterwakeup/contract";
 import {
   PAUSE_EXPIRY_WARNING_DAYS,
+  pausedForSentence,
+  pausedRestSentence,
   pauseExpirySentence,
   pausePresentation,
 } from "../src/challenges/pause.ts";
@@ -141,5 +143,39 @@ describe("pauseExpirySentence", () => {
   it("reads naturally on the last day", () => {
     expect(pauseExpirySentence(0)).toMatch(/^Today /);
     expect(pauseExpirySentence(1)).toMatch(/^Tomorrow /);
+  });
+});
+
+describe("pausedForSentence", () => {
+  it("says today rather than zero days for a pause set this morning", () => {
+    expect(pausedForSentence(0)).toBe("Paused since today.");
+    expect(pausedForSentence(null)).toBe("Paused since today.");
+    // A pause the clock has not caught up with yet still reads as today.
+    expect(pausedForSentence(-1)).toBe("Paused since today.");
+  });
+
+  it("counts whole days, singular and plural", () => {
+    expect(pausedForSentence(1)).toBe("Paused for 1 day.");
+    expect(pausedForSentence(12)).toBe("Paused for 12 days.");
+  });
+});
+
+describe("pausedRestSentence", () => {
+  it("says the challenge never resumes itself, and that nothing will ring", () => {
+    const sentence = pausedRestSentence(false);
+
+    expect(sentence).toContain("never starts again on its own");
+    expect(sentence).toContain("no alarm will sound");
+    expect(sentence).toContain("resume");
+  });
+
+  it("stops promising that no deadline counts while a task stayed live", () => {
+    // A task past its pause cutoff runs through the pause, so the promise the
+    // other sentence makes would be a lie about the one day that still counts.
+    const sentence = pausedRestSentence(true);
+
+    expect(sentence).toContain("its deadline still counts");
+    expect(sentence).not.toContain("No deadline counts");
+    expect(sentence).toContain("never starts again on its own");
   });
 });
