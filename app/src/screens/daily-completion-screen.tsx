@@ -19,6 +19,7 @@
 import type { ChallengeView, TaskView } from "@betterwakeup/contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
+import { formatMoney } from "../challenges/draft.ts";
 import {
   type CheckState,
   type DailyCompletionState,
@@ -58,6 +59,13 @@ export interface DailyCompletionScreenProps {
   readonly now?: () => Date;
   /** Called when the server acknowledges, so the caller can re-read the challenge. */
   readonly onAcknowledged?: () => void;
+  /**
+   * Called when that acknowledgment was the last one the challenge needed.
+   * The server says so in the completion response, so the caller learns the
+   * challenge is over from the same answer rather than from a later read that
+   * would only show it having disappeared.
+   */
+  readonly onFinished?: () => void;
   /** Offered as a way back when a caller put this screen on top of another. */
   readonly onBack?: () => void;
 }
@@ -87,6 +95,13 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
    * which is the only evidence `dailyCompletionState` accepts.
    */
   const [acknowledgedTask, setAcknowledgedTask] = useState<TaskView | null>(null);
+  /**
+   * Whether the acknowledgment that just landed ended the whole challenge.
+   * Without it the screen would tell someone who has just finished a month of
+   * mornings that there is "nothing else to do until tomorrow", and the
+   * challenge would then vanish from home with no one having said so.
+   */
+  const [finished, setFinished] = useState(false);
 
   const current = challenge.currentTask;
   const task =
@@ -107,9 +122,13 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
       if (event.type === "acknowledged") {
         setAcknowledgedTask(event.response.task);
         props.onAcknowledged?.();
+        if (event.response.challengeStatus === "succeeded") {
+          setFinished(true);
+          props.onFinished?.();
+        }
       }
     });
-  }, [reload, sync, props.onAcknowledged]);
+  }, [reload, sync, props.onAcknowledged, props.onFinished]);
 
   useEffect(() => capture.subscribe(setCaptureState), [capture]);
 
@@ -197,6 +216,29 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
         </AppText>
       </View>
 
+      {/* The end of the whole challenge outranks the day that ended it, so it
+          is said first, at display size, before the two checks that are now
+          only the working behind it. */}
+      {finished ? (
+        <Card testID="challenge-finished">
+          <AppText variant="caption" tone="success">
+            CHALLENGE COMPLETE
+          </AppText>
+          <AppText variant="display" tone="success" accessibilityRole="header">
+            You did it
+          </AppText>
+          <AppText variant="body" testID="challenge-finished-days">
+            {finishedDaysText(challenge.configuration.requiredTaskCount)}
+          </AppText>
+          <AppText variant="small" tone="muted" testID="challenge-finished-deposit">
+            {finishedDepositText(challenge)}
+          </AppText>
+          {props.onBack === undefined ? null : (
+            <Button testID="challenge-finished-home" label="Back to home" onPress={props.onBack} />
+          )}
+        </Card>
+      ) : null}
+
       {/* The status and the two checks it is derived from, in that order: the
           headline is the answer and the checks are the working, so a user who
           reads only the first line still leaves with the truth. */}
@@ -210,7 +252,7 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
           {PROGRESSION_HEADLINE[state.status]}
         </AppText>
         <AppText variant="small" tone="muted">
-          {STATUS_ADVICE[state.status]}
+          {finished ? FINISHED_ADVICE : STATUS_ADVICE[state.status]}
         </AppText>
 
         <Divider />
@@ -341,6 +383,29 @@ const STATUS_ADVICE: Readonly<Record<DailyCompletionState["status"], string>> = 
   acknowledged: "This day is yours. Nothing else to do until tomorrow.",
   rejected: "This walk was not accepted. The reason is below.",
 };
+
+/**
+ * What replaces the acknowledged advice on the last day. "Until tomorrow" is
+ * false once the challenge is over, and it is the wrong note to end a month on.
+ */
+const FINISHED_ADVICE = "That was the last day this challenge needed.";
+
+/** What was actually done, counted. A one day challenge is not "all 1 days". */
+function finishedDaysText(days: number): string {
+  if (days === 1) {
+    return "That was the day this challenge asked for, and it is verified.";
+  }
+  return `That was all ${days} days. Every one of them verified.`;
+}
+
+/** What the finish means for the money, which is the first thing asked about it. */
+function finishedDepositText(challenge: ChallengeView): string {
+  const { amount } = challenge.configuration.deposit;
+  if (amount === 0) {
+    return "You staked nothing, so the mornings are the whole of it.";
+  }
+  return `Your ${formatMoney(amount)} deposit stays yours. Nothing will be charged.`;
+}
 
 /** The colour each state is read in, so the news arrives before the sentence does. */
 const STATUS_TONE: Readonly<

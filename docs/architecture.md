@@ -213,6 +213,14 @@ That is what lets the app follow the device between light and dark without a sin
 `app/src/ui/format.ts` owns how instants and dates are read out loud, so no screen prints an ISO string at a person.
 A deadline is only true in the challenge's own time zone, so every screen that shows one formats it there rather than in the device's zone, and falls back to the raw instant when the runtime has no zone data.
 
+### The end of a challenge
+
+`GET /challenges/current` answers null for every terminal challenge, so the server cannot be asked what the account just finished.
+The completion that ends a challenge says so in its own response, in `challengeStatus`, and that answer is the app's only notice of the finish.
+
+The daily task screen therefore says the challenge is over on the acknowledgment that ended it, and hands the challenge it was holding up to home, which keeps it for the rest of the session and shows it in place of the empty state.
+Without that, a finished challenge would read as an account that never held one.
+
 ### Movement
 
 Use the `expo-sensors` Pedometer, which wraps CMPedometer on iOS and the step counter on Android.

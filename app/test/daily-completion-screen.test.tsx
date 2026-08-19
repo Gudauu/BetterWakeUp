@@ -86,7 +86,12 @@ async function harness(api: FakeApi = fakeApi({ createCompletion: COMPLETION_RES
   } satisfies Harness;
 }
 
-function tree(given: Harness, view: ChallengeView, onAcknowledged?: () => void) {
+function tree(
+  given: Harness,
+  view: ChallengeView,
+  onAcknowledged?: () => void,
+  onFinished?: () => void,
+) {
   return (
     <SafeAreaProvider initialMetrics={METRICS}>
       <DailyCompletionScreen
@@ -97,13 +102,19 @@ function tree(given: Harness, view: ChallengeView, onAcknowledged?: () => void) 
         appVersion="1.0.0"
         now={() => NOW}
         {...(onAcknowledged === undefined ? {} : { onAcknowledged })}
+        {...(onFinished === undefined ? {} : { onFinished })}
       />
     </SafeAreaProvider>
   );
 }
 
-async function renderScreen(given: Harness, view = challenge(), onAcknowledged?: () => void) {
-  await render(tree(given, view, onAcknowledged));
+async function renderScreen(
+  given: Harness,
+  view = challenge(),
+  onAcknowledged?: () => void,
+  onFinished?: () => void,
+) {
+  await render(tree(given, view, onAcknowledged, onFinished));
   await waitFor(() =>
     expect(
       screen.queryByTestId("daily-completion") ?? screen.queryByTestId("no-task-today"),
@@ -227,6 +238,73 @@ describe("what the screen says to do", () => {
       now: 100,
     });
     expect(screen.getByTestId("capture-steps")).toHaveTextContent("100 steps so far, target 250.");
+  });
+});
+
+describe("the completion that ends the whole challenge", () => {
+  /** The same harness, with a server that says this one finished the challenge. */
+  async function finishing(deposit = 0) {
+    const given = await harness(
+      fakeApi({ createCompletion: { ...COMPLETION_RESPONSE, challengeStatus: "succeeded" } }),
+    );
+    const onFinished = jest.fn();
+    const view = challengeView({
+      currentTask: task(),
+      configuration: {
+        ...challengeView().configuration,
+        deposit: { amount: deposit, currency: "USD" },
+      },
+    });
+    await renderScreen(given, view, undefined, onFinished);
+    return { given, onFinished };
+  }
+
+  it("celebrates the finish and tells the caller the challenge is over", async () => {
+    const { given, onFinished } = await finishing();
+
+    expect(screen.queryByTestId("challenge-finished")).toBeNull();
+
+    await completeLocally(given);
+
+    await waitFor(() => expect(screen.queryByTestId("challenge-finished")).not.toBeNull());
+    expect(onFinished).toHaveBeenCalled();
+    expect(screen.getByTestId("challenge-finished-days")).toHaveTextContent(/all 30 days/);
+  });
+
+  it("does not promise a tomorrow the challenge no longer has", async () => {
+    const { given } = await finishing();
+
+    await completeLocally(given);
+
+    await waitFor(() => expect(screen.queryByTestId("challenge-finished")).not.toBeNull());
+    expect(screen.getByTestId("daily-status")).toHaveTextContent(
+      /That was the last day this challenge needed\./,
+    );
+    expect(screen.getByTestId("daily-status")).not.toHaveTextContent(/until tomorrow/);
+  });
+
+  it("says the staked deposit was never charged", async () => {
+    const { given } = await finishing(2000);
+
+    await completeLocally(given);
+
+    await waitFor(() => expect(screen.queryByTestId("challenge-finished")).not.toBeNull());
+    expect(screen.getByTestId("challenge-finished-deposit")).toHaveTextContent(
+      /\$20\.00 deposit stays yours/,
+    );
+  });
+
+  it("leaves an ordinary day saying nothing about a finish", async () => {
+    const given = await harness();
+    await renderScreen(given);
+
+    await completeLocally(given);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("progression")).toHaveTextContent("Done. Both checks passed"),
+    );
+    expect(screen.queryByTestId("challenge-finished")).toBeNull();
+    expect(screen.getByTestId("daily-status")).toHaveTextContent(/until tomorrow/);
   });
 });
 

@@ -91,6 +91,10 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
   const theme = useTheme();
   const { state, reload } = useCurrentChallenge(api);
   const [route, setRoute] = useState<Route>("home");
+  // The challenge as it stood when its last day was acknowledged. The server
+  // stops answering for a finished challenge, so without holding it here the
+  // month would end as an empty screen offering to start another one.
+  const [finished, setFinished] = useState<ChallengeView | null>(null);
   // The way back from everything home opens. A command that changed the
   // challenge reads it again from here rather than while its screen is still
   // up: `reload` puts home into its loading state, which would pull that screen
@@ -105,6 +109,12 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
   // open: opening it is what sends a completion recorded on a day with no
   // network, and that must not wait for the user to tap anything.
   const runtime = useCompletionRuntime(api, createRuntime ?? createConfiguredCompletionRuntime);
+  // Opening the form retires the finish: whatever comes back from it, the last
+  // challenge is no longer the thing the screen is about.
+  const openCreate = () => {
+    setFinished(null);
+    setRoute("create");
+  };
 
   if (route === "create") {
     return (
@@ -167,9 +177,15 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
   }
 
   if (state.challenge !== null) {
+    const open = state.challenge;
     if (route === "task") {
       return (
-        <TodayTask challenge={state.challenge} runtime={runtime} onBack={() => goHome(true)} />
+        <TodayTask
+          challenge={open}
+          runtime={runtime}
+          onBack={() => goHome(true)}
+          onFinished={() => setFinished(open)}
+        />
       );
     }
     if (route === "pause") {
@@ -201,7 +217,11 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
     <Screen testID="home">
       <View style={styles.header}>
         <AppText variant="caption" tone="accent">
-          {state.challenge === null ? "READY WHEN YOU ARE" : "TODAY"}
+          {state.challenge !== null
+            ? "TODAY"
+            : finished === null
+              ? "READY WHEN YOU ARE"
+              : "WELL DONE"}
         </AppText>
         <AppText variant="display" accessibilityRole="header">
           BetterWakeUp
@@ -209,17 +229,17 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
       </View>
 
       {state.challenge === null ? (
-        <Card testID="home-no-challenge">
-          <AppText variant="headline">No challenge running</AppText>
-          <AppText variant="small" tone="muted">
-            Set a wake-up time, walk when the alarm goes, and keep your deposit.
-          </AppText>
-          <Button
-            testID="home-create-challenge"
-            label="Start a challenge"
-            onPress={() => setRoute("create")}
-          />
-        </Card>
+        finished === null ? (
+          <Card testID="home-no-challenge">
+            <AppText variant="headline">No challenge running</AppText>
+            <AppText variant="small" tone="muted">
+              Set a wake-up time, walk when the alarm goes, and keep your deposit.
+            </AppText>
+            <Button testID="home-create-challenge" label="Start a challenge" onPress={openCreate} />
+          </Card>
+        ) : (
+          <FinishedCard challenge={finished} onStartAnother={openCreate} />
+        )
       ) : (
         <ChallengeCard
           challenge={state.challenge}
@@ -387,7 +407,45 @@ function ChallengeCard({
   );
 }
 
-/** The challenge's state, said once, in the colour that state deserves. */
+/**
+ * The challenge that just ended, in place of the empty state.
+ *
+ * The server answers null for a finished challenge, so this is drawn from the
+ * copy home was holding when the last completion was acknowledged. It names the
+ * days and the deposit, because those are the two things the user staked, and
+ * it offers the next challenge without pretending the last one never happened.
+ */
+function FinishedCard({
+  challenge,
+  onStartAnother,
+}: {
+  challenge: ChallengeView;
+  onStartAnother: () => void;
+}) {
+  const { configuration } = challenge;
+  return (
+    <Card testID="home-finished">
+      <StatusPill testID="home-finished-status" label="Challenge complete" tone="success" />
+      <AppText variant="display" testID="home-finished-days">
+        {configuration.requiredTaskCount}
+        <AppText variant="headline" tone="muted">
+          {configuration.requiredTaskCount === 1 ? " day, all yours" : " days, all yours"}
+        </AppText>
+      </AppText>
+      <AppText variant="small" tone="muted" testID="home-finished-deposit">
+        {configuration.deposit.amount === 0
+          ? "You staked nothing on this one. The next one could be worth something."
+          : `Your ${formatMoney(configuration.deposit.amount)} deposit was never charged.`}
+      </AppText>
+      <Button
+        testID="home-create-challenge"
+        label="Start another challenge"
+        onPress={onStartAnother}
+      />
+    </Card>
+  );
+}
+
 /**
  * Today's task, once the pieces it needs exist.
  *
@@ -399,10 +457,12 @@ function TodayTask({
   challenge,
   runtime,
   onBack,
+  onFinished,
 }: {
   challenge: ChallengeView;
   runtime: CompletionRuntimeState;
   onBack: () => void;
+  onFinished: () => void;
 }) {
   if (runtime.status === "loading") {
     return (
@@ -435,6 +495,7 @@ function TodayTask({
       appVersion={runtime.runtime.appVersion}
       simulation={runtime.runtime.simulation}
       onBack={onBack}
+      onFinished={onFinished}
     />
   );
 }

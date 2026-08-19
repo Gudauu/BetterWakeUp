@@ -168,6 +168,54 @@ describe("one account's life through the app's own screens", () => {
     expect(screen.getByTestId("home-current-task")).toBeOnTheScreen();
   }, 30_000);
 
+  it("says the challenge is finished, on the task screen and back on home", async () => {
+    // The end of the product. `GET /challenges/current` answers null for a
+    // finished challenge, so without the app holding on to what it just
+    // finished, a completed challenge would read as an account that never had
+    // one - the same empty screen a new user sees.
+    const server = journeyServer();
+    await launch(server);
+    const user = userEvent.setup();
+
+    await user.press(await screen.findByTestId("sign-in-apple"));
+    await user.press(await screen.findByTestId("home-create-challenge"));
+    await waitFor(() => expect(screen.queryByTestId("projection")).not.toBeNull());
+
+    // A one day challenge, so the first walk is also the last one.
+    await fireEvent.changeText(screen.getByTestId("field-required-task-count"), "1");
+    await fireEvent(screen.getByTestId("confirm-time-zone"), "valueChange", true);
+    for (const disclosure of disclosuresFor(0)) {
+      await fireEvent(screen.getByTestId(`disclosure-${disclosure.id}`), "valueChange", true);
+    }
+    await user.press(screen.getByTestId("start-challenge"));
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+
+    await user.press(screen.getByTestId("home-open-task"));
+    await user.press(await screen.findByTestId("start-capture"));
+    await user.press(screen.getByTestId("simulate-enough-steps"));
+    await user.press(screen.getByTestId("stop-capture"));
+
+    // The server said this completion finished the challenge, so the screen
+    // says so rather than promising another morning.
+    expect(await screen.findByTestId("challenge-finished")).toBeOnTheScreen();
+    expect(screen.getByTestId("challenge-finished-days")).toHaveTextContent(
+      /That was the day this challenge asked for/,
+    );
+    expect(screen.getByTestId("daily-status")).not.toHaveTextContent(/until tomorrow/);
+
+    // Home has nothing left to read, and still opens with the finish rather
+    // than with the empty state.
+    await user.press(screen.getByTestId("challenge-finished-home"));
+    expect(await screen.findByTestId("home-finished")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-no-challenge")).toBeNull();
+    expect(screen.getByTestId("home-finished-days")).toHaveTextContent(/1 day, all yours/);
+
+    // And the way on from it is another challenge.
+    await user.press(screen.getByTestId("home-create-challenge"));
+    await waitFor(() => expect(screen.queryByTestId("projection")).not.toBeNull());
+  });
+
   it("pauses and resumes a running challenge from home", async () => {
     // A separate journey because pausing is only offered while a challenge is
     // running, and the first one deliberately finishes its challenge.
