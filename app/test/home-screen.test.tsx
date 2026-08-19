@@ -1216,6 +1216,76 @@ describe("home's own actions", () => {
   });
 });
 
+describe("home asks before signing out of a running challenge", () => {
+  it("states what the press would cost and does not sign out on the first one", async () => {
+    // The challenge is the server's: it keeps counting deadlines this phone can
+    // no longer meet, and the alarms come off the device with the session. That
+    // is the most expensive press on home and it had no confirmation at all.
+    const onSignOut = jest.fn();
+    const api = fakeApi({ getCurrentChallenge: runningChallenge() });
+
+    await renderHome(api, { onSignOut });
+    await screen.findByTestId("home-challenge");
+    await userEvent.press(screen.getByTestId("home-sign-out"));
+
+    expect(screen.getByTestId("home-sign-out-consequence")).toHaveTextContent(
+      /only a walk taken in the app can meet one/,
+    );
+    expect(screen.getByTestId("home-sign-out-consequence")).toHaveTextContent(
+      /wake-up reminders on this phone will be turned off/,
+    );
+    expect(onSignOut).not.toHaveBeenCalled();
+
+    await userEvent.press(screen.getByTestId("home-sign-out-confirm"));
+
+    expect(onSignOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("backs out of the confirmation without signing out", async () => {
+    const onSignOut = jest.fn();
+
+    await renderHome(fakeApi({ getCurrentChallenge: runningChallenge() }), { onSignOut });
+    await screen.findByTestId("home-challenge");
+    await userEvent.press(screen.getByTestId("home-sign-out"));
+    await userEvent.press(screen.getByTestId("home-sign-out-cancel"));
+
+    expect(screen.queryByTestId("home-sign-out-consequence")).toBeNull();
+    expect(screen.getByTestId("home-sign-out")).toBeOnTheScreen();
+    expect(onSignOut).not.toHaveBeenCalled();
+  });
+
+  it("signs out on one press when nothing is running and nothing is held", async () => {
+    // Ceremony over a press with no consequence is what teaches people to
+    // confirm without reading.
+    const onSignOut = jest.fn();
+
+    await renderHome(fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } }), {
+      onSignOut,
+    });
+    await screen.findByTestId("home-no-challenge");
+    await userEvent.press(screen.getByTestId("home-sign-out"));
+
+    expect(onSignOut).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("home-sign-out-consequence")).toBeNull();
+  });
+
+  it("asks from the error screen too, where a running challenge cannot be ruled out", async () => {
+    const onSignOut = jest.fn();
+
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: new ApiError("internal_error", "fetch failed", { status: null }),
+      }),
+      { onSignOut },
+    );
+    await screen.findByTestId("home-error");
+    await userEvent.press(screen.getByTestId("home-sign-out"));
+
+    expect(screen.getByTestId("home-sign-out-consequence")).toHaveTextContent(/If one is running/);
+    expect(onSignOut).not.toHaveBeenCalled();
+  });
+});
+
 describe("home and a phone picked up again", () => {
   it("asks the server again when the app comes back to the front", async () => {
     // Everything on this screen is tied to a moment: which task is open, when

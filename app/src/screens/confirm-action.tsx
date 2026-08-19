@@ -34,6 +34,13 @@ export interface ConfirmActionProps {
    * as they are.
    */
   readonly cancelLabel?: string;
+  /**
+   * Draws the unopened control as a quiet link rather than as a button. For a
+   * press that already lives among the account-level controls: raising it to a
+   * full button to add a confirmation would make it look like the thing to do
+   * next, which is the opposite of what a confirmation is for.
+   */
+  readonly quiet?: boolean;
   readonly busy?: boolean;
   readonly onConfirm: () => Promise<void> | void;
 }
@@ -49,6 +56,17 @@ export function ConfirmAction(props: ConfirmActionProps) {
   }, [props.onConfirm]);
 
   if (!open) {
+    if (props.quiet === true) {
+      return (
+        <TextButton
+          testID={props.testID}
+          label={props.label}
+          {...(variant === "danger" ? { tone: "danger" as const } : {})}
+          disabled={busy}
+          onPress={() => setOpen(true)}
+        />
+      );
+    }
     return (
       <Button
         testID={props.testID}

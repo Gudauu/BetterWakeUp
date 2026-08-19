@@ -614,6 +614,22 @@ An alarm that cannot be acted on is worse than no alarm, so `useRemindersCleared
 That is also why the welcome screen owns the notifier rather than passing one through: it is the only component mounted both while a session exists and after it is gone.
 The expiry notice says the alarms have stopped, because a user relying on tomorrow's has to hear that it will not sound.
 
+### Signing out on purpose
+
+The third way in is a press, and it is the one the app can still do something about.
+Everything the expiry notice says after the fact is true of a deliberate sign-out as well - the challenge keeps running, its deadlines keep counting, only a walk in the app can meet one, and the alarms come off the device - so the press that causes it is the most expensive control on home while being the quietest one on it.
+
+`app/src/session/sign-out.ts` states that cost and home draws it as a `ConfirmAction`.
+The wording is assembled from what home already holds rather than written into the screen: whether a challenge is running, whether it is paused, how much is staked, and how many walks this phone has written and not yet sent.
+A paused challenge gets a different sentence, because a pause counts no deadlines and what matters about it is that nothing but this app ever resumes it.
+The held-walk sentence is its own, rather than the store's `heldWalksText`: that one promises the walks send themselves as soon as the app can reach the server, which stops being true the moment there is no session to send them with.
+
+`signOutConsequence` answers null for an account with nothing running and nothing held, and home then draws the plain press it always did.
+A confirmation over an action with no consequence is what teaches someone to confirm without reading, which would cost them the one that matters.
+The error screen asks too: it cannot rule a challenge out, so it states the running case as a condition rather than staying silent.
+
+`ConfirmAction` grew a `quiet` opener for this. Sign-out lives among the account-level controls under the divider, and promoting it to a full button in order to guard it would make it look like the thing to do next - the opposite of what the guard is for.
+
 ### Pending completion store
 
 The app writes a pending completion to SQLite before displaying the local check.

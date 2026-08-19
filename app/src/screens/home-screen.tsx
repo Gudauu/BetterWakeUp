@@ -68,6 +68,11 @@ import {
 } from "../reminders/notifier.ts";
 import { ALARM_LEAD_MINUTES, nextAlarmAt } from "../reminders/reminders.ts";
 import { useSession } from "../session/session-context.tsx";
+import {
+  SIGN_OUT_CANCEL_LABEL,
+  SIGN_OUT_CONFIRM_LABEL,
+  signOutConsequence,
+} from "../session/sign-out.ts";
 import { useClock } from "../ui/clock.ts";
 import {
   AppText,
@@ -85,6 +90,7 @@ import {
 } from "../ui/components.tsx";
 import { formatDay, formatDeadline, formatTimeOfDay } from "../ui/format.ts";
 import { useTheme } from "../ui/theme.ts";
+import { ConfirmAction } from "./confirm-action.tsx";
 import { CreateChallengeScreen } from "./create-challenge-screen.tsx";
 import { DailyCompletionScreen } from "./daily-completion-screen.tsx";
 import { DeleteAccountScreen } from "./delete-account-screen.tsx";
@@ -383,7 +389,12 @@ export function HomeScreen({
           </Banner>
         )}
         <Button testID="home-retry" label="Try again" onPress={reload} style={styles.wide} />
-        <SignOut onSignOut={onSignOut} />
+        <SignOut
+          onSignOut={onSignOut}
+          challenge={null}
+          challengeUnknown
+          heldWalks={unsent.earlierWaiting}
+        />
       </Screen>
     );
   }
@@ -558,7 +569,11 @@ export function HomeScreen({
           disabled={refreshing}
           onPress={refresh}
         />
-        <SignOut onSignOut={onSignOut} />
+        <SignOut
+          onSignOut={onSignOut}
+          challenge={state.challenge}
+          heldWalks={unsent.earlierWaiting + (unsent.currentTask === "waiting" ? 1 : 0)}
+        />
         <TextButton
           testID="home-delete-account"
           label="Delete account"
@@ -1218,11 +1233,48 @@ function TaskSpinner() {
   );
 }
 
-function SignOut({ onSignOut }: { onSignOut: (() => void) | undefined }): ReactNode {
+/**
+ * The sign-out press, guarded by what it would cost.
+ *
+ * Signing out is the one control on home that can lose a deposit - the
+ * challenge carries on without the phone and the alarms stop - so it asks
+ * before it acts, and only where there is something to ask about: with nothing
+ * running and nothing held on the phone the press is what it looks like, and a
+ * confirmation over it would be ceremony.
+ */
+function SignOut({
+  onSignOut,
+  challenge,
+  heldWalks,
+  challengeUnknown = false,
+}: {
+  onSignOut: (() => void) | undefined;
+  challenge?: ChallengeView | null;
+  heldWalks?: number;
+  challengeUnknown?: boolean;
+}): ReactNode {
   if (onSignOut === undefined) {
     return null;
   }
-  return <TextButton testID="home-sign-out" label="Sign out" onPress={onSignOut} />;
+  const consequence = signOutConsequence({
+    challenge: challenge ?? null,
+    heldWalks: heldWalks ?? 0,
+    challengeUnknown,
+  });
+  if (consequence === null) {
+    return <TextButton testID="home-sign-out" label="Sign out" onPress={onSignOut} />;
+  }
+  return (
+    <ConfirmAction
+      testID="home-sign-out"
+      quiet
+      label="Sign out"
+      consequence={consequence}
+      confirmLabel={SIGN_OUT_CONFIRM_LABEL}
+      cancelLabel={SIGN_OUT_CANCEL_LABEL}
+      onConfirm={onSignOut}
+    />
+  );
 }
 
 const styles = StyleSheet.create({
