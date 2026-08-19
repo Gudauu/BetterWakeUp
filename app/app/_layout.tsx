@@ -5,6 +5,7 @@ import { createNativeProviders } from "../src/auth/native-providers.ts";
 import { loadAppConfig } from "../src/config.ts";
 import { createSentryReporter } from "../src/reporting/native-reporting.ts";
 import { SessionProvider } from "../src/session/session-context.tsx";
+import { AppErrorBoundary } from "../src/ui/error-boundary.tsx";
 import { useTheme } from "../src/ui/theme.ts";
 
 // Built once, outside the component: configuring a native SDK is not something
@@ -15,7 +16,7 @@ const providers = createNativeProviders();
 // startup is exactly the one this exists to see. With no DSN configured this
 // is the no-op reporter and the SDK is never initialized.
 const config = loadAppConfig();
-createSentryReporter({
+const reporter = createSentryReporter({
   dsn: config.sentryDsn,
   appVersion: config.appVersion,
   environment: __DEV__ ? "development" : "production",
@@ -28,15 +29,21 @@ export default function RootLayout() {
   const theme = useTheme();
   return (
     <SafeAreaProvider>
-      <SessionProvider providers={providers}>
-        <StatusBar style="auto" />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: theme.colors.background },
-          }}
-        />
-      </SessionProvider>
+      {/* Inside the safe area so the fallback screen can draw itself the way
+          every other screen does, and outside the session so a failure while
+          the session is being read is caught too - and so pressing Try again
+          starts the app over from the launch read. */}
+      <AppErrorBoundary reporter={reporter}>
+        <SessionProvider providers={providers}>
+          <StatusBar style="auto" />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: theme.colors.background },
+            }}
+          />
+        </SessionProvider>
+      </AppErrorBoundary>
     </SafeAreaProvider>
   );
 }

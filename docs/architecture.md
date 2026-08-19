@@ -216,6 +216,24 @@ Two of those answers are not just `setRoute("home")`.
 Backing out of the time zone offer counts as declining it, the same as the link does, or the banner that sent the user there would be waiting for them when they arrive.
 Leaving the setup form re-reads the challenge, because leaving an authorized hold might have changed the account and home cannot tell from outside the form which half of it the press came from.
 
+### The screen that failed to draw
+
+A render error anywhere below the router used to end the app.
+React unmounts the whole tree when nothing catches, and a React Native build with an empty tree is a blank window: no text, no press, no way on.
+On this app that window arrives while the user is holding a walk, a deadline and a deposit, so what it looks like is the app dying with all three inside it.
+
+`app/src/ui/error-boundary.tsx` catches it and draws a screen instead.
+The screen names the three things that are true whatever this process does: the challenge is the server's and keeps counting, a walk already saved is in the phone's own store and is still queued to send, and a reminder already scheduled belongs to the operating system and will still sound.
+Those are the same facts the expiry notice and the sign-out confirmation state, for the same reason - the user's fear is that their work went with the failure, and it did not.
+
+The error itself is never drawn.
+A stack trace names a module and a line, which is for whoever fixes it, so it goes to the crash reporter through the same `CrashReporter` port every other report uses, as `app.render_failed` with `operation: appRender`.
+The component stack is deliberately left off the report: it carries view names and props, which is exactly where a step count or a typed amount would ride out of the device on a payload the scrubber never walks.
+
+The boundary sits inside the safe-area provider so the fallback is drawn like any other screen, and outside the session provider so that a failure while the session is being read is caught too.
+That placement is also what makes `Try again` worth offering: clearing the caught state re-mounts everything below, so the app starts over from the launch read rather than from the state that broke it.
+A retry that fails again says so and names the one thing left - closing the app - rather than offering the same press a second time.
+
 ### Appearance
 
 `app/src/ui/theme.ts` owns every colour, spacing step, corner radius and text size in the app, as a light theme and a dark one of the same shape.
