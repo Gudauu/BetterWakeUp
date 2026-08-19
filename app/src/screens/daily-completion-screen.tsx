@@ -38,6 +38,11 @@ import {
 import type { CaptureState, MovementCapture } from "../movement/capture.ts";
 import type { MovementSimulation } from "../movement/simulated-pedometer.ts";
 import {
+  createConfiguredWalkAlerts,
+  useTargetReachedAlert,
+  type WalkAlerts,
+} from "../movement/walk-alerts.ts";
+import {
   abandonWalkText,
   interruptionText,
   salvageableWalk,
@@ -80,6 +85,12 @@ export interface DailyCompletionScreenProps {
    * a build passes nothing and the real one is used.
    */
   readonly settings?: SettingsLauncher;
+  /**
+   * How the phone reaches a user who is walking rather than watching. Injected
+   * in tests so a suite neither buzzes nor talks; a build passes nothing and the
+   * real one is used.
+   */
+  readonly alerts?: WalkAlerts;
   /** Called when the server acknowledges, so the caller can re-read the challenge. */
   readonly onAcknowledged?: () => void;
   /**
@@ -128,6 +139,12 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
     () => props.settings ?? createConfiguredSettingsLauncher(),
   );
   const settings = useOpenSettings(settingsLauncher);
+  // Built once for the life of the screen, for the same reason: the hook below
+  // must not be handed a new object on every render.
+  const [walkAlerts] = useState<WalkAlerts>(() => props.alerts ?? createConfiguredWalkAlerts());
+  // The one thing the walk card says that its reader cannot see, because the
+  // phone is in a pocket or in a hand held down.
+  useTargetReachedAlert(captureState, challenge.configuration.stepTarget, walkAlerts);
 
   const current = challenge.currentTask;
   const task =

@@ -502,6 +502,20 @@ A revoked permission is never salvageable, because the capture discards its obse
 
 The same event therefore reads two ways, and the banner is toned by what it cost rather than by what happened: short of the target it is danger-toned and names the steps that went, past it it is success-toned and names the steps that were enough.
 
+#### Telling the walker without the screen
+
+Everything the walk card says while a window is open is said in pixels: the count, the steps still owed, and - the step the target is met - a success-toned "TARGET REACHED" over a button whose label becomes "Save my walk".
+All of it is correct and none of it reaches the person it is for.
+Walking is the one thing the app asks of anyone, it is done with the phone held down or pocketed, and the screen is deliberately held awake precisely so that it can be pocketed.
+So the app's own instruction left a user either watching a screen they were told they did not have to watch, or walking hundreds of steps past a target that was met minutes ago.
+
+`app/src/movement/walk-alerts.ts` uses the two ways a device reaches someone who is not looking: it vibrates, and it speaks the sentence through whatever screen reader is running.
+The second is not a lesser copy of the first - a blind user has no reading of the walk at all while it is under way, so the announcement is the only thing on the screen that ever tells them the walk is done.
+Both come from React Native itself rather than from a native module of ours, so unlike the pedometer, the screen lock and the notifier there is nothing here to import lazily.
+
+The alert fires once per window rather than once per crossing or once per mount.
+The guard is the window's own `startedAt`, which is what makes a second walk get its own alert while further readings in the same one get none, and it starts out holding whatever window is already past its target when the hook is first called - so returning to the task screen part-way through a finished walk does not buzz a user for a fact they were told the first time.
+
 #### Why the phone does not lock during a walk
 
 The foreground-only rule and the device's auto-lock timer were in direct conflict, and the timer won.

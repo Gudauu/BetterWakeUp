@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.betterwakeup.app",
-      "permissions": ["android.permission.ACTIVITY_RECOGNITION"]
+      "permissions": ["android.permission.ACTIVITY_RECOGNITION", "android.permission.VIBRATE"]
     },
     "plugins": [
       "expo-router",

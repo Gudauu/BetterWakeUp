@@ -20,6 +20,7 @@ import { DailyCompletionScreen } from "../src/screens/daily-completion-screen.ts
 import { challengeView, type FakeApi, fakeApi } from "./support/fake-api.ts";
 import { createFakeForeground, createFakePedometer } from "./support/fake-pedometer.ts";
 import { type FakeSettingsLauncher, fakeSettings } from "./support/fake-settings.ts";
+import { type FakeWalkAlerts, fakeWalkAlerts } from "./support/fake-walk-alerts.ts";
 import { createMemoryDatabase } from "./support/node-sqlite.ts";
 
 const METRICS = {
@@ -55,6 +56,7 @@ const COMPLETION_RESPONSE = {
 interface Harness {
   readonly api: FakeApi;
   readonly settings: FakeSettingsLauncher;
+  readonly alerts: FakeWalkAlerts;
   readonly store: PendingCompletionStore;
   readonly sync: CompletionSync;
   readonly capture: MovementCapture;
@@ -79,6 +81,7 @@ async function harness(api: FakeApi = fakeApi({ createCompletion: COMPLETION_RES
   return {
     api,
     settings: fakeSettings(),
+    alerts: fakeWalkAlerts(),
     store,
     sync: createCompletionSync({ store, client: api }),
     capture: createMovementCapture({
@@ -109,6 +112,7 @@ function tree(
         appVersion="1.0.0"
         now={() => now}
         settings={given.settings}
+        alerts={given.alerts}
         {...(onAcknowledged === undefined ? {} : { onAcknowledged })}
         {...(onFinished === undefined ? {} : { onFinished })}
       />
@@ -298,6 +302,37 @@ describe("the walk itself", () => {
       /That is the walk\. Save it and the morning is yours\./,
     );
     expect(screen.getByTestId("stop-capture")).toHaveTextContent(/Save my walk/);
+  });
+
+  it("buzzes the phone and says so out loud when the target is met", async () => {
+    // Everything above is drawn on a screen the walker was told they could put
+    // in their pocket, so the phone has to say it in the two ways that reach
+    // someone who is not looking at it.
+    const given = await harness();
+    await renderScreen(given);
+    const user = userEvent.setup();
+
+    await user.press(screen.getByTestId("start-capture"));
+    await act(async () => {
+      given.pedometer.deliver(200);
+    });
+    expect(given.alerts.buzzes()).toBe(0);
+
+    await act(async () => {
+      given.pedometer.deliver(250);
+    });
+
+    expect(given.alerts.buzzes()).toBe(1);
+    expect(given.alerts.said()).toEqual([
+      "Target reached. 250 steps counted. Press Save my walk to finish this morning.",
+    ]);
+
+    // The steps that keep arriving while the user gets their phone out do not
+    // buzz again.
+    await act(async () => {
+      given.pedometer.deliver(280);
+    });
+    expect(given.alerts.buzzes()).toBe(1);
   });
 
   it("names what ending a walk short of the target costs before it is ended", async () => {
