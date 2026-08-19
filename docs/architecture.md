@@ -502,6 +502,24 @@ The same module answers what home says when no task is open.
 It is searched strictly forward from today, because this state means today's morning is either not scheduled or already behind the user, and naming today would read as an invitation to walk for a day that is closed.
 A runtime that cannot read the zone falls back to the sentence home always said, for the same reason the walk window does.
 
+#### What one missed morning would cost
+
+`app/src/challenges/miss-cost.ts` states, on the challenge card, what would happen if the user slept through tomorrow.
+
+That answer turns on two facts.
+One is the deposit, which the challenge carries.
+The other is the account's one lifetime Emergency Recovery, which decides whether a miss can be bought back at all - and it is an account-level fact the app is told exactly once, in `accountView` at sign-in, and then discards.
+Nothing afterwards could ask for it: there is no account read, and the flag changes as the account's own recoveries are spent.
+So the rule the whole product rests on - one missed active day ends the challenge and forfeits the deposit - was stated once at setup, in a list of disclosures acknowledged with a switch, and never again.
+
+`challengeView.recoveryAvailable` closes that.
+The server answers it per challenge as `deposit > 0 && the allowance is unspent`, which is exactly the rule `resolveChallenge` in the sweep applies to a miss, so the app never derives what a miss costs from a status - the same reasoning that put `depositOutcome` on `endedChallengeSummary`.
+It belongs on the challenge rather than beside it because a lifetime allowance is not spendable on a challenge with no deposit, so "does the account hold one" is the wrong question and "would this challenge be offered one" is the right one.
+
+The app only picks the wording, in three cases: the net still stands, the net is spent, or nothing is staked and Emergency Recovery was never in play.
+Only the spent case is toned as a warning; a safety net that is still there is a fact, and colouring it red would train the reader to ignore the tone.
+The line is withheld while a recovery offer is already standing - that challenge is living the answer, and home draws the offer and its countdown above the card - and while a pause has taken the morning away, unless a task whose pause cutoff had passed stayed live through it, which is the one case where a paused challenge can still lose a deposit.
+
 ### The clock on the recovery offer
 
 `app/src/challenges/recovery-window.ts` does for the Emergency Recovery offer what `time-left.ts` does for the morning: it reads the offer's `expiresAt` against the clock and answers how long is left, how urgent that is, and whether there is still a decision to make.

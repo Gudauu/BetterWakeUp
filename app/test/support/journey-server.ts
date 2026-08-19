@@ -163,6 +163,10 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
           .slice(0, 10),
         status: "scheduled" as const,
       })),
+      // The journey account has never spent its one lifetime allowance, so a
+      // funded challenge carries it; a challenge staking nothing has no deposit
+      // for it to be spent on and the server never offers it one.
+      recoveryAvailable: configuration.deposit.amount > 0,
       currentTask: nextTask(configuration.timeZone),
     });
     return challenge;

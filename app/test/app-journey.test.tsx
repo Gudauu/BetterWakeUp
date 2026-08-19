@@ -218,6 +218,11 @@ describe("one account's life through the app's own screens", () => {
     expect(await screen.findByTestId("home-challenge", {}, { timeout: 10_000 })).toBeOnTheScreen();
     expect(screen.getByTestId("home-deposit")).toHaveTextContent(/\$20\.00/);
     expect(screen.getByTestId("home-current-task")).toBeOnTheScreen();
+    // With money now on the line, home says what one missed morning would cost
+    // and whether the lifetime allowance is still there to answer it.
+    expect(screen.getByTestId("home-miss-cost")).toHaveTextContent(
+      /one lifetime Emergency Recovery/,
+    );
   }, 30_000);
 
   it("puts a new card behind a deposit whose hold stopped being renewed", async () => {

@@ -22,6 +22,7 @@ import { hashSessionToken, mintSessionToken } from "../../src/auth/session-token
 import { createChallengeHandlers } from "../../src/challenges/handlers.ts";
 import type { Database } from "../../src/db/index.ts";
 import {
+  accounts,
   challengeScheduleDays,
   challenges,
   idempotencyKeys,
@@ -551,6 +552,45 @@ describe("the current challenge", () => {
     const response = await app(db).request(...get(token, "/challenges/current"));
 
     expect(await response.json()).toEqual({ challenge: null, lastEnded: null });
+  });
+
+  // What a miss would cost is the app's most consequential unasked question,
+  // and it turns on an account-level allowance no challenge row carries. The
+  // read answers it so the app never has to work money out from a status.
+  it("says a funded challenge would be offered Emergency Recovery for a miss", async () => {
+    const { db } = testDatabase();
+    const { accountId, token } = await signIn(db);
+    await insertChallengeForAccount(db, accountId, { depositMinorUnits: 2000 });
+
+    const response = await app(db).request(...get(token, "/challenges/current"));
+
+    expect(await response.json()).toMatchObject({ challenge: { recoveryAvailable: true } });
+  });
+
+  it("says a funded challenge would not, once the lifetime allowance is spent", async () => {
+    const { db } = testDatabase();
+    const { accountId, token } = await signIn(db);
+    await insertChallengeForAccount(db, accountId, { depositMinorUnits: 2000 });
+    await db
+      .update(accounts)
+      .set({ emergencyRecoveryConsumedAt: STARTING_AT })
+      .where(eq(accounts.id, accountId));
+
+    const response = await app(db).request(...get(token, "/challenges/current"));
+
+    expect(await response.json()).toMatchObject({ challenge: { recoveryAvailable: false } });
+  });
+
+  it("says a challenge staking nothing would not, allowance or no allowance", async () => {
+    // The database refuses `recovery_pending` without a deposit: a lifetime
+    // allowance must not be spendable on a challenge that costs nothing to fail.
+    const { db } = testDatabase();
+    const { accountId, token } = await signIn(db);
+    await insertChallengeForAccount(db, accountId, { depositMinorUnits: 0 });
+
+    const response = await app(db).request(...get(token, "/challenges/current"));
+
+    expect(await response.json()).toMatchObject({ challenge: { recoveryAvailable: false } });
   });
 
   it("carries the standing Emergency Recovery offer while one is open", async () => {

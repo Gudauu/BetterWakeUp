@@ -23,6 +23,7 @@ import {
   historyLabel,
   streakSentence,
 } from "../challenges/history.ts";
+import { missCost } from "../challenges/miss-cost.ts";
 import {
   pausedForSentence,
   pausedRestSentence,
@@ -583,6 +584,9 @@ function ChallengeCard({
   // Past the deadline nothing walked now can count, so the card stops asking
   // for a walk and says what happened instead.
   const morningGone = left !== null && left.urgency === "expired";
+  // What one missed morning would do, which turns on the deposit and on an
+  // allowance only the server can speak for.
+  const miss = missCost(challenge);
   const history = challengeHistory(challenge);
   const streak = streakSentence(history);
   const remaining = Math.max(
@@ -893,6 +897,21 @@ function ChallengeCard({
           testID="home-steps"
         />
 
+        {/* What a miss would cost, said before one happens. The terms state it
+            once at setup and never again, so whether the safety net is still
+            there - the fact that decides whether tomorrow is recoverable - was
+            unreadable for the whole month it matters in. */}
+        {miss === null ? null : (
+          <View style={styles.missCost}>
+            <AppText variant="caption" tone="muted">
+              IF YOU MISS A MORNING
+            </AppText>
+            <AppText variant="small" tone={miss.tone} testID="home-miss-cost">
+              {miss.text}
+            </AppText>
+          </View>
+        )}
+
         {/* Pausing belongs to a challenge that can still run. A finished one has
             nothing to pause, and offering it would be a press the server refuses.
             A paused one is resumed from the banner above instead, where the
@@ -1182,4 +1201,5 @@ const styles = StyleSheet.create({
   statusRow: { flexDirection: "row" },
   progressBlock: { gap: 10 },
   historyBlock: { gap: 8, paddingTop: 2 },
+  missCost: { gap: 4, paddingTop: 4 },
 });

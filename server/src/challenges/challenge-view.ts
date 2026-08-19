@@ -16,6 +16,8 @@
  * - `recoveryOffer` is the missed task that opened the offer plus the recovery
  *   window. It is present only in `recovery_pending`, which is the only status
  *   in which an offer stands.
+ * - `recoveryAvailable` is the account's unspent lifetime allowance against
+ *   this challenge's deposit, which is what a miss on it would cost.
  */
 
 import {
@@ -29,6 +31,7 @@ import { asc, eq } from "drizzle-orm";
 
 import type { Database } from "../db/client.ts";
 import { challengeScheduleDays, challenges, scheduledTasks } from "../db/schema/challenges.ts";
+import { accounts } from "../db/schema/identity.ts";
 import { AppError } from "../errors/app-error.ts";
 
 /** A handle that can read. Both a `Database` and a transaction satisfy it. */
@@ -51,9 +54,10 @@ const WEEK_ORDER: readonly Weekday[] = [
 /**
  * The challenge with `challengeId`, as the contract's `challengeView`.
  *
- * Three reads rather than one join: a join across the schedule days and the
+ * Four reads rather than one join: a join across the schedule days and the
  * tasks multiplies rows by both and would have to be unpicked again, and the
- * challenge is a single row addressed by its primary key either way.
+ * challenge and its account are single rows addressed by their primary keys
+ * either way.
  */
 export async function loadChallengeView(db: Readable, challengeId: string): Promise<ChallengeView> {
   const [challenge] = await db.select().from(challenges).where(eq(challenges.id, challengeId));
@@ -70,6 +74,13 @@ export async function loadChallengeView(db: Readable, challengeId: string): Prom
     .from(scheduledTasks)
     .where(eq(scheduledTasks.challengeId, challengeId))
     .orderBy(asc(scheduledTasks.sequence));
+  // The lifetime allowance belongs to the account, not the challenge, so it is
+  // its own read. It is answered here rather than left to the app because the
+  // app learns it once at sign-in and has no way to keep it true afterwards.
+  const [account] = await db
+    .select({ recoveryConsumedAt: accounts.emergencyRecoveryConsumedAt })
+    .from(accounts)
+    .where(eq(accounts.id, challenge.accountId));
 
   return {
     id: challenge.id,
@@ -118,6 +129,13 @@ export async function loadChallengeView(db: Readable, challengeId: string): Prom
     // date, which belongs at the end of the row because that is when it falls.
     days: tasks.map((task) => ({ date: task.taskDate, status: task.status })),
     depositSecured: challenge.depositSecured,
+    // The sweep's own rule for a miss: a zero deposit challenge fails outright,
+    // because a lifetime allowance must not be spendable on a challenge that
+    // costs nothing to fail.
+    recoveryAvailable:
+      challenge.depositMinorUnits > 0 &&
+      account !== undefined &&
+      account.recoveryConsumedAt === null,
     currentTask: currentTaskOf(tasks),
     recoveryOffer: challenge.status === "recovery_pending" ? recoveryOfferOf(tasks) : null,
   };

@@ -118,6 +118,17 @@ export const challengeView = z.object({
    * Always true for a zero deposit challenge, which has nothing to secure.
    */
   depositSecured: z.boolean(),
+  /**
+   * Whether a morning missed on this challenge would be offered Emergency
+   * Recovery rather than ending it outright. True only while the account still
+   * holds its one lifetime allowance and this challenge carries a deposit for
+   * it to be spent on, which is the same rule the sweep applies to a miss.
+   *
+   * Stated by the server because the allowance is an account-level fact the app
+   * is told once at sign-in and could not keep true on its own, and because a
+   * client deriving what a miss costs would be deriving money from a status.
+   */
+  recoveryAvailable: z.boolean(),
   /** The next task still open, or null when none is. */
   currentTask: taskView.nullable(),
   /** Present only while the challenge is in `recovery_pending`. */

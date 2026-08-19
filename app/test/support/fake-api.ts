@@ -92,6 +92,9 @@ export function challengeView(overrides: Partial<ChallengeView> = {}): Challenge
     },
     days: challengeDays(30, "scheduled"),
     depositSecured: true,
+    // False by default because the default fixture stakes nothing: the server
+    // never offers the lifetime allowance on a challenge with no deposit.
+    recoveryAvailable: false,
     currentTask: null,
     recoveryOffer: null,
     ...overrides,
@@ -134,7 +137,9 @@ export function endedChallenge(
  * that staked nothing, because such a challenge has nothing to secure.
  */
 export function fundedChallengeView(overrides: Partial<ChallengeView> = {}): ChallengeView {
-  const base = challengeView(overrides);
+  // A funded account that has never missed a morning still holds its lifetime
+  // allowance, which is what the server answers for one.
+  const base = challengeView({ recoveryAvailable: true, ...overrides });
   return {
     ...base,
     configuration: { ...base.configuration, deposit: { amount: 2000, currency: "USD" } },

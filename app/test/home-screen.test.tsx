@@ -1507,3 +1507,53 @@ describe("a morning already kept", () => {
     expect(screen.queryByTestId("home-task-opens")).toBeNull();
   });
 });
+
+describe("what home says a missed morning would cost", () => {
+  const showing = (challenge: ReturnType<typeof challengeView>) =>
+    fakeApi({ getCurrentChallenge: { lastEnded: null, challenge } });
+
+  it("says the safety net is there while the account still holds it", async () => {
+    await renderHome(showing(fundedChallengeView({ currentTask: taskView() })));
+
+    expect(await screen.findByTestId("home-miss-cost")).toHaveTextContent(
+      /You still hold your one lifetime Emergency Recovery/,
+    );
+  });
+
+  it("says it is gone once the allowance is spent", async () => {
+    // The fact that decides whether tomorrow is survivable, and the app had no
+    // way of knowing it: the allowance is spent per account and the read is the
+    // only thing that can say so.
+    await renderHome(
+      showing(fundedChallengeView({ recoveryAvailable: false, currentTask: taskView() })),
+    );
+
+    expect(await screen.findByTestId("home-miss-cost")).toHaveTextContent(
+      /already spent.*ends this challenge and charges your \$20\.00/,
+    );
+  });
+
+  it("says a challenge staking nothing still ends on a miss", async () => {
+    await renderHome(showing(challengeView({ currentTask: taskView() })));
+
+    expect(await screen.findByTestId("home-miss-cost")).toHaveTextContent(/costs no money/);
+  });
+
+  it("says nothing while the recovery offer is already on screen", async () => {
+    await renderHome(
+      showing(
+        fundedChallengeView({
+          status: "recovery_pending",
+          recoveryOffer: {
+            taskId: "44444444-4444-4444-8444-444444444444",
+            offeredAt: "2026-09-01T15:00:00.000Z",
+            expiresAt: "2026-09-02T15:00:00.000Z",
+          },
+        }),
+      ),
+    );
+
+    expect(await screen.findByTestId("home-recovery-offer")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-miss-cost")).toBeNull();
+  });
+});
