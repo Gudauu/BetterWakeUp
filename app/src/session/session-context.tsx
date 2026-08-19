@@ -23,7 +23,8 @@ import {
   useState,
 } from "react";
 import { type ApiClient, createApiClient } from "../api/client.ts";
-import type { ProviderSignIns } from "../auth/provider-sign-in.ts";
+import type { ProviderAvailability, ProviderCheck } from "../auth/provider-availability.ts";
+import type { ProviderSignIn, ProviderSignIns } from "../auth/provider-sign-in.ts";
 import { type SignInOutcome, signInWithProvider } from "../auth/sign-in.ts";
 import { loadAppConfig } from "../config.ts";
 import { createSecureSessionStore, type SessionStore } from "./session-store.ts";
@@ -51,16 +52,17 @@ export type SessionState =
  */
 export type SignedOutReason = "noSession" | "signedOut" | "expired";
 
-/**
- * Which providers this device and build can actually offer, or `null` while
- * the native modules are still being asked.
- */
-export type ProviderAvailability = Readonly<Record<IdentityProvider, boolean>>;
-
 export interface SessionContextValue {
   readonly state: SessionState;
   readonly api: ApiClient;
-  readonly availability: ProviderAvailability | null;
+  /** Which providers this device and build can offer, while it is still being asked. */
+  readonly availability: ProviderAvailability;
+  /**
+   * Ask the native modules again. Offered because a check can throw rather than
+   * answer, and a phone reported as having no sign-in at all on the strength of
+   * one thrown check would otherwise never be able to sign in again.
+   */
+  recheckAvailability(): void;
   /** Runs the native flow, exchanges the credential, and persists the result. */
   signIn(provider: IdentityProvider): Promise<SignInOutcome>;
   signOut(): Promise<void>;
@@ -121,7 +123,29 @@ export function SessionProvider({
       : createClient(hooks);
   }, [createClient, sessionStore]);
 
-  const [availability, setAvailability] = useState<ProviderAvailability | null>(null);
+  const [availability, setAvailability] = useState<ProviderAvailability>({ status: "checking" });
+  // Which check's answer is still wanted. The launch and the retry ask the same
+  // question, so it is one callback rather than an effect with a counter behind
+  // it, and a stale answer is discarded by number rather than by a second flag.
+  const currentCheck = useRef(0);
+  const recheckAvailability = useCallback(() => {
+    setAvailability({ status: "checking" });
+    currentCheck.current += 1;
+    const attempt = currentCheck.current;
+    // A check that throws is not an answer of "no": the module may be absent
+    // from this build, or it may have failed once, and the screen can only tell
+    // the user which if the two are kept apart here.
+    const ask = (provider: ProviderSignIn): Promise<ProviderCheck> =>
+      provider.isAvailable().then(
+        (available) => (available ? "available" : "unavailable"),
+        () => "failed" as const,
+      );
+    void Promise.all([ask(providers.apple), ask(providers.google)]).then(([apple, google]) => {
+      if (currentCheck.current === attempt) {
+        setAvailability({ status: "checked", checks: { apple, google } });
+      }
+    });
+  }, [providers]);
 
   // A sign-in in flight must not be overtaken by the launch read resolving, and
   // a second tap must not start a second native flow.
@@ -166,19 +190,13 @@ export function SessionProvider({
   }, [sessionStore]);
 
   useEffect(() => {
-    let active = true;
-    void Promise.all([
-      providers.apple.isAvailable().catch(() => false),
-      providers.google.isAvailable().catch(() => false),
-    ]).then(([apple, google]) => {
-      if (active) {
-        setAvailability({ apple, google });
-      }
-    });
+    recheckAvailability();
+    // Nothing wants the answer once this provider is gone, and bumping the
+    // number is what stops it landing on an unmounted tree.
     return () => {
-      active = false;
+      currentCheck.current += 1;
     };
-  }, [providers]);
+  }, [recheckAvailability]);
 
   const signIn = useCallback(
     async (provider: IdentityProvider): Promise<SignInOutcome> => {
@@ -219,8 +237,8 @@ export function SessionProvider({
   }, [client, sessionStore]);
 
   const value = useMemo<SessionContextValue>(
-    () => ({ state, api: client, availability, signIn, signOut }),
-    [state, client, availability, signIn, signOut],
+    () => ({ state, api: client, availability, recheckAvailability, signIn, signOut }),
+    [state, client, availability, recheckAvailability, signIn, signOut],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

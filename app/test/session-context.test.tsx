@@ -158,7 +158,51 @@ describe("signing in", () => {
     });
     await h.render();
 
-    expect(h.captured.current?.availability).toEqual({ apple: false, google: true });
+    expect(h.captured.current?.availability).toEqual({
+      status: "checked",
+      checks: { apple: "unavailable", google: "available" },
+    });
+  });
+
+  it("keeps a check that threw apart from one that answered no", async () => {
+    // Folding the two together would report a phone whose native module failed
+    // once as having no sign-in at all, permanently and with nothing to press.
+    const { api } = apiThat(() => ({}));
+    const h = harness({
+      store: createMemorySessionStore(null),
+      api,
+      providers: fakeProviders({
+        apple: fakeProvider({ available: "failed" }),
+        google: fakeProvider({ available: false }),
+      }),
+    });
+    await h.render();
+
+    expect(h.captured.current?.availability).toEqual({
+      status: "checked",
+      checks: { apple: "failed", google: "unavailable" },
+    });
+  });
+
+  it("asks the native modules again when told to", async () => {
+    const { api } = apiThat(() => ({}));
+    const apple = fakeProvider({ available: "failed", thenAvailable: true });
+    const h = harness({
+      store: createMemorySessionStore(null),
+      api,
+      providers: fakeProviders({ apple, google: fakeProvider({ available: false }) }),
+    });
+    await h.render();
+
+    await act(async () => {
+      h.captured.current?.recheckAvailability();
+    });
+
+    expect(apple.checks()).toBe(2);
+    expect(h.captured.current?.availability).toEqual({
+      status: "checked",
+      checks: { apple: "available", google: "unavailable" },
+    });
   });
 });
 

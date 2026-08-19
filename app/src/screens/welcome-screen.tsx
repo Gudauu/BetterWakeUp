@@ -15,6 +15,7 @@
 import type { IdentityProvider } from "@betterwakeup/contract";
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { signInOptions } from "../auth/provider-availability.ts";
 import type { AppReturnTrigger } from "../challenges/app-return.ts";
 import type { CompletionRuntimeFactory } from "../completions/runtime.ts";
 import type { MovementDevice } from "../movement/device-readiness.ts";
@@ -26,7 +27,7 @@ import {
 } from "../reminders/notifier.ts";
 import type { ReminderTapTrigger } from "../reminders/reminder-taps.ts";
 import { useSession } from "../session/session-context.tsx";
-import { AppText, Banner, Button, Screen } from "../ui/components.tsx";
+import { AppText, Banner, Button, Screen, TextButton } from "../ui/components.tsx";
 import { useTheme } from "../ui/theme.ts";
 import { HomeScreen } from "./home-screen.tsx";
 
@@ -100,7 +101,7 @@ export function WelcomeScreen({
   movementDevice,
   reminderTaps,
 }: WelcomeScreenProps = {}) {
-  const { state, availability, signIn, signOut } = useSession();
+  const { state, availability, recheckAvailability, signIn, signOut } = useSession();
   const theme = useTheme();
   const [busy, setBusy] = useState<IdentityProvider | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -152,8 +153,7 @@ export function WelcomeScreen({
     );
   }
 
-  const offered: IdentityProvider[] =
-    availability === null ? [] : (["apple", "google"] as const).filter((p) => availability[p]);
+  const options = signInOptions(availability);
   const expired = state.reason === "expired";
 
   return (
@@ -212,21 +212,51 @@ export function WelcomeScreen({
       )}
 
       <View style={styles.actions}>
-        {offered.map((provider) => (
-          <Button
-            key={provider}
-            testID={`sign-in-${provider}`}
-            label={LABELS[provider]}
-            disabled={busy !== null && busy !== provider}
-            busy={busy === provider}
-            onPress={() => void onSignIn(provider)}
-          />
-        ))}
+        {options.kind === "offered"
+          ? options.providers.map((provider) => (
+              <Button
+                key={provider}
+                testID={`sign-in-${provider}`}
+                label={LABELS[provider]}
+                disabled={busy !== null && busy !== provider}
+                busy={busy === provider}
+                onPress={() => void onSignIn(provider)}
+              />
+            ))
+          : null}
 
-        {availability !== null && offered.length === 0 ? (
+        {/* The buttons cannot be drawn until the native modules answer, and an
+            empty space where they belong reads as a broken screen rather than
+            as a wait. */}
+        {options.kind === "checking" ? (
+          <View style={styles.checking} testID="providers-checking">
+            <ActivityIndicator color={theme.colors.accent} />
+            <AppText variant="caption" tone="muted">
+              {options.message}
+            </AppText>
+          </View>
+        ) : null}
+
+        {options.kind === "unavailable" ? (
           <AppText variant="caption" tone="muted" center testID="no-providers">
-            Sign-in is not available on this device.
+            {options.message}
           </AppText>
+        ) : null}
+
+        {/* Not the same as having no provider: the question was never answered,
+            so the one thing the user can do is make the app ask again. */}
+        {options.kind === "unknown" ? (
+          <Banner tone="warning" testID="providers-unknown">
+            <AppText variant="small" accessibilityRole="alert">
+              {options.message}
+            </AppText>
+            <TextButton
+              testID="providers-retry"
+              label="Try again"
+              tone="accent"
+              onPress={recheckAvailability}
+            />
+          </Banner>
         ) : null}
 
         {error === null ? null : (
@@ -252,4 +282,5 @@ const styles = StyleSheet.create({
   stepBadge: { alignItems: "center", justifyContent: "center", height: 28, width: 28 },
   stepLine: { flexShrink: 1 },
   actions: { gap: 12 },
+  checking: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
 });

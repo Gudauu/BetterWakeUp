@@ -751,6 +751,21 @@ Unavailable names the failure, separates no connection from a server that answer
 What the failure costs is stated with it, because it differs by deposit.
 An unfunded challenge starts without an end date and only loses the summary; a funded one cannot be deposited against until the projection lands, and the not-ready banner says so in the same words rather than going quiet.
 
+### Whether this phone can sign in at all
+
+Both sign-in buttons depend on a native module answering a question asynchronously, and that question has three answers rather than two: the provider works here, it does not, or the check itself threw.
+Sign in with Apple needs iOS 13 or later, and Google sign-in needs a client ID this build may not have been given and Play services the phone may not have, so a provider that cannot work is hidden rather than shown and then failing.
+
+`app/src/auth/provider-availability.ts` keeps the third answer apart from the second, and `signInOptions` turns the pair of checks into the one thing the screen draws.
+Folding a thrown check into "unavailable" is what this separates: the welcome screen is the only screen that can sign anyone in, so a phone reported as having neither provider on the strength of one failed check is locked out of the app permanently, with nothing to read and nothing to press.
+An `unknown` answer therefore says the app could not work out how to sign the user in and offers a Try again, which is why the session context exposes `recheckAvailability` at all.
+
+A check still in flight is its own state as well.
+Until both modules answer there are no buttons to draw, and an empty space where they belong reads as a broken screen rather than as a wait, so the screen says it is finding out.
+
+Nothing is said about a provider whose check failed while the other one works: a sentence about a button the user was never going to press, sitting beside the one that would have signed them in, is noise.
+The genuinely-unavailable sentence names what would have been needed instead of only stating the refusal, because it is a dead end and a dead end is only bearable if it says why.
+
 ### Being signed out without asking
 
 There are three ways to arrive at the signed-out screen and they are not the same event.

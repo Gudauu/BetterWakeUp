@@ -216,7 +216,7 @@ describe("the sign-in buttons", () => {
     expect(screen.queryByTestId("no-providers")).toBeNull();
   });
 
-  it("says so plainly when no provider is available at all", async () => {
+  it("says so plainly, and says what would have been needed, when neither works", async () => {
     await renderScreen(createMemorySessionStore(null), {
       providers: fakeProviders({
         apple: fakeProvider({ available: false }),
@@ -224,7 +224,43 @@ describe("the sign-in buttons", () => {
       }),
     });
 
-    expect(screen.getByTestId("no-providers")).toBeOnTheScreen();
+    expect(screen.getByTestId("no-providers")).toHaveTextContent(/iOS 13/);
+    // There is nothing to press again on a phone that simply has neither.
+    expect(screen.queryByTestId("providers-retry")).toBeNull();
+  });
+
+  it("says it is still finding out rather than showing an empty screen", async () => {
+    // The native modules answer asynchronously, and the space where the buttons
+    // belong reads as a broken screen rather than as a wait.
+    await renderScreen(createMemorySessionStore(null), {
+      providers: fakeProviders({
+        apple: fakeProvider({ available: "pending" }),
+        google: fakeProvider({ available: false }),
+      }),
+    });
+
+    expect(screen.getByTestId("providers-checking")).toHaveTextContent(
+      /Checking how you can sign/i,
+    );
+    expect(screen.queryByTestId("sign-in-apple")).toBeNull();
+    expect(screen.queryByTestId("no-providers")).toBeNull();
+  });
+
+  it("offers a retry when the check threw rather than calling the phone incapable", async () => {
+    const apple = fakeProvider({ available: "failed", thenAvailable: true });
+    await renderScreen(createMemorySessionStore(null), {
+      providers: fakeProviders({ apple, google: fakeProvider({ available: false }) }),
+    });
+
+    expect(screen.getByTestId("providers-unknown")).toHaveTextContent(/could not work out/i);
+    // The wrong screen for this is the flat "not available on this device".
+    expect(screen.queryByTestId("no-providers")).toBeNull();
+
+    await userEvent.press(screen.getByTestId("providers-retry"));
+
+    expect(apple.checks()).toBe(2);
+    expect(await screen.findByTestId("sign-in-apple")).toBeOnTheScreen();
+    expect(screen.queryByTestId("providers-unknown")).toBeNull();
   });
 
   it("signs in when Apple is tapped", async () => {
