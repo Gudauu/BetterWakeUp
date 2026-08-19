@@ -603,6 +603,15 @@ The read of the challenge fails exactly when the device has no connection, which
 An error screen that says only that the challenge could not be loaded reads, to someone who got up and walked ten minutes ago, as though the walk went with it - and the one thing they might do about that cannot help, because the record is already written and a second walk would be refused as a duplicate.
 So when the read fails and the device is holding records, the screen names how many and says they send themselves; when it is holding none it says nothing, rather than reassuring someone about work they never did.
 
+#### Why a refusal is read from the code
+
+A refused record is the one failure in the app the user is asked to act on, so the task screen has to say what happened.
+It says it from the error code and never from the error message: the contract declares the message human-readable and for developers, and it is - a walk that arrived a minute late was reported to the walker as arriving "after the deadline and its 60 second receipt grace", and one counted by the phone's own step history as needing "foreground_pedometer movement only".
+
+`app/src/completions/refusal.ts` owns the wording, one entry per code a saved completion can actually be refused with, and an unlisted or unrecognised code falls back to a single sentence rather than to the server's words.
+Each refusal carries what happened, what is left to do, and whether another walk this morning could still be accepted - which is a separate question from what went wrong.
+A walk short of the step target or counted outside the app can be taken again while the deadline stands, so the screen offers the walk its own next step asks for; a passed deadline, a settled day and an ended challenge cannot be answered by walking, so no walk is offered at all.
+
 ## Authentication
 
 Version 1 supports Sign in with Apple and Google Sign-In only.

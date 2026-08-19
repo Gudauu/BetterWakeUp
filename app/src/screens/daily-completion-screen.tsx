@@ -26,6 +26,7 @@ import {
   dailyCompletionState,
 } from "../completions/daily-state.ts";
 import { VERIFICATION_POLICY_VERSION } from "../completions/policy.ts";
+import { refusalReading } from "../completions/refusal.ts";
 import type { PendingCompletionRecord, PendingCompletionStore } from "../completions/store.ts";
 import type { CompletionSync } from "../completions/sync.ts";
 import { deadlineMissedText, finishByText, timeLeft } from "../completions/time-left.ts";
@@ -223,6 +224,13 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
   // acknowledged - the server judges the instant the walk was finished - so the
   // screen says so rather than offering a walk that ends in a refusal.
   const missed = state.status === "incomplete" && state.deadlinePassed;
+  const refusal =
+    state.rejectedRecord === null ? null : refusalReading(state.rejectedRecord.lastErrorCode);
+  // A refusal the walker can still answer: the step target missed, the steps
+  // counted somewhere the app cannot vouch for, a request this phone could not
+  // form. Walking again buys nothing once the deadline has gone, and nothing at
+  // all once the day is settled, so the invitation is gated on both.
+  const walkAgain = (refusal?.canWalkAgain ?? false) && !state.deadlinePassed;
 
   return (
     <Screen testID="daily-completion">
@@ -328,10 +336,17 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
         </Banner>
       ) : null}
 
-      {state.status === "rejected" && state.rejectedRecord !== null ? (
+      {/* The refusal is read from the code the server answered with, never from
+          its message: the contract's message is written for developers and
+          quotes internals - a grace period in seconds, a provenance identifier -
+          at the one person in the app who is being asked to do something. */}
+      {state.status === "rejected" && refusal !== null ? (
         <Banner tone="danger">
           <AppText variant="small" tone="danger" testID="rejected-detail" accessibilityRole="alert">
-            {state.rejectedRecord.lastErrorMessage ?? "The server refused this completion."}
+            {refusal.reason}
+          </AppText>
+          <AppText variant="small" tone="muted" testID="rejected-next-step">
+            {refusal.nextStep}
           </AppText>
         </Banner>
       ) : null}
@@ -427,10 +442,19 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
         </Card>
       ) : null}
 
-      {state.status === "incomplete" && !recording && !missed ? (
+      {/* A refused walk that can still be answered gets the same press as a
+          morning nobody has started, because that is what the refusal's next
+          step asks for; without it the screen named a fix it did not offer. */}
+      {((state.status === "incomplete" && !missed) || walkAgain) && !recording ? (
         <Button
           testID="start-capture"
-          label={walk.interruption === null ? "Start moving" : "Start the walk again"}
+          label={
+            walkAgain
+              ? "Start another walk"
+              : walk.interruption === null
+                ? "Start moving"
+                : "Start the walk again"
+          }
           busy={busy}
           onPress={onStart}
         />

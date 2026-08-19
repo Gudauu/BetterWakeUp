@@ -531,10 +531,10 @@ describe("the completion that ends the whole challenge", () => {
 });
 
 describe("a refusal", () => {
-  it("is surfaced with the server's own message and no retry offered", async () => {
+  it("is explained in the user's terms rather than in the server's, with no retry offered", async () => {
     const given = await harness(
       fakeApi({
-        createCompletion: new ApiError("task_already_resolved", "This task is already resolved."),
+        createCompletion: new ApiError("task_already_resolved", "This task is already completed."),
       }),
     );
     await renderScreen(given);
@@ -547,10 +547,55 @@ describe("a refusal", () => {
       ),
     );
     expect(screen.getByTestId("rejected-detail")).toHaveTextContent(
-      /This task is already resolved\./,
+      /Today was already settled before this walk arrived/,
     );
+    // The contract's message is written for developers. None of it reaches the
+    // person who took the walk.
+    expect(screen.queryByText(/This task is already completed\./)).toBeNull();
     expect(screen.getByTestId("server-check-state")).toHaveTextContent("failed");
     expect(screen.queryByTestId("retry-sync")).toBeNull();
+  });
+
+  it("says what is left to do and offers another walk when one could still count", async () => {
+    const given = await harness(
+      fakeApi({
+        createCompletion: new ApiError(
+          "step_target_not_met",
+          "This task needs 250 steps and the observation carries 400.",
+        ),
+      }),
+    );
+    await renderScreen(given);
+
+    await completeLocally(given);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("rejected-detail")).toHaveTextContent(
+        /came in under the step target/,
+      ),
+    );
+    expect(screen.getByTestId("rejected-next-step")).toHaveTextContent(
+      /Start another walk and keep going until the target is met\./,
+    );
+    expect(screen.getByTestId("start-capture")).toHaveTextContent("Start another walk");
+  });
+
+  it("offers no walk at all when a second one cannot be accepted", async () => {
+    const given = await harness(
+      fakeApi({
+        createCompletion: new ApiError("deadline_passed", "arrived after its 60 second grace."),
+      }),
+    );
+    await renderScreen(given);
+
+    await completeLocally(given);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("rejected-detail")).toHaveTextContent(
+        /reached BetterWakeUp after the deadline/,
+      ),
+    );
+    expect(screen.queryByTestId("start-capture")).toBeNull();
   });
 });
 
