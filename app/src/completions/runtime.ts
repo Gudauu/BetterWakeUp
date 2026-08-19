@@ -24,6 +24,11 @@ import { useEffect, useState } from "react";
 import type { ApiClient } from "../api/client.ts";
 import { loadAppConfig } from "../config.ts";
 import type { MovementCapture } from "../movement/capture.ts";
+import {
+  createConfiguredScreenLock,
+  keepScreenAwakeWhileWalking,
+  type ScreenLock,
+} from "../movement/screen-lock.ts";
 import type { MovementSimulation } from "../movement/simulated-pedometer.ts";
 import { openPendingCompletionStore, type PendingCompletionStore } from "./store.ts";
 import { type CompletionSync, createCompletionSync } from "./sync.ts";
@@ -66,7 +71,11 @@ const FAILED_MESSAGE =
  */
 async function openRuntime(
   api: ApiClient,
-  movement: { capture: MovementCapture; simulation: MovementSimulation | undefined },
+  movement: {
+    capture: MovementCapture;
+    simulation: MovementSimulation | undefined;
+    screenLock?: ScreenLock;
+  },
 ): Promise<CompletionRuntime> {
   const { foregroundTrigger, openNativeDatabase, reconnectTrigger } = await import(
     "./native-store.ts"
@@ -83,6 +92,14 @@ async function openRuntime(
   // for it would be blank for as long as a bad connection takes to time out.
   void sync.start();
 
+  // Held here rather than by the task screen, because the window and the screen
+  // have different lifetimes: a capture that is still open when its screen
+  // unmounts is still counting, and the phone must not lock under it.
+  const releaseScreen = keepScreenAwakeWhileWalking(
+    movement.capture,
+    movement.screenLock ?? createConfiguredScreenLock(),
+  );
+
   return {
     store,
     sync,
@@ -91,6 +108,7 @@ async function openRuntime(
     appVersion: loadAppConfig().appVersion,
     async dispose() {
       sync.stop();
+      releaseScreen();
       await store.close();
     },
   };

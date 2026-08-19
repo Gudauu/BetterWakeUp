@@ -369,6 +369,21 @@ The screen now names what ended the walk and how many steps it cost, and the sta
 
 The first is the other half of the same rule: while a window is open the screen says how many steps are left and that leaving the app ends the walk, and the moment the target is met it says so and turns the button into "Save my walk", because the walk is earned at that step and every second after it is a second the window can still be lost.
 
+#### Why the phone does not lock during a walk
+
+The foreground-only rule and the device's auto-lock timer were in direct conflict, and the timer won.
+Walking is precisely the activity during which nobody touches their phone, so a screen that goes dark after its default idle timeout backgrounds the app, closes the window, and discards every step counted - a failure that needed nothing from the user but doing exactly what the screen asked.
+
+`app/src/movement/screen-lock.ts` holds the screen awake for exactly as long as a window is open.
+It is a port for the same reason the pedometer is one: the rule of when to hold and when to release is worth testing without a device, and `native-screen-lock.ts` is the only module importing `expo-keep-awake`.
+The lock is taken under this app's own tag rather than the shared default, so nothing else in the app can drop a walk's lock or be held on by one.
+
+It is owned by the completion runtime rather than by the task screen, because the window and the screen have different lifetimes: a capture left open when its screen unmounts is still counting, and the phone must not lock under it.
+Requests are queued rather than issued as they arrive, since activating and releasing are separate round trips that could otherwise land in the opposite order and leave a phone in a pocket awake indefinitely; disposal releases whatever is held for the same reason.
+A device that will not hold its screen on fails silently - the walk is being counted either way, and an error a walking user cannot act on is noise.
+
+The wording on the walk card follows the guarantee: it now leads with the screen staying on, and names leaving the app as the one thing left that ends the walk, rather than reading as an instruction to keep touching the phone.
+
 #### The clock on the morning
 
 `app/src/completions/time-left.ts` reads the minutes to the deadline that `dailyCompletionState` already carries and answers how much of the morning is left, how urgent that is, and the sentence for each.

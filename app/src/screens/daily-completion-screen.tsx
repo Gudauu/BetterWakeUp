@@ -31,7 +31,7 @@ import type { CompletionSync } from "../completions/sync.ts";
 import { deadlineMissedText, finishByText, timeLeft } from "../completions/time-left.ts";
 import type { CaptureState, MovementCapture } from "../movement/capture.ts";
 import type { MovementSimulation } from "../movement/simulated-pedometer.ts";
-import { interruptionText, walkProgress } from "../movement/walk-progress.ts";
+import { interruptionText, walkingHintText, walkProgress } from "../movement/walk-progress.ts";
 import { useClock } from "../ui/clock.ts";
 import {
   AppText,
@@ -359,7 +359,7 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
           >
             {walk.reachedTarget
               ? "That is the walk. Save it and the morning is yours."
-              : `${walk.remaining} to go. Keep this screen open - leaving the app ends the walk.`}
+              : walkingHintText(walk.remaining)}
           </AppText>
           {/* The other half of the rule, once the clock is close enough for it
               to bite: the server judges the instant the walk was saved, so a

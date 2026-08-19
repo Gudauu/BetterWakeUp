@@ -12,6 +12,7 @@ import type { CaptureState } from "../src/movement/capture.ts";
 import {
   interruptionText,
   type WalkProgress,
+  walkingHintText,
   walkProgress,
 } from "../src/movement/walk-progress.ts";
 
@@ -112,5 +113,13 @@ describe("a walk that ended on its own", () => {
 
   it("clears once a new walk begins", () => {
     expect(walkProgress(recording(10), 250).interruption).toBeNull();
+  });
+});
+
+describe("what a walking user is told while the window is open", () => {
+  it("promises the screen stays on and names the one thing that still ends the walk", () => {
+    expect(walkingHintText(150)).toBe(
+      "150 to go. The screen stays on while you walk - leave the app, though, and the walk ends.",
+    );
   });
 });

@@ -252,7 +252,7 @@ describe("what the screen says to do", () => {
 });
 
 describe("the walk itself", () => {
-  it("says the walk depends on the screen staying open, and how far there is to go", async () => {
+  it("says the screen stays on, what still ends the walk, and how far there is to go", async () => {
     const given = await harness();
     await renderScreen(given);
     const user = userEvent.setup();
@@ -263,7 +263,7 @@ describe("the walk itself", () => {
     });
 
     expect(screen.getByTestId("capture-hint")).toHaveTextContent(
-      /150 to go\. Keep this screen open - leaving the app ends the walk\./,
+      /150 to go\. The screen stays on while you walk - leave the app, though, and the walk ends\./,
     );
   });
 

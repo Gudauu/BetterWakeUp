@@ -72,6 +72,19 @@ export function walkProgress(state: CaptureState, target: number): WalkProgress 
 }
 
 /**
+ * What a walking user is told while the window is open.
+ *
+ * The rule they cannot guess is that leaving the app ends the walk. Said on its
+ * own that reads as an instruction to keep touching the phone, which is why the
+ * sentence leads with the promise the app now keeps: the screen is held awake
+ * for as long as the window is open, so the walk survives a pocket, and the one
+ * thing left to avoid is switching to something else.
+ */
+export function walkingHintText(remaining: number): string {
+  return `${remaining} to go. The screen stays on while you walk - leave the app, though, and the walk ends.`;
+}
+
+/**
  * What a user is told about a walk that ended on its own.
  *
  * Every wording names the same three things in the same order: what ended it,
