@@ -1038,6 +1038,20 @@ It says it from the error code and never from the error message: the contract de
 Each refusal carries what happened, what is left to do, and whether another walk this morning could still be accepted - which is a separate question from what went wrong.
 A walk short of the step target or counted outside the app can be taken again while the deadline stands, so the screen offers the walk its own next step asks for; a passed deadline, a settled day and an ended challenge cannot be answered by walking, so no walk is offered at all.
 
+#### How long to wait, when the server says
+
+Two error codes carry their own answer to "when can I try again", and until now the app answered both of them with "Wait a moment and try again."
+
+`rate_limited` names the seconds left in the allowance's window, and the pause and payment allowances are counted over an hour: the wait after ten presses can be three quarters of an hour, which is not a moment.
+A user told to wait a moment presses again at once, is refused again, and reads the app as broken.
+`idempotency_in_progress` names the seconds left on the lease the first attempt still holds, and is not a failure at all: the command is running, and the retry collects its result rather than doing it twice.
+Reported as a generic failure, it invites a user to build the same challenge again.
+
+`app/src/api/wait-again.ts` is the only place either is worded, and every command's `messageFor` asks it before its own error table.
+A sub-minute wait is said in seconds, because the shared `formatDuration` reads anything under a minute as "Less than a minute" - true, and useless when the honest answer is eight seconds - and anything longer is rounded up to whole minutes so the app never invites a press the server would still refuse.
+Each caller supplies the lead sentence, so sign-in still counts sign-in attempts.
+`leaseExpiresAt` is deliberately unread: it is the same instant expressed absolutely, and reading it instead would make the wording depend on the device's clock agreeing with the server's, which for a five second lease it may not.
+
 ## Authentication
 
 Version 1 supports Sign in with Apple and Google Sign-In only.

@@ -15,6 +15,7 @@ import type { ChallengeView, EndedChallengeSummary } from "@betterwakeup/contrac
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
+import { waitMessageFor } from "../api/wait-again.ts";
 
 export type CurrentChallengeState =
   /** The read is in flight, and nothing about the account is known yet. */
@@ -152,7 +153,5 @@ function messageFor(cause: unknown): string {
   if (cause.status === null) {
     return NETWORK_MESSAGE;
   }
-  return cause.code === "rate_limited"
-    ? "Too many attempts. Wait a moment and try again."
-    : GENERIC_MESSAGE;
+  return waitMessageFor(cause) ?? GENERIC_MESSAGE;
 }

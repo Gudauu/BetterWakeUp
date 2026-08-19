@@ -10,6 +10,7 @@
 import type { ErrorCode, SessionView } from "@betterwakeup/contract";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
+import { waitMessageFor } from "../api/wait-again.ts";
 import type { ProviderSignIn } from "./provider-sign-in.ts";
 
 export type SignInOutcome =
@@ -27,7 +28,6 @@ const MESSAGES: Partial<Record<ErrorCode, string>> = {
   // verify, which on this path means the credential and never a stale session.
   unauthenticated:
     "That sign-in could not be verified. Try again, and check the date and time on your device.",
-  rate_limited: "Too many sign-in attempts. Wait a moment and try again.",
   validation_failed: "That sign-in could not be verified. Try again.",
 };
 
@@ -70,5 +70,7 @@ function messageFor(cause: unknown): string {
   if (cause.status === null) {
     return NETWORK_MESSAGE;
   }
-  return MESSAGES[cause.code] ?? GENERIC_MESSAGE;
+  return (
+    waitMessageFor(cause, "Too many sign-in attempts.") ?? MESSAGES[cause.code] ?? GENERIC_MESSAGE
+  );
 }

@@ -21,6 +21,7 @@ import type {
 } from "@betterwakeup/contract";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
+import { waitMessageFor } from "../api/wait-again.ts";
 import type { CommandOutcome } from "../challenges/lifecycle-commands.ts";
 
 /**
@@ -52,7 +53,6 @@ const MESSAGES: Partial<Record<ErrorCode, string>> = {
   not_found: "This challenge is no longer on your account.",
   session_expired: "Your session expired. Sign in again to add a card.",
   unauthenticated: "Sign in again to add a card.",
-  rate_limited: "Too many attempts. Wait a moment and try again.",
 };
 
 export interface ReplacePaymentMethodInput {
@@ -94,5 +94,5 @@ function messageFor(cause: unknown): string {
   if (cause.status === null) {
     return NETWORK_MESSAGE;
   }
-  return MESSAGES[cause.code] ?? GENERIC_MESSAGE;
+  return waitMessageFor(cause) ?? MESSAGES[cause.code] ?? GENERIC_MESSAGE;
 }

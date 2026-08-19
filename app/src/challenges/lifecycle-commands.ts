@@ -24,6 +24,7 @@ import type {
 } from "@betterwakeup/contract";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
+import { waitMessageFor } from "../api/wait-again.ts";
 
 export type CommandOutcome<Value> =
   | { readonly status: "done"; readonly value: Value }
@@ -49,7 +50,6 @@ const MESSAGES: Partial<Record<ErrorCode, string>> = {
   account_has_active_funded_challenge: FUNDED_CHALLENGE_HOLDS_DELETION,
   session_expired: "Your session expired. Sign in again.",
   unauthenticated: "Sign in again to do that.",
-  rate_limited: "Too many attempts. Wait a moment and try again.",
 };
 
 export const PAUSE_CONFIRMATION_REQUIRED = "Confirm the pause before it is applied.";
@@ -174,5 +174,5 @@ function messageFor(cause: unknown): string {
   if (cause.status === null) {
     return NETWORK_MESSAGE;
   }
-  return MESSAGES[cause.code] ?? GENERIC_MESSAGE;
+  return waitMessageFor(cause) ?? MESSAGES[cause.code] ?? GENERIC_MESSAGE;
 }

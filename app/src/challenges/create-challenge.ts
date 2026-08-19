@@ -24,6 +24,7 @@ import {
 } from "@betterwakeup/contract";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
+import { waitMessageFor } from "../api/wait-again.ts";
 import { type ChallengeDraft, configurationOf, readinessOf } from "./draft.ts";
 
 export type StartChallengeOutcome =
@@ -47,7 +48,6 @@ const MESSAGES: Partial<Record<ErrorCode, string>> = {
   deposit_amount_invalid: "A deposit is either nothing at all or at least one dollar.",
   schedule_invalid: "That weekly schedule cannot be used. Check the active days and deadlines.",
   payment_declined: "Your card was declined, so no hold was placed and no challenge was created.",
-  rate_limited: "Too many attempts. Wait a moment and try again.",
   session_expired: "Your session expired. Sign in again to create this challenge.",
   unauthenticated: "Sign in again to create this challenge.",
 };
@@ -193,5 +193,5 @@ function messageFor(cause: unknown): string {
   if (cause.status === null) {
     return NETWORK_MESSAGE;
   }
-  return MESSAGES[cause.code] ?? GENERIC_MESSAGE;
+  return waitMessageFor(cause) ?? MESSAGES[cause.code] ?? GENERIC_MESSAGE;
 }

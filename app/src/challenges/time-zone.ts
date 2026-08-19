@@ -25,6 +25,7 @@ import type {
 } from "@betterwakeup/contract";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
+import { waitMessageFor } from "../api/wait-again.ts";
 import { ALARM_LEAD_MINUTES } from "../reminders/reminders.ts";
 import { formatDuration, formatTimeOfDay } from "../ui/format.ts";
 import type { CommandOutcome } from "./lifecycle-commands.ts";
@@ -257,7 +258,6 @@ const MESSAGES: Partial<Record<string, string>> = {
   validation_failed: "This device reports a time zone the server does not recognise.",
   session_expired: "Your session expired. Sign in again to change your time zone.",
   unauthenticated: "Sign in again to change your time zone.",
-  rate_limited: "Too many attempts. Wait a moment and try again.",
 };
 
 export interface ChangeTimeZoneInput {
@@ -304,5 +304,5 @@ function messageFor(cause: unknown): string {
   if (cause.status === null) {
     return NETWORK_MESSAGE;
   }
-  return MESSAGES[cause.code] ?? GENERIC_MESSAGE;
+  return waitMessageFor(cause) ?? MESSAGES[cause.code] ?? GENERIC_MESSAGE;
 }
