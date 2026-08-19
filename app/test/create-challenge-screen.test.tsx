@@ -10,6 +10,7 @@ import { disclosuresFor, type SessionView } from "@betterwakeup/contract";
 import { fireEvent, render, screen, userEvent, waitFor } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { type ChallengeDraft, createDraft } from "../src/challenges/draft.ts";
+import type { SettingsLauncher } from "../src/device/settings.ts";
 import { NO_PROVIDER_MESSAGE, type PaymentSheet } from "../src/payments/payment-sheet.ts";
 import { CreateChallengeScreen } from "../src/screens/create-challenge-screen.tsx";
 import { SessionProvider } from "../src/session/session-context.tsx";
@@ -23,7 +24,9 @@ import {
   PROJECTION,
 } from "./support/fake-api.ts";
 import { fakePaymentSheet } from "./support/fake-payment-sheet.ts";
+import { createFakePedometer, type FakePedometer } from "./support/fake-pedometer.ts";
 import { fakeProvider, fakeProviders } from "./support/fake-providers.ts";
+import { fakeSettings } from "./support/fake-settings.ts";
 
 const SESSION: SessionView = {
   accountId: "11111111-1111-4111-8111-111111111111",
@@ -56,6 +59,10 @@ async function renderScreen(
   // A card the user confirms, which is what every test not about the sheet
   // itself assumes; the real one belongs to a provider and a device.
   paymentSheet: PaymentSheet = fakePaymentSheet(),
+  // A phone that can count steps and has been allowed to, which is what every
+  // test not about the device itself assumes.
+  movementDevice: FakePedometer = createFakePedometer(),
+  settings: SettingsLauncher = fakeSettings(),
 ) {
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
@@ -64,7 +71,12 @@ async function renderScreen(
         createClient={() => api}
         providers={fakeProviders({ google: fakeProvider() })}
       >
-        <CreateChallengeScreen initialDraft={draft} paymentSheet={paymentSheet} />
+        <CreateChallengeScreen
+          initialDraft={draft}
+          paymentSheet={paymentSheet}
+          movementDevice={movementDevice}
+          settings={settings}
+        />
       </SessionProvider>
     </SafeAreaProvider>,
   );
@@ -269,6 +281,8 @@ describe("a funded challenge", () => {
             initialDraft={readyDraft(2000)}
             onCreated={created}
             paymentSheet={fakePaymentSheet()}
+            movementDevice={createFakePedometer()}
+            settings={fakeSettings()}
           />
         </SessionProvider>
       </SafeAreaProvider>,
@@ -410,6 +424,8 @@ describe("the form the user fills in", () => {
             initialDraft={readyDraft(2000)}
             onCancel={cancelled}
             paymentSheet={fakePaymentSheet()}
+            movementDevice={createFakePedometer()}
+            settings={fakeSettings()}
           />
         </SessionProvider>
       </SafeAreaProvider>,
@@ -423,5 +439,90 @@ describe("the form the user fills in", () => {
     // challenge can come into existence a moment after the user stops
     // watching for it, and home has to ask again to find it.
     expect(cancelled).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("what this phone can do about a walk", () => {
+  it("says the step counter is there and motion access is on", async () => {
+    await renderScreen(readyDraft());
+
+    expect(await screen.findByTestId("device-ready")).toBeOnTheScreen();
+    expect(screen.getByTestId("device-readiness")).toHaveTextContent(/can count your walk/);
+    // Nothing is in the way, so the challenge is startable.
+    expect(screen.getByTestId("start-challenge")).toBeOnTheScreen();
+  });
+
+  it("refuses to start a challenge on a phone with no step counter", async () => {
+    await renderScreen(
+      readyDraft(2000),
+      fakeApi(),
+      fakePaymentSheet(),
+      createFakePedometer({ available: false }),
+    );
+
+    expect(await screen.findByTestId("device-unsupported")).toBeOnTheScreen();
+    expect(screen.getByTestId("device-readiness")).toHaveTextContent(/no step counter/);
+    // The money is what makes this a bar rather than a warning: every morning
+    // of this challenge would be lost on a phone that cannot count a step.
+    expect(screen.queryByTestId("deposit-and-start")).toBeNull();
+    expect(screen.getByTestId("not-ready")).toHaveTextContent(/cannot be started on a phone/);
+  });
+
+  it("asks for motion access before the deposit rather than on the first morning", async () => {
+    const pedometer = createFakePedometer({ permission: "undetermined" });
+    await renderScreen(readyDraft(), fakeApi(), fakePaymentSheet(), pedometer);
+
+    expect(await screen.findByTestId("device-askable")).toBeOnTheScreen();
+    await userEvent.press(screen.getByTestId("device-allow-motion"));
+
+    expect(pedometer.requests).toBe(1);
+    expect(await screen.findByTestId("device-ready")).toBeOnTheScreen();
+  });
+
+  it("warns about a refused permission and offers the settings page, without barring the start", async () => {
+    const settings = fakeSettings();
+    await renderScreen(
+      readyDraft(),
+      fakeApi(),
+      fakePaymentSheet(),
+      createFakePedometer({ permission: "denied" }),
+      settings,
+    );
+
+    expect(await screen.findByTestId("device-refused")).toBeOnTheScreen();
+    expect(screen.getByTestId("device-readiness")).toHaveTextContent(/Motion access is off/);
+    await userEvent.press(screen.getByTestId("device-refused-settings"));
+    expect(settings.opened).toBe(1);
+
+    // A permission turned on before the first morning costs nothing, so this
+    // is said loudly and stops nobody.
+    expect(screen.getByTestId("start-challenge")).toBeOnTheScreen();
+  });
+
+  it("re-reads the phone when the user says they have changed it", async () => {
+    const pedometer = createFakePedometer({ permission: "denied" });
+    await renderScreen(readyDraft(), fakeApi(), fakePaymentSheet(), pedometer);
+    expect(await screen.findByTestId("device-refused")).toBeOnTheScreen();
+
+    // Changed on a settings page the app was not in front of, which is why
+    // nothing but a press can tell the screen to look again.
+    pedometer.permission = "granted";
+    await userEvent.press(screen.getByTestId("device-recheck"));
+
+    expect(await screen.findByTestId("device-ready")).toBeOnTheScreen();
+  });
+
+  it("does not bar a start over a device that would not answer", async () => {
+    await renderScreen(
+      readyDraft(),
+      fakeApi(),
+      fakePaymentSheet(),
+      createFakePedometer({
+        isAvailable: () => Promise.reject(new Error("sensor unavailable")),
+      }),
+    );
+
+    expect(await screen.findByTestId("device-unknown")).toBeOnTheScreen();
+    expect(screen.getByTestId("start-challenge")).toBeOnTheScreen();
   });
 });

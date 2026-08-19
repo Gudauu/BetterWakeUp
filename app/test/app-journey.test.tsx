@@ -24,6 +24,7 @@ import { fakeAppReturn } from "./support/fake-app-return.ts";
 import { simulatedCompletionRuntimeFactory } from "./support/fake-completion-runtime.ts";
 import { fakeNotifier } from "./support/fake-notifier.ts";
 import { fakePaymentSheet } from "./support/fake-payment-sheet.ts";
+import { createFakePedometer } from "./support/fake-pedometer.ts";
 import { fakeProviders } from "./support/fake-providers.ts";
 import { type JourneyServer, journeyServer } from "./support/journey-server.ts";
 
@@ -58,6 +59,9 @@ async function launch(server: JourneyServer) {
   // The phone being put away and picked up again, which is how a user hears
   // about anything the server decided while they were not looking.
   const appReturn = fakeAppReturn();
+  // The step counter the setup screen asks about before a deposit is staked on
+  // it: present and allowed, which is what a phone this app is meant for is.
+  const movementDevice = createFakePedometer();
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <SessionProvider store={store} createClient={() => server} providers={fakeProviders()}>
@@ -66,11 +70,12 @@ async function launch(server: JourneyServer) {
           notifier={notifier}
           paymentSheet={paymentSheet}
           appReturn={appReturn.trigger}
+          movementDevice={movementDevice}
         />
       </SessionProvider>
     </SafeAreaProvider>,
   );
-  return { store, notifier, paymentSheet, appReturn };
+  return { store, notifier, paymentSheet, appReturn, movementDevice };
 }
 
 describe("one account's life through the app's own screens", () => {

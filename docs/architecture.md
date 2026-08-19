@@ -395,6 +395,22 @@ A refusal is reported rather than swallowed - the prose instruction the button r
 
 A walk the app was merely switched away from gets no such press: nothing in Settings would have saved it, the fix is to start again, and a button pointing elsewhere would be a wrong instruction.
 
+#### Asking the phone before asking for the money
+
+Every morning of a challenge is settled by one fact - the step counter in the user's pocket - and both ways that fact can be missing were discoverable only at the first press of "Start the walk".
+A phone with no pedometer answers `unsupported`, and a phone whose motion access has been refused answers `permission-denied`, and both of those answers arrived on the first morning, after a deposit was already held against a challenge no day of which could ever be completed.
+
+`app/src/movement/device-readiness.ts` asks the question while the challenge is still a draft.
+It is a narrow port - availability and the standing permission, taken as a subset of `Pedometer` - because nothing here watches anything, and a capture would open a window over a walk nobody is taking.
+The same fake pedometer that drives a capture in a test drives this, and the configured device is the simulated pedometer in a build that simulates movement, so a simulator build is not barred by a sensor it was never going to use.
+
+Only `unsupported` bars the start, and it bars it outright: there is no press on that device that fixes a missing sensor, so the notice names the way out that exists - signing in on a phone that counts steps.
+A refused permission is a warning with the settings press beside it rather than a bar, because it can be turned on at any point before the first morning; a device that would not answer at all is not evidence of anything, and refusing someone a challenge over a failed read would charge the app's fault to them.
+The read is repeated on request rather than polled, because motion access is changed on a page the app is not in front of, so the honest moment to ask again is when the user says they have changed it.
+
+The good answer is drawn too, rather than left as silence.
+The user is about to put money behind a sensor, and being told the sensor is there is part of what the screen owes them.
+
 #### The clock on the morning
 
 `app/src/completions/time-left.ts` reads the minutes to the deadline that `dailyCompletionState` already carries and answers how much of the morning is left, how urgent that is, and the sentence for each.

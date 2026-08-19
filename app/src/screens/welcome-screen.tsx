@@ -17,6 +17,7 @@ import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import type { AppReturnTrigger } from "../challenges/app-return.ts";
 import type { CompletionRuntimeFactory } from "../completions/runtime.ts";
+import type { MovementDevice } from "../movement/device-readiness.ts";
 import type { PaymentSheet } from "../payments/payment-sheet.ts";
 import {
   createConfiguredNotifier,
@@ -84,6 +85,8 @@ export interface WelcomeScreenProps {
   readonly paymentSheet?: PaymentSheet;
   /** Handed straight to home, so a test can put the app away and come back. */
   readonly appReturn?: AppReturnTrigger;
+  /** Handed straight to home, so a test can set up a challenge without a sensor. */
+  readonly movementDevice?: MovementDevice;
 }
 
 export function WelcomeScreen({
@@ -91,6 +94,7 @@ export function WelcomeScreen({
   notifier,
   paymentSheet,
   appReturn,
+  movementDevice,
 }: WelcomeScreenProps = {}) {
   const { state, availability, signIn, signOut } = useSession();
   const theme = useTheme();
@@ -137,6 +141,7 @@ export function WelcomeScreen({
           notifier={reminderNotifier}
           {...(paymentSheet === undefined ? {} : { paymentSheet })}
           {...(appReturn === undefined ? {} : { appReturn })}
+          {...(movementDevice === undefined ? {} : { movementDevice })}
         />
       </View>
     );

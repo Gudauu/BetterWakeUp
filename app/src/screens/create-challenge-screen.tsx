@@ -45,6 +45,22 @@ import {
   type FundedChallengeOutcome,
 } from "../challenges/funded-challenge.ts";
 import {
+  createConfiguredSettingsLauncher,
+  type OpenSettingsState,
+  type SettingsLauncher,
+  useOpenSettings,
+} from "../device/settings.ts";
+import {
+  ALLOW_MOVEMENT_LABEL,
+  canStartChallengeOn,
+  createConfiguredMovementDevice,
+  MOVEMENT_READINESS_NOTICE,
+  type MovementDevice,
+  type MovementReadinessState,
+  RECHECK_MOVEMENT_LABEL,
+  useMovementReadiness,
+} from "../movement/device-readiness.ts";
+import {
   createConfiguredPaymentSheet,
   type PaymentSheet,
   type PaymentSheetResult,
@@ -65,6 +81,7 @@ import {
 } from "../ui/components.tsx";
 import { formatDay } from "../ui/format.ts";
 import { useTheme } from "../ui/theme.ts";
+import { OpenSettingsAction } from "./open-settings-action.tsx";
 
 const WEEKDAY_LABELS: Readonly<Record<Weekday, string>> = {
   monday: "Mon",
@@ -114,6 +131,17 @@ export interface CreateChallengeScreenProps {
    * is used.
    */
   readonly paymentSheet?: PaymentSheet;
+  /**
+   * The step counter this phone has, asked about before the money rather than
+   * on the first morning. Substituted in tests so no suite reaches for a
+   * sensor; a build passes nothing and the configured one is used.
+   */
+  readonly movementDevice?: MovementDevice;
+  /**
+   * How the device's settings page is opened, which is the only way to undo a
+   * refused motion permission.
+   */
+  readonly settings?: SettingsLauncher;
 }
 
 export function CreateChallengeScreen({
@@ -122,6 +150,8 @@ export function CreateChallengeScreen({
   onCreated,
   onCancel,
   paymentSheet,
+  movementDevice,
+  settings,
 }: CreateChallengeScreenProps) {
   const { api } = useSession();
   const [draft, dispatch] = useReducer(draftReducer, initialDraft ?? null, (given) =>
@@ -140,6 +170,17 @@ export function CreateChallengeScreen({
   // Built once for as long as the screen lives, so the effect that presents it
   // is not re-run by a new object on every render.
   const [sheet] = useState<PaymentSheet>(() => paymentSheet ?? createConfiguredPaymentSheet());
+  // Built once, so the read of the device is not restarted by a new object on
+  // every keystroke in the form.
+  const [device] = useState<MovementDevice>(
+    () => movementDevice ?? createConfiguredMovementDevice(),
+  );
+  const [settingsLauncher] = useState<SettingsLauncher>(
+    () => settings ?? createConfiguredSettingsLauncher(),
+  );
+  const movement = useMovementReadiness(device);
+  const openSettings = useOpenSettings(settingsLauncher);
+  const phoneCanWalk = canStartChallengeOn(movement.readiness);
 
   const readiness = readinessOf(draft);
   const funded = draft.depositMinorUnits > 0;
@@ -510,6 +551,14 @@ export function CreateChallengeScreen({
             dispatch({ type: "setNoRegretMinutes", minutes: wholeNumber(text) })
           }
         />
+        <Divider />
+        {/* The phone is part of the walk's terms: it is what settles every
+            morning, and asking about it here is what keeps the answer ahead of
+            the deposit rather than behind it. */}
+        <AppText variant="small" style={styles.label}>
+          This phone
+        </AppText>
+        <WalkOnThisPhone movement={movement} settings={openSettings} />
       </Card>
 
       <Card>
@@ -597,7 +646,7 @@ export function CreateChallengeScreen({
         </Banner>
       ) : null}
 
-      {readiness.ready && withinDuration ? (
+      {readiness.ready && withinDuration && phoneCanWalk ? (
         <Button
           testID={funded ? "deposit-and-start" : "start-challenge"}
           label={funded ? `Deposit ${formatMoney(draft.depositMinorUnits)} and start` : "Start"}
@@ -607,7 +656,7 @@ export function CreateChallengeScreen({
       ) : (
         <Banner tone="info">
           <AppText variant="small" testID="not-ready">
-            {nextStep(readiness, withinDuration)}
+            {nextStep(readiness, withinDuration, phoneCanWalk)}
           </AppText>
         </Banner>
       )}
@@ -682,7 +731,16 @@ function describeMinutes(minutes: number): string {
  * maximum duration is deliberately absent: it has its own alert beside the end
  * date, and repeating it here would say the same thing twice.
  */
-function nextStep(readiness: DraftReadiness, withinDuration: boolean): string {
+function nextStep(
+  readiness: DraftReadiness,
+  withinDuration: boolean,
+  phoneCanWalk: boolean,
+): string {
+  // First, because nothing else about the draft matters on a phone that could
+  // never complete a day of it.
+  if (!phoneCanWalk) {
+    return "A challenge cannot be started on a phone with no step counter.";
+  }
   if (!readiness.configuration.ok) {
     return "Check the days, deadlines, and deposit above.";
   }
@@ -693,6 +751,75 @@ function nextStep(readiness: DraftReadiness, withinDuration: boolean): string {
     return "Acknowledge each statement above to continue.";
   }
   return withinDuration ? "Working out the end date." : "";
+}
+
+/**
+ * What this phone says about counting a walk, and the one press that changes
+ * it. Drawn even when the answer is good: a user about to stake money on a
+ * sensor deserves to be told the sensor is there.
+ */
+function WalkOnThisPhone({
+  movement,
+  settings,
+}: {
+  movement: MovementReadinessState;
+  settings: OpenSettingsState;
+}): ReactNode {
+  if (movement.readiness === "checking") {
+    return (
+      <AppText variant="small" tone="muted" testID="device-checking">
+        Checking whether this phone can count your walk.
+      </AppText>
+    );
+  }
+
+  const notice = MOVEMENT_READINESS_NOTICE[movement.readiness];
+  return (
+    <Banner tone={notice.tone} testID={`device-${movement.readiness}`}>
+      <AppText
+        variant="small"
+        testID="device-readiness"
+        {...(notice.tone === "info"
+          ? {}
+          : { tone: notice.tone, accessibilityRole: "alert" as const })}
+      >
+        {notice.text}
+      </AppText>
+
+      {movement.readiness === "askable" ? (
+        <Button
+          testID="device-allow-motion"
+          label={ALLOW_MOVEMENT_LABEL}
+          variant="secondary"
+          busy={movement.asking}
+          onPress={movement.ask}
+        />
+      ) : null}
+
+      {/* A refused permission is changed on a page the app is not in front of,
+          so the way back and the way to re-read the answer sit together. */}
+      {movement.readiness === "refused" ? (
+        <>
+          <OpenSettingsAction testID="device-refused-settings" settings={settings} tone="muted" />
+          <Button
+            testID="device-recheck"
+            label={RECHECK_MOVEMENT_LABEL}
+            variant="secondary"
+            onPress={movement.recheck}
+          />
+        </>
+      ) : null}
+
+      {movement.readiness === "unknown" ? (
+        <Button
+          testID="device-recheck"
+          label={RECHECK_MOVEMENT_LABEL}
+          variant="secondary"
+          onPress={movement.recheck}
+        />
+      ) : null}
+    </Banner>
+  );
 }
 
 /** A card's heading, numbered while the user is still working through them. */

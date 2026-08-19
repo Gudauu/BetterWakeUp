@@ -53,6 +53,7 @@ import {
   type SettingsLauncher,
   useOpenSettings,
 } from "../device/settings.ts";
+import type { MovementDevice } from "../movement/device-readiness.ts";
 import { createConfiguredPaymentSheet, type PaymentSheet } from "../payments/payment-sheet.ts";
 import { needsPaymentMethod } from "../payments/replace-payment-method.ts";
 import {
@@ -114,6 +115,12 @@ export interface HomeScreenProps {
    * form; substituted in tests, and a build passes nothing.
    */
   readonly paymentSheet?: PaymentSheet;
+  /**
+   * This phone's step counter, asked about by the form before a deposit is
+   * staked on it. Handed to the form; substituted in tests so no suite reaches
+   * for a sensor, and a build passes nothing.
+   */
+  readonly movementDevice?: MovementDevice;
   /**
    * How home hears that the app came back to the front, which is when it asks
    * the server again. Substituted in tests, so that a return is drivable
@@ -198,6 +205,7 @@ export function HomeScreen({
   deviceTimeZone,
   notifier,
   paymentSheet,
+  movementDevice,
   appReturn,
   now,
   settings,
@@ -295,6 +303,8 @@ export function HomeScreen({
         // back rather than trusted from the response the form held.
         onCreated={() => goHome(true)}
         {...(paymentSheet === undefined ? {} : { paymentSheet })}
+        {...(movementDevice === undefined ? {} : { movementDevice })}
+        settings={settingsLauncher}
       />
     );
   }
