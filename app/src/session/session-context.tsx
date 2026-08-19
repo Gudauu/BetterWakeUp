@@ -40,7 +40,7 @@ export type SessionState =
   | { status: "signedIn"; session: SessionView };
 
 /**
- * Why nobody is signed in. Three different things happened and the signed-out
+ * Why nobody is signed in. Four different things happened and the signed-out
  * screen is the same screen for all of them, so the reason travels with the
  * state: a user who was thrown out of a running challenge by an expiry needs to
  * be told that, where a user who has never signed in needs the pitch and a user
@@ -49,8 +49,15 @@ export type SessionState =
  * `expired` covers both ways a session dies - the stored one whose expiry the
  * app can read at launch, and the one the server refuses mid-use - because the
  * user experienced the same thing either way.
+ *
+ * `deleted` is a signed-out that cannot be undone: the account behind it is
+ * gone, so signing in again starts a new one. Without it the app's single most
+ * permanent action would be acknowledged by the pitch a first-time user sees.
  */
-export type SignedOutReason = "noSession" | "signedOut" | "expired";
+export type SignedOutReason = "noSession" | "signedOut" | "expired" | "deleted";
+
+/** What a caller of `signOut` may say happened. The other two are not presses. */
+export type SignOutReason = Extract<SignedOutReason, "signedOut" | "deleted">;
 
 export interface SessionContextValue {
   readonly state: SessionState;
@@ -65,7 +72,11 @@ export interface SessionContextValue {
   recheckAvailability(): void;
   /** Runs the native flow, exchanges the credential, and persists the result. */
   signIn(provider: IdentityProvider): Promise<SignInOutcome>;
-  signOut(): Promise<void>;
+  /**
+   * Discards the session. The reason is what the signed-out screen says
+   * happened, and a deletion has to be told apart from a press of Sign out.
+   */
+  signOut(reason?: SignOutReason): Promise<void>;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -223,18 +234,26 @@ export function SessionProvider({
     [client, providers, sessionStore],
   );
 
-  const signOut = useCallback(async () => {
-    try {
-      // Best effort: the point of the call is to revoke the session on the
-      // server so a copy of the token is useless, but a user with no network
-      // must still be able to sign out of their own device.
-      await client.request("deleteSession", {});
-    } catch {
-      // The session is being discarded either way.
-    }
-    await sessionStore.clear();
-    setState({ status: "signedOut", reason: "signedOut" });
-  }, [client, sessionStore]);
+  const signOut = useCallback(
+    async (reason: SignOutReason = "signedOut") => {
+      // A deleted account has no session left to revoke - the sessions went with
+      // it - so the request would only be a guaranteed refusal, and one that the
+      // client would read as an expiry.
+      if (reason !== "deleted") {
+        try {
+          // Best effort: the point of the call is to revoke the session on the
+          // server so a copy of the token is useless, but a user with no network
+          // must still be able to sign out of their own device.
+          await client.request("deleteSession", {});
+        } catch {
+          // The session is being discarded either way.
+        }
+      }
+      await sessionStore.clear();
+      setState({ status: "signedOut", reason });
+    },
+    [client, sessionStore],
+  );
 
   const value = useMemo<SessionContextValue>(
     () => ({ state, api: client, availability, recheckAvailability, signIn, signOut }),

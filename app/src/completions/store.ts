@@ -12,9 +12,9 @@
  * records can be pending inside one task window, and a strict queue would let
  * one undeliverable record block every later completion from ever syncing.
  *
- * A record leaves the store in exactly one way, by being acknowledged. A
- * rejected record stays, marked, so the interface can surface it; nothing else
- * deletes anything.
+ * A record leaves the store by being acknowledged, or with the account it
+ * belongs to. A rejected record stays, marked, so the interface can surface it;
+ * nothing else deletes anything.
  */
 
 import { type MovementObservation, movementObservation } from "@betterwakeup/contract";
@@ -78,6 +78,13 @@ export interface PendingCompletionStore {
   markRejected(id: string, error: { code: string; message: string }): Promise<void>;
   /** An attempt failed in a way that may yet succeed. The record stays pending. */
   noteAttemptFailed(id: string, error: { code: string; message: string }): Promise<void>;
+  /**
+   * Throw everything away, because the account these records belong to no
+   * longer exists. Every record names a challenge and a task on the server, so
+   * after an account deletion none of them can ever be sent: keeping them would
+   * leave one person's walks on the phone for whoever signs in next.
+   */
+  discardAll(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -249,6 +256,12 @@ export async function openPendingCompletionStore(
           WHERE id = ? AND status = 'pending'`,
         [error.code, error.message, id],
       );
+    },
+
+    async discardAll() {
+      // Rejected records go too: they are refusals about tasks that no longer
+      // exist, and there is nobody left to act on them.
+      await database.runAsync("DELETE FROM pending_completions", []);
     },
 
     close: () => database.closeAsync(),

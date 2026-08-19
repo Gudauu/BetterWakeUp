@@ -82,6 +82,19 @@ describe("pending completion store", () => {
     expect(await store.list()).toEqual([]);
   });
 
+  it("throws everything away when the account the records belong to is deleted", async () => {
+    const pending = await store.record(INPUT);
+    const refused = await store.record(INPUT);
+    await store.markRejected(refused.id, { code: "task_not_found", message: "No such task." });
+
+    await store.discardAll();
+
+    // The rejected one goes too: it is a refusal about a task that no longer
+    // exists, and there is nobody left to act on it.
+    expect(await store.list()).toEqual([]);
+    expect(pending.id).not.toEqual(refused.id);
+  });
+
   it("retains a rejected record, surfaces it, and stops offering it for retry", async () => {
     const record = await store.record(INPUT);
 

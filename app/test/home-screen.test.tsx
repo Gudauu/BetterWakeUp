@@ -1267,6 +1267,48 @@ describe("home is the door to deleting the account", () => {
     expect(await screen.findByTestId("pause-screen")).toBeOnTheScreen();
   });
 
+  it("throws away the walks this phone was still holding for the deleted account", async () => {
+    // Every stored walk names a challenge and a task that no longer exist, so
+    // none of them can ever be sent - and home is the last component holding
+    // the runtime that owns them, because the sign-out unmounts it.
+    let opened: FakeCompletionRuntime | null = null;
+    const api = fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } });
+
+    await renderHome(api, {
+      onRuntimeOpened: (runtime) => {
+        opened = runtime;
+      },
+      seed: [
+        {
+          input: {
+            challengeId: "33333333-3333-4333-8333-333333333333",
+            taskId: "44444444-4444-4444-8444-444444444444",
+            completedAt: "2026-09-01T13:40:00.000Z",
+            observation: {
+              startedAt: "2026-09-01T13:30:00.000Z",
+              endedAt: "2026-09-01T13:40:00.000Z",
+              steps: 300,
+              provenance: "live-foreground",
+              source: "expo-pedometer-ios",
+            },
+            appVersion: "1.0.0-test",
+            verificationPolicyVersion: "live-foreground-steps.1",
+          },
+        },
+      ],
+    });
+    await waitFor(() => expect(opened).not.toBeNull());
+    const runtime = opened as unknown as FakeCompletionRuntime;
+    expect(await runtime.store.list()).toHaveLength(1);
+
+    await userEvent.press(await screen.findByTestId("home-delete-account"));
+    await userEvent.press(await screen.findByTestId("delete-account"));
+    await userEvent.press(await screen.findByTestId("delete-account-confirm"));
+
+    expect(api.names()).toContain("deleteAccount");
+    await waitFor(async () => expect(await runtime.store.list()).toEqual([]));
+  });
+
   it("comes back to home when the screen is left", async () => {
     const api = fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } });
 

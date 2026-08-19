@@ -823,10 +823,10 @@ The genuinely-unavailable sentence names what would have been needed instead of 
 
 ### Being signed out without asking
 
-There are three ways to arrive at the signed-out screen and they are not the same event.
-A first launch has never held a session, a sign-out was pressed, and an expiry happens to a user who was in the middle of something - either the stored session's expiry passes while the app is closed, or the server refuses the token on the next request and `onSessionInvalid` moves the whole app back to signed out.
+There are four ways to arrive at the signed-out screen and they are not the same event.
+A first launch has never held a session, a sign-out was pressed, an account was deleted, and an expiry happens to a user who was in the middle of something - either the stored session's expiry passes while the app is closed, or the server refuses the token on the next request and `onSessionInvalid` moves the whole app back to signed out.
 
-The signed-out state therefore carries a `SignedOutReason` (`noSession`, `signedOut`, `expired`) in `app/src/session/session-context.tsx`.
+The signed-out state therefore carries a `SignedOutReason` (`noSession`, `signedOut`, `expired`, `deleted`) in `app/src/session/session-context.tsx`.
 Without it the screen has to sell the app to someone who was three weeks into a challenge a second ago, which reads as the app having forgotten them.
 
 On `expired` the welcome screen leads with what happened and drops the three how-it-works steps, which are for someone who has never seen the app.
@@ -874,6 +874,22 @@ Nothing settles while a pause stands still, so a user who paused and then decide
 That case and the open recovery offer are also the two with something to press, so the explanation carries the route to the screen that settles it; home wires those to the same pause and recovery routes its own banners use.
 
 `deletionHold` defers to `deletionBlocker` for whether there is anything to explain, so the screen cannot end up explaining a hold the command would not have applied.
+
+### What the deletion came to
+
+Deletion is the one thing the app does that nothing undoes, and it used to be acknowledged by a screen change: the delete screen signed out, and the signed-out screen the user landed on was the first-launch pitch.
+That is the same gap the pause, recovery and creation outcomes had, on the action least able to afford it - a user who is not certain the deletion happened has no way to check, because there is no account left to ask.
+
+`SignedOutReason` therefore carries a fourth value, `deleted`, and `signOut` takes the reason from its caller.
+The welcome screen draws a receipt for it: what is gone from the server, that no deposit is still held (a deletion is only allowed once every funded challenge has settled, which is a fact about what is still held rather than about what was charged along the way), and that the sign-in buttons below still work but start a new account rather than finding the old one.
+That last sentence is not a footnote: pressing one of those buttons is the likeliest next thing to happen on that screen.
+
+`signOut("deleted")` skips the `deleteSession` request.
+The account's sessions went with it, so the call could only be refused - and the client reads a refusal as `onSessionInvalid`, which would relabel the most deliberate action in the app as a session that ran out.
+
+The phone is cleared with the account.
+Every pending completion names a challenge and a task that no longer exist, so none of them can ever be sent, and leaving them would leave one person's walks on the device for whoever signs in next; `PendingCompletionStore.discardAll` is the second way a record can leave the store, and rejected records go too because there is nobody left to act on them.
+Home does the discarding rather than the delete screen, because home is the component holding the runtime that owns the store, and it has to happen before the sign-out unmounts it.
 
 ### Pending completion store
 

@@ -226,6 +226,24 @@ describe("signing out", () => {
     expect(await store.read()).toBeNull();
   });
 
+  it("reports a deletion as itself, and asks the server for nothing", async () => {
+    const store = createMemorySessionStore(SESSION);
+    const { api, names } = apiThat(() => ({}));
+    const h = harness({ store, api });
+    await h.render();
+
+    await act(async () => {
+      await h.captured.current?.signOut("deleted");
+    });
+
+    // The sessions went with the account, so revoking one could only be
+    // refused - and the client reads a refusal as an expiry, which would
+    // relabel the most deliberate action in the app as one that happened to it.
+    expect(names).toEqual([]);
+    expect(screen.getByTestId("reason")).toHaveTextContent("deleted");
+    expect(await store.read()).toBeNull();
+  });
+
   it("signs out of the device even when the server cannot be reached", async () => {
     const store = createMemorySessionStore(SESSION);
     const { api } = apiThat(() => {

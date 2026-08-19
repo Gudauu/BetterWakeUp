@@ -69,6 +69,30 @@ const EXPIRED_NOTICE = {
     "If a challenge is running it carries on without you: its deadlines still count while you are signed out, and only a walk taken in the app can meet one. Any walk already saved on this phone is still here, and will be sent once you sign back in.",
 } as const;
 
+/**
+ * The receipt for the one thing the app can do that nothing undoes.
+ *
+ * A deletion that ends on the first-launch pitch leaves the user unsure it
+ * happened at all, which on this action is the worst thing to be unsure about.
+ * So the screen states it plainly, and then states the one fact a user is
+ * likeliest to get wrong next: the sign-in buttons below still work, and
+ * pressing one builds a new account rather than finding the old one.
+ *
+ * It says nothing about a deposit beyond the hold, because a deletion is only
+ * allowed once every funded challenge has settled - which is a fact about what
+ * is still held, not about what was charged along the way.
+ */
+const DELETED_NOTICE = {
+  title: "Your account has been deleted",
+  body: "Your challenges, your completed days, and your Emergency Recovery allowance are gone from BetterWakeUp. No deposit is still held: an account can only be deleted once its challenges have settled.",
+  phone:
+    "This phone has been cleared too. Any walk it had saved and not yet sent has been thrown away, and its wake-up reminders have been turned off.",
+  // Not a footnote: the buttons under this banner are the same buttons, and
+  // pressing one after deleting is the likeliest next thing to happen.
+  again:
+    "You can sign in again with the same Apple or Google account. That starts a new account from scratch - nothing from the deleted one comes back with it.",
+} as const;
+
 export interface WelcomeScreenProps {
   /**
    * Handed straight to home, which is the screen that holds it. It is here so
@@ -155,9 +179,25 @@ export function WelcomeScreen({
 
   const options = signInOptions(availability);
   const expired = state.reason === "expired";
+  const deleted = state.reason === "deleted";
 
   return (
     <Screen testID="welcome-signed-out" style={styles.signedOut}>
+      {deleted ? (
+        <Banner tone="info" testID="account-deleted">
+          <AppText variant="headline" accessibilityRole="alert">
+            {DELETED_NOTICE.title}
+          </AppText>
+          <AppText variant="small">{DELETED_NOTICE.body}</AppText>
+          <AppText variant="small" testID="account-deleted-phone">
+            {DELETED_NOTICE.phone}
+          </AppText>
+          <AppText variant="small" tone="muted" testID="account-deleted-again">
+            {DELETED_NOTICE.again}
+          </AppText>
+        </Banner>
+      ) : null}
+
       {expired ? (
         <Banner tone="warning" testID="session-expired">
           <AppText variant="headline" accessibilityRole="alert">
@@ -189,7 +229,7 @@ export function WelcomeScreen({
       {/* The three steps are the pitch, and someone who was signed in a moment
           ago has already bought it; the room goes to why they are looking at
           this screen instead. */}
-      {expired ? null : (
+      {expired || deleted ? null : (
         <View style={styles.steps} testID="welcome-how-it-works">
           {HOW_IT_WORKS.map(({ step, line }) => (
             <View key={step} style={styles.step}>

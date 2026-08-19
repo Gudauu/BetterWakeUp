@@ -341,6 +341,19 @@ export function HomeScreen({
   // open: opening it is what sends a completion recorded on a day with no
   // network, and that must not wait for the user to tap anything.
   const runtime = useCompletionRuntime(api, createRuntime ?? createConfiguredCompletionRuntime);
+  // The account is gone from the server, and home is the last component still
+  // holding the phone's own copy of it. Every stored walk names a challenge and
+  // a task that no longer exist, so none of them can ever be sent; they are
+  // thrown away here, before the sign-out unmounts the runtime that owns them.
+  async function onAccountDeleted() {
+    if (runtime.status === "ready") {
+      // Best effort, the same way sign-out treats revoking the session: a
+      // database that will not answer must not strand the user on a screen
+      // reading an account that no longer exists.
+      await runtime.runtime.store.discardAll().catch(() => undefined);
+    }
+    await signOut("deleted");
+  }
   // Built once for as long as home lives, so the effect that follows the
   // challenge is not re-run by a new object on every render.
   const [reminderNotifier] = useState<Notifier>(() => notifier ?? createConfiguredNotifier());
@@ -538,8 +551,9 @@ export function HomeScreen({
         onOpenPause={() => setRoute("pause")}
         onOpenRecovery={() => setRoute("recovery")}
         // Nothing is left to read: the account this screen was reading is gone,
-        // so the only honest next screen is the signed-out one.
-        onDeleted={() => void signOut()}
+        // so the only honest next screen is the signed-out one - and it has to
+        // say a deletion happened rather than showing the first-launch pitch.
+        onDeleted={() => void onAccountDeleted()}
       />
     );
   }

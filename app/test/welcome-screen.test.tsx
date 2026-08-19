@@ -157,6 +157,58 @@ describe("a session that ran out", () => {
   });
 });
 
+describe("an account the user deleted", () => {
+  async function deleteTheAccount(options: { notifier?: FakeNotifier } = {}) {
+    const own = fakeApi();
+    await renderScreen(createMemorySessionStore(SESSION), { api: own, ...options });
+
+    await userEvent.press(await screen.findByTestId("home-delete-account"));
+    await userEvent.press(await screen.findByTestId("delete-account"));
+    await userEvent.press(await screen.findByTestId("delete-account-confirm"));
+
+    return own;
+  }
+
+  it("says the account is gone rather than pitching the app to whoever is left", async () => {
+    const api = await deleteTheAccount();
+
+    expect(api.names()).toContain("deleteAccount");
+    const notice = await screen.findByTestId("account-deleted");
+    expect(notice).toHaveTextContent(/account has been deleted/i);
+    // The three things the delete screen said would go, said again as having
+    // gone, plus the one money fact a deletion is allowed to state.
+    expect(notice).toHaveTextContent(/Emergency Recovery allowance are gone/i);
+    expect(notice).toHaveTextContent(/No deposit is still held/i);
+    // The likeliest next press is a sign-in button, and it does not find the
+    // deleted account.
+    expect(screen.getByTestId("account-deleted-again")).toHaveTextContent(/starts a new account/i);
+    expect(screen.getByTestId("sign-in-apple")).toBeOnTheScreen();
+    // Neither the first-launch pitch nor the notice for a session that died on
+    // its own: this user asked for exactly this.
+    expect(screen.queryByTestId("welcome-how-it-works")).toBeNull();
+    expect(screen.queryByTestId("session-expired")).toBeNull();
+  });
+
+  it("does not ask the server to revoke a session the deletion already took", async () => {
+    // The account is gone, so `deleteSession` could only ever be refused - and
+    // the client reads a refusal as an expiry, which would relabel a deliberate
+    // deletion as a session that ran out.
+    const api = await deleteTheAccount();
+
+    expect(api.names()).not.toContain("deleteSession");
+  });
+
+  it("says the phone was cleared with it, and clears it", async () => {
+    const notifier = fakeNotifier({ permission: "denied" });
+    await deleteTheAccount({ notifier });
+
+    expect(await screen.findByTestId("account-deleted-phone")).toHaveTextContent(
+      /thrown away.*reminders.*turned off/i,
+    );
+    expect(notifier.scheduled.at(-1)).toEqual([]);
+  });
+});
+
 describe("the alarms on a phone with nobody signed in", () => {
   it("leaves them alone while the session stands and takes them off when it ends", async () => {
     // A refused device schedules nothing of its own, so every set the notifier
