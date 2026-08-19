@@ -13,12 +13,15 @@
 import type { ReactNode } from "react";
 import {
   ActivityIndicator,
+  type KeyboardTypeOptions,
   Pressable,
   type PressableStateCallbackType,
   ScrollView,
   type StyleProp,
   StyleSheet,
+  Switch,
   Text,
+  TextInput,
   type TextStyle,
   View,
   type ViewStyle,
@@ -357,6 +360,179 @@ export function ProgressBar({
   );
 }
 
+export interface FieldProps {
+  readonly label: string;
+  readonly testID: string;
+  readonly value: string;
+  readonly onChangeText: (text: string) => void;
+  /** The sentence under the label saying what the number is for. */
+  readonly hint?: string;
+  /** Drawn inside the box after the value, for a unit the user should not type. */
+  readonly suffix?: string;
+  /** Drawn inside the box before the value, for a currency symbol. */
+  readonly prefix?: string;
+  readonly keyboardType?: KeyboardTypeOptions;
+  /**
+   * Puts the label and the box on one line. For the short repeated fields - a
+   * deadline per weekday - where a stacked label would make a wall of text.
+   */
+  readonly compact?: boolean;
+}
+
+/**
+ * A value the user types, with the words that explain it.
+ *
+ * The label is a real label rather than a placeholder, so it survives the user
+ * typing, and the hint is a separate line so a screen never has to explain a
+ * number inside its own field name.
+ */
+export function Field({
+  label,
+  testID,
+  value,
+  onChangeText,
+  hint,
+  suffix,
+  prefix,
+  keyboardType,
+  compact = false,
+}: FieldProps) {
+  const theme = useTheme();
+  const box = (
+    <View
+      style={[
+        styles.fieldBox,
+        compact ? styles.fieldBoxCompact : styles.fieldBoxWide,
+        {
+          backgroundColor: theme.colors.background,
+          borderColor: theme.colors.border,
+          borderRadius: theme.radius.sm,
+          gap: theme.space.xs,
+          paddingHorizontal: theme.space.md,
+        },
+      ]}
+    >
+      {prefix === undefined ? null : (
+        <AppText variant="body" tone="muted">
+          {prefix}
+        </AppText>
+      )}
+      <TextInput
+        testID={testID}
+        accessibilityLabel={label}
+        keyboardType={keyboardType}
+        value={value}
+        onChangeText={onChangeText}
+        style={[theme.type.body, styles.fieldInput, { color: theme.colors.text }]}
+      />
+      {suffix === undefined ? null : (
+        <AppText variant="small" tone="muted">
+          {suffix}
+        </AppText>
+      )}
+    </View>
+  );
+
+  if (compact) {
+    return (
+      <View style={[styles.row, { gap: theme.space.md }]}>
+        <AppText variant="small" style={styles.shrink}>
+          {label}
+        </AppText>
+        {box}
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ gap: theme.space.xs }}>
+      <AppText variant="small" style={styles.label}>
+        {label}
+      </AppText>
+      {hint === undefined ? null : (
+        <AppText variant="caption" tone="muted">
+          {hint}
+        </AppText>
+      )}
+      {box}
+    </View>
+  );
+}
+
+/** A small on/off pill, for picking several things out of a fixed set. */
+export function Chip({
+  label,
+  testID,
+  selected,
+  onPress,
+}: {
+  readonly label: string;
+  readonly testID: string;
+  readonly selected: boolean;
+  readonly onPress: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      testID={testID}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.chip,
+        {
+          backgroundColor: selected ? theme.colors.accent : "transparent",
+          borderColor: selected ? theme.colors.accent : theme.colors.border,
+          borderRadius: theme.radius.pill,
+        },
+        pressed && styles.pressed,
+      ]}
+    >
+      <Text
+        style={[
+          theme.type.caption,
+          { color: selected ? theme.colors.onAccent : theme.colors.text },
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+/**
+ * A statement the user turns on. The whole row is the switch's label, so a
+ * screen reader reads the sentence rather than the word "switch".
+ */
+export function Toggle({
+  testID,
+  label,
+  value,
+  onValueChange,
+  children,
+}: {
+  readonly testID: string;
+  /** What a screen reader announces; the visible wording is `children`. */
+  readonly label: string;
+  readonly value: boolean;
+  readonly onValueChange: (next: boolean) => void;
+  readonly children: ReactNode;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={[styles.row, styles.toggle, { gap: theme.space.lg }]}>
+      <View style={styles.shrink}>{children}</View>
+      <Switch
+        testID={testID}
+        accessibilityLabel={label}
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ false: theme.colors.track, true: theme.colors.accent }}
+      />
+    </View>
+  );
+}
+
 /** A labelled fact, read left to right. */
 export function DetailRow({
   label,
@@ -409,4 +585,20 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   shrink: { flexShrink: 1 },
   value: { fontWeight: "600" },
+  label: { fontWeight: "600" },
+  // A typed value clears the same 44pt minimum as a tap target: a short box is
+  // as hard to hit as a short button.
+  fieldBox: { alignItems: "center", borderWidth: 1, flexDirection: "row", minHeight: 44 },
+  fieldBoxWide: { alignSelf: "stretch" },
+  fieldBoxCompact: { minWidth: 104 },
+  fieldInput: { flex: 1, paddingVertical: 10 },
+  chip: {
+    alignItems: "center",
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 44,
+    minWidth: 48,
+    paddingHorizontal: 12,
+  },
+  toggle: { minHeight: 44 },
 });

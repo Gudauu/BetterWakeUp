@@ -9,6 +9,12 @@
  * The action that commits is rendered only when `readinessOf` says the draft
  * is ready, and `startChallenge` refuses independently, so an unacknowledged
  * disclosure blocks the deposit in two places rather than one.
+ *
+ * It is a form, so it is ordered as a set of decisions rather than as a set of
+ * fields: how many days, which mornings, what counts as done, what is at stake,
+ * and only then what the whole thing comes to. Every number carries the
+ * sentence saying what it is for, because a user setting up a challenge at
+ * bedtime should not have to infer what "No Regret Time" means from its name.
  */
 
 import {
@@ -18,8 +24,7 @@ import {
   type Weekday,
 } from "@betterwakeup/contract";
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StyleSheet, View } from "react-native";
 import {
   projectChallenge,
   type StartChallengeOutcome,
@@ -35,6 +40,20 @@ import {
   WEEKDAY_ORDER,
 } from "../challenges/draft.ts";
 import { useSession } from "../session/session-context.tsx";
+import {
+  AppText,
+  Banner,
+  Button,
+  Card,
+  Chip,
+  DetailRow,
+  Divider,
+  Field,
+  Screen,
+  TextButton,
+  Toggle,
+} from "../ui/components.tsx";
+import { formatDay } from "../ui/format.ts";
 
 const WEEKDAY_LABELS: Readonly<Record<Weekday, string>> = {
   monday: "Mon",
@@ -67,7 +86,6 @@ export function CreateChallengeScreen({
   onCancel,
 }: CreateChallengeScreenProps) {
   const { api } = useSession();
-  const insets = useSafeAreaInsets();
   const [draft, dispatch] = useReducer(draftReducer, initialDraft ?? null, (given) =>
     given === null ? createDraft() : given,
   );
@@ -125,202 +143,321 @@ export function CreateChallengeScreen({
 
   if (outcome?.status === "created") {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]} testID="challenge-created">
-        <Text style={styles.title}>Your challenge is running</Text>
-        <Text style={styles.body}>
+      <Screen centered testID="challenge-created">
+        <AppText variant="caption" tone="success">
+          YOU'RE IN
+        </AppText>
+        <AppText variant="display" center accessibilityRole="header">
+          Your challenge is running
+        </AppText>
+        <AppText variant="body" tone="muted" center>
           {outcome.challenge.progress.requiredTaskCount} days, ending{" "}
-          {outcome.challenge.projectedEndDate} if you never pause.
-        </Text>
-        <Text style={styles.note}>
-          Open the app on every active day and keep it open until both checks appear.
-        </Text>
-      </View>
+          {formatDay(outcome.challenge.projectedEndDate)} if you never pause.
+        </AppText>
+        <Banner tone="info">
+          <AppText variant="small">
+            Open the app on every active day and keep it open until both checks appear.
+          </AppText>
+        </Banner>
+      </Screen>
     );
   }
 
   if (outcome?.status === "fundingRequired") {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]} testID="challenge-funding">
-        <Text style={styles.title}>Confirm your deposit</Text>
-        <Text style={styles.body}>
+      <Screen centered testID="challenge-funding">
+        <AppText variant="caption" tone="accent">
+          ONE LAST STEP
+        </AppText>
+        <AppText variant="display" center accessibilityRole="header">
+          Confirm your deposit
+        </AppText>
+        <AppText variant="body" tone="muted" center>
           {formatMoney(draft.depositMinorUnits)} is ready to be held against your card. The
           challenge starts once your bank confirms the hold.
-        </Text>
-      </View>
+        </AppText>
+        {/* Without this the screen is a dead end: the challenge is out of the
+            user's hands, and there is nothing else here to press. */}
+        {onCancel === undefined ? null : (
+          <TextButton testID="funding-done" label="Back to home" onPress={onCancel} />
+        )}
+      </Screen>
     );
   }
 
+  const active = draft.schedule.length;
+
   return (
-    <ScrollView
-      testID="create-challenge"
-      contentContainerStyle={[styles.container, { paddingTop: insets.top }]}
-    >
-      <Text style={styles.title}>New challenge</Text>
+    <Screen testID="create-challenge">
+      <View style={styles.header}>
+        <AppText variant="caption" tone="accent">
+          NEW CHALLENGE
+        </AppText>
+        <AppText variant="display" accessibilityRole="header">
+          Set your terms
+        </AppText>
+        <AppText variant="small" tone="muted">
+          Pick the mornings, the walk, and what you are putting behind it. Nothing is saved until
+          you start.
+        </AppText>
+      </View>
 
-      <Section title="Days">
-        <NumberField
+      <Card>
+        <SectionTitle title="The mornings" step={1} />
+        <Field
           label="Days to complete"
+          hint="How many active days you have to finish before the challenge is done."
           testID="field-required-task-count"
-          value={draft.requiredTaskCount}
-          onChange={(count) => dispatch({ type: "setRequiredTaskCount", count })}
+          keyboardType="number-pad"
+          value={String(draft.requiredTaskCount)}
+          // An empty field is zero rather than NaN: the contract refuses zero
+          // where zero is illegal, and the reason is already on screen.
+          onChangeText={(text) =>
+            dispatch({ type: "setRequiredTaskCount", count: wholeNumber(text) })
+          }
         />
-        <Text style={styles.label}>Active weekdays</Text>
-        <View style={styles.row}>
-          {WEEKDAY_ORDER.map((weekday) => {
-            const active = draft.schedule.some((day) => day.weekday === weekday);
-            return (
-              <Pressable
+
+        <View style={styles.group}>
+          <AppText variant="small" style={styles.label}>
+            Active weekdays
+          </AppText>
+          <AppText variant="caption" tone="muted" testID="weekday-summary">
+            {active === 0
+              ? "Pick at least one morning."
+              : `${active} ${active === 1 ? "morning" : "mornings"} a week.`}
+          </AppText>
+          <View style={styles.chips}>
+            {WEEKDAY_ORDER.map((weekday) => (
+              <Chip
                 key={weekday}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
                 testID={`weekday-${weekday}`}
-                style={[styles.chip, active && styles.chipActive]}
+                label={WEEKDAY_LABELS[weekday]}
+                selected={draft.schedule.some((day) => day.weekday === weekday)}
                 onPress={() => dispatch({ type: "toggleWeekday", weekday })}
-              >
-                <Text style={active ? styles.chipLabelActive : styles.chipLabel}>
-                  {WEEKDAY_LABELS[weekday]}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        {draft.schedule.map((day) => (
-          <View key={day.weekday} style={styles.row}>
-            <Text style={styles.label}>{WEEKDAY_LABELS[day.weekday]} deadline</Text>
-            <TextInput
-              testID={`deadline-${day.weekday}`}
-              accessibilityLabel={`${WEEKDAY_LABELS[day.weekday]} deadline`}
-              style={styles.input}
-              value={day.deadline}
-              onChangeText={(deadline) =>
-                dispatch({ type: "setDeadline", weekday: day.weekday, deadline })
-              }
-            />
+              />
+            ))}
           </View>
-        ))}
-      </Section>
-
-      <Section title="Time zone">
-        <Text style={styles.body} testID="time-zone">
-          Deadlines are read in {draft.timeZone}.
-        </Text>
-        <View style={styles.row}>
-          <Text style={styles.label}>This is my time zone</Text>
-          <Switch
-            testID="confirm-time-zone"
-            accessibilityLabel="Confirm time zone"
-            value={draft.timeZoneConfirmed}
-            onValueChange={(confirmed) => dispatch({ type: "setTimeZoneConfirmed", confirmed })}
-          />
         </View>
-      </Section>
 
-      <Section title="The rest">
-        <NumberField
+        {draft.schedule.length === 0 ? null : (
+          <View style={styles.group}>
+            <AppText variant="small" style={styles.label}>
+              Deadlines
+            </AppText>
+            <AppText variant="caption" tone="muted">
+              The time each morning's walk has to be finished by, as HH:MM.
+            </AppText>
+            {draft.schedule.map((day) => (
+              <Field
+                key={day.weekday}
+                compact
+                label={`${WEEKDAY_LABELS[day.weekday]} deadline`}
+                testID={`deadline-${day.weekday}`}
+                value={day.deadline}
+                onChangeText={(deadline) =>
+                  dispatch({ type: "setDeadline", weekday: day.weekday, deadline })
+                }
+              />
+            ))}
+          </View>
+        )}
+
+        <Divider />
+
+        <Toggle
+          testID="confirm-time-zone"
+          label="Confirm time zone"
+          value={draft.timeZoneConfirmed}
+          onValueChange={(confirmed) => dispatch({ type: "setTimeZoneConfirmed", confirmed })}
+        >
+          <AppText variant="small" testID="time-zone">
+            Deadlines are read in {draft.timeZone}.
+          </AppText>
+          <AppText variant="caption" tone="muted">
+            A deadline in the wrong zone is a missed day, so confirm this is where you wake up.
+          </AppText>
+        </Toggle>
+      </Card>
+
+      <Card>
+        <SectionTitle title="The walk" step={2} />
+        <Field
           label="Step target"
+          hint="The steps you have to take before the deadline for the day to count."
           testID="field-step-target"
-          value={draft.stepTarget}
-          onChange={(steps) => dispatch({ type: "setStepTarget", steps })}
+          keyboardType="number-pad"
+          suffix="steps"
+          value={String(draft.stepTarget)}
+          onChangeText={(text) => dispatch({ type: "setStepTarget", steps: wholeNumber(text) })}
         />
-        <NumberField
-          label="No Regret Time (minutes)"
+        <Field
+          label="No Regret Time"
+          hint={`How long you have to stay up once you are awake. ${describeMinutes(draft.noRegretMinutes)}.`}
           testID="field-no-regret-minutes"
-          value={draft.noRegretMinutes}
-          onChange={(minutes) => dispatch({ type: "setNoRegretMinutes", minutes })}
+          keyboardType="number-pad"
+          suffix="minutes"
+          value={String(draft.noRegretMinutes)}
+          onChangeText={(text) =>
+            dispatch({ type: "setNoRegretMinutes", minutes: wholeNumber(text) })
+          }
         />
-        <NumberField
-          label="Deposit (cents, or 0 for none)"
-          testID="field-deposit"
-          value={draft.depositMinorUnits}
+      </Card>
+
+      <Card>
+        <SectionTitle title="What's at stake" step={3} />
+        <DepositField
+          minorUnits={draft.depositMinorUnits}
           onChange={(minorUnits) => dispatch({ type: "setDeposit", minorUnits })}
         />
-      </Section>
+        {readiness.configuration.ok ? null : (
+          <Banner tone="warning" testID="configuration-problems">
+            {readiness.configuration.problems.map((problem) => (
+              <AppText key={problem} variant="small" tone="warning">
+                {problem}
+              </AppText>
+            ))}
+          </Banner>
+        )}
+      </Card>
 
-      <Section title="What this comes to">
+      <Card testID="plan-summary">
+        <SectionTitle title="What this comes to" />
         {projection === null ? (
-          <Text style={styles.note} testID="projection-pending">
+          <AppText variant="small" tone="muted" testID="projection-pending">
             Working out the end date.
-          </Text>
+          </AppText>
         ) : (
-          <View testID="projection">
-            <Text style={styles.body}>First day: {projection.firstTaskDate}</Text>
-            <Text style={styles.body}>Projected end: {projection.projectedEndDate}</Text>
+          <View testID="projection" style={styles.group}>
+            <DetailRow label="First morning" value={formatDay(projection.firstTaskDate)} />
+            <DetailRow label="Projected end" value={formatDay(projection.projectedEndDate)} />
+            <DetailRow
+              label="At stake"
+              value={funded ? formatMoney(draft.depositMinorUnits) : "Nothing but the habit"}
+            />
           </View>
         )}
         {funded && projection !== null && !projection.withinMaximumDuration ? (
-          <Text style={styles.error} testID="maximum-duration" accessibilityRole="alert">
-            A challenge with a deposit has to finish within a year of funding. Shorten it, add
-            active days, or run it with no deposit.
-          </Text>
+          <Banner tone="danger" testID="maximum-duration">
+            <AppText variant="small" tone="danger" accessibilityRole="alert">
+              A challenge with a deposit has to finish within a year of funding. Shorten it, add
+              active days, or run it with no deposit.
+            </AppText>
+          </Banner>
         ) : null}
-      </Section>
+      </Card>
 
-      <Section title="Before you start">
-        {applicable.map((item) => {
-          const acknowledged = draft.acknowledgedDisclosures.includes(item.id);
-          return (
-            <View key={item.id} style={styles.disclosure}>
-              <Text style={styles.body}>{item.statement}</Text>
-              <Switch
-                testID={`disclosure-${item.id}`}
-                accessibilityLabel={item.statement}
-                value={acknowledged}
-                onValueChange={(next) =>
-                  dispatch(
-                    next
-                      ? { type: "acknowledgeDisclosure", id: item.id }
-                      : { type: "withdrawDisclosure", id: item.id },
-                  )
-                }
-              />
-            </View>
-          );
-        })}
-      </Section>
-
-      {readiness.ready && withinDuration ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ disabled: busy, busy }}
-          testID={funded ? "deposit-and-start" : "start-challenge"}
-          disabled={busy}
-          style={[styles.button, busy && styles.buttonDisabled]}
-          onPress={() => void onStart()}
-        >
-          <Text style={styles.buttonLabel}>
-            {funded ? `Deposit ${formatMoney(draft.depositMinorUnits)} and start` : "Start"}
-          </Text>
-        </Pressable>
-      ) : (
-        <Text style={styles.note} testID="not-ready">
-          {nextStep(readiness, withinDuration)}
-        </Text>
-      )}
+      <Card>
+        <SectionTitle title="Before you start" />
+        <AppText variant="small" tone="muted">
+          Turn each one on to say you understand it.
+        </AppText>
+        {applicable.map((item, index) => (
+          <View key={item.id} style={styles.group}>
+            {index === 0 ? null : <Divider />}
+            <Toggle
+              testID={`disclosure-${item.id}`}
+              label={item.statement}
+              value={draft.acknowledgedDisclosures.includes(item.id)}
+              onValueChange={(next) =>
+                dispatch(
+                  next
+                    ? { type: "acknowledgeDisclosure", id: item.id }
+                    : { type: "withdrawDisclosure", id: item.id },
+                )
+              }
+            >
+              <AppText variant="small">{item.statement}</AppText>
+            </Toggle>
+          </View>
+        ))}
+      </Card>
 
       {outcome?.status === "failed" ? (
-        <Text style={styles.error} testID="start-error" accessibilityRole="alert">
-          {outcome.message}
-        </Text>
+        <Banner tone="danger">
+          <AppText variant="small" tone="danger" testID="start-error" accessibilityRole="alert">
+            {outcome.message}
+          </AppText>
+        </Banner>
       ) : null}
 
-      {onCancel === undefined ? null : (
-        <Pressable
-          accessibilityRole="button"
-          testID="cancel-create"
-          style={styles.secondary}
-          onPress={onCancel}
-        >
-          <Text style={styles.secondaryLabel}>Not now</Text>
-        </Pressable>
+      {readiness.ready && withinDuration ? (
+        <Button
+          testID={funded ? "deposit-and-start" : "start-challenge"}
+          label={funded ? `Deposit ${formatMoney(draft.depositMinorUnits)} and start` : "Start"}
+          busy={busy}
+          onPress={() => void onStart()}
+        />
+      ) : (
+        <Banner tone="info">
+          <AppText variant="small" testID="not-ready">
+            {nextStep(readiness, withinDuration)}
+          </AppText>
+        </Banner>
       )}
 
-      {onSignOut === undefined ? null : (
-        <Pressable accessibilityRole="button" style={styles.secondary} onPress={onSignOut}>
-          <Text style={styles.secondaryLabel}>Sign out</Text>
-        </Pressable>
-      )}
-    </ScrollView>
+      <View style={styles.footer}>
+        {onCancel === undefined ? null : (
+          <TextButton testID="cancel-create" label="Not now" onPress={onCancel} />
+        )}
+        {onSignOut === undefined ? null : (
+          <TextButton testID="create-sign-out" label="Sign out" onPress={onSignOut} />
+        )}
+      </View>
+    </Screen>
   );
+}
+
+/**
+ * The deposit, asked for in the money the user thinks in.
+ *
+ * The draft stores minor units, but a form that asks for cents invites a user
+ * meaning twenty dollars to type `20` and stake twenty cents. The typed text is
+ * held here so a half-written `12.` survives the keystroke that would otherwise
+ * round it away, and the draft only ever sees whole minor units.
+ */
+function DepositField({
+  minorUnits,
+  onChange,
+}: {
+  minorUnits: number;
+  onChange: (minorUnits: number) => void;
+}) {
+  const [text, setText] = useState(() => (minorUnits === 0 ? "" : (minorUnits / 100).toFixed(2)));
+  return (
+    <Field
+      label="Deposit"
+      hint="Held against your card until you finish. Leave it empty to run the challenge for nothing but the habit."
+      testID="field-deposit"
+      keyboardType="decimal-pad"
+      prefix="$"
+      value={text}
+      onChangeText={(next) => {
+        const cleaned = money(next);
+        setText(cleaned);
+        onChange(Math.round((Number.parseFloat(cleaned) || 0) * 100));
+      }}
+    />
+  );
+}
+
+/** Digits and at most one decimal point, at most two places after it. */
+function money(text: string): string {
+  const [whole = "", ...rest] = text.replace(/[^0-9.]/g, "").split(".");
+  return rest.length === 0 ? whole : `${whole}.${rest.join("").slice(0, 2)}`;
+}
+
+function wholeNumber(text: string): number {
+  return Number.parseInt(text.replace(/[^0-9]/g, ""), 10) || 0;
+}
+
+/** `480` reads as `That is 8 hours`, so the unit on screen is not the only one. */
+function describeMinutes(minutes: number): string {
+  if (minutes < 60) {
+    return `That is under an hour`;
+  }
+  const hours = minutes / 60;
+  const rounded = Number.isInteger(hours) ? String(hours) : hours.toFixed(1);
+  return `That is ${rounded} hours`;
 }
 
 /**
@@ -341,83 +478,25 @@ function nextStep(readiness: DraftReadiness, withinDuration: boolean): string {
   return withinDuration ? "Working out the end date." : "";
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+/** A card's heading, numbered while the user is still working through them. */
+function SectionTitle({ title, step }: { title: string; step?: number }): ReactNode {
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      {children}
-    </View>
-  );
-}
-
-function NumberField(props: {
-  label: string;
-  testID: string;
-  value: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <View style={styles.row}>
-      <Text style={styles.label}>{props.label}</Text>
-      <TextInput
-        testID={props.testID}
-        accessibilityLabel={props.label}
-        style={styles.input}
-        keyboardType="number-pad"
-        value={String(props.value)}
-        // An empty field is zero rather than NaN: the contract refuses zero
-        // where zero is illegal, and the reason is already on screen.
-        onChangeText={(text) => props.onChange(Number.parseInt(text, 10) || 0)}
-      />
+    <View style={styles.sectionTitle}>
+      {step === undefined ? null : (
+        <AppText variant="caption" tone="accent">
+          STEP {step}
+        </AppText>
+      )}
+      <AppText variant="headline">{title}</AppText>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { gap: 20, paddingHorizontal: 24, paddingBottom: 48 },
-  section: { gap: 10 },
-  sectionTitle: { fontSize: 18, fontWeight: "600" },
-  title: { fontSize: 28, fontWeight: "600" },
-  body: { fontSize: 15, lineHeight: 21, flexShrink: 1 },
-  label: { fontSize: 15, flexShrink: 1 },
-  note: { fontSize: 13, opacity: 0.6, lineHeight: 18 },
-  error: { fontSize: 14, color: "#b00020", lineHeight: 20 },
-  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  disclosure: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 16,
-  },
-  input: {
-    borderColor: "#cccccc",
-    borderRadius: 8,
-    borderWidth: 1,
-    fontSize: 15,
-    minWidth: 96,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    textAlign: "right",
-  },
-  chip: {
-    borderColor: "#cccccc",
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  chipActive: { backgroundColor: "#111111", borderColor: "#111111" },
-  chipLabel: { fontSize: 13 },
-  chipLabelActive: { color: "#ffffff", fontSize: 13 },
-  button: {
-    alignItems: "center",
-    backgroundColor: "#111111",
-    borderRadius: 12,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-  },
-  buttonDisabled: { opacity: 0.4 },
-  buttonLabel: { color: "#ffffff", fontSize: 16, fontWeight: "600" },
-  secondary: { alignItems: "center", paddingVertical: 12 },
-  secondaryLabel: { fontSize: 15, opacity: 0.7 },
+  header: { gap: 4 },
+  sectionTitle: { gap: 2 },
+  group: { gap: 8 },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  label: { fontWeight: "600" },
+  footer: { gap: 4 },
 });

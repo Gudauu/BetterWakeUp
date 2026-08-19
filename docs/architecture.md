@@ -203,7 +203,7 @@ Add a client state library only when an observed state-sharing problem requires 
 ### Appearance
 
 `app/src/ui/theme.ts` owns every colour, spacing step, corner radius and text size in the app, as a light theme and a dark one of the same shape.
-`app/src/ui/components.tsx` owns how the recurring pieces are drawn: the screen frame, cards, buttons, banners, progress bars and labelled rows.
+`app/src/ui/components.tsx` owns how the recurring pieces are drawn: the screen frame, cards, buttons, banners, progress bars, labelled rows, and the form controls a screen collects a configuration with - a labelled field, a selectable chip, a statement toggle.
 
 A screen names a role - `textMuted`, a `danger` banner, a `primary` button - and never a hex code or a font size.
 That is what lets the app follow the device between light and dark without a single screen asking which one is in force, and it is why a change to the look of a button is one edit rather than nine.

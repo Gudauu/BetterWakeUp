@@ -13,6 +13,7 @@ import { type ChallengeDraft, createDraft } from "../src/challenges/draft.ts";
 import { CreateChallengeScreen } from "../src/screens/create-challenge-screen.tsx";
 import { SessionProvider } from "../src/session/session-context.tsx";
 import { createMemorySessionStore } from "../src/session/session-store.ts";
+import { formatDay } from "../src/ui/format.ts";
 import { challengeView, type FakeApi, fakeApi, PROJECTION } from "./support/fake-api.ts";
 import { fakeProvider, fakeProviders } from "./support/fake-providers.ts";
 
@@ -154,12 +155,14 @@ describe("a funded challenge", () => {
 });
 
 describe("what the screen shows about the plan", () => {
-  it("shows the server's own projected end date", async () => {
+  it("shows the server's own projected end date, read as a day rather than as ISO", async () => {
     await renderScreen(readyDraft());
 
     const projection = screen.getByTestId("projection");
-    expect(projection).toHaveTextContent(new RegExp(PROJECTION.projectedEndDate));
-    expect(projection).toHaveTextContent(new RegExp(PROJECTION.firstTaskDate));
+    expect(projection).toHaveTextContent(new RegExp(formatDay(PROJECTION.projectedEndDate)));
+    expect(projection).toHaveTextContent(new RegExp(formatDay(PROJECTION.firstTaskDate)));
+    // The dates the server speaks are never shown to the user as it speaks them.
+    expect(projection).not.toHaveTextContent(new RegExp(PROJECTION.projectedEndDate));
   });
 
   it("asks again when the configuration changes", async () => {
@@ -208,6 +211,70 @@ describe("what the screen shows about the plan", () => {
 
     await userEvent.press(screen.getByTestId("start-challenge"));
 
-    expect(screen.getByTestId("challenge-created")).toHaveTextContent(/2027-03-04/);
+    expect(screen.getByTestId("challenge-created")).toHaveTextContent(
+      new RegExp(formatDay("2027-03-04")),
+    );
+  });
+});
+
+describe("the form the user fills in", () => {
+  it("asks for the deposit in dollars, and stores the cents the contract wants", async () => {
+    // Started funded so the money statements are already acknowledged; this
+    // test is about the unit the field is read in, not about readiness.
+    await renderScreen(readyDraft(2000));
+
+    await fireEvent.changeText(screen.getByTestId("field-deposit"), "35");
+
+    // Thirty-five typed into a field labelled with a dollar sign is
+    // thirty-five dollars, not thirty-five cents.
+    expect(screen.getByTestId("deposit-and-start")).toHaveTextContent(/Deposit \$35\.00 and start/);
+  });
+
+  it("keeps a half-typed amount on screen instead of rounding it away", async () => {
+    await renderScreen(readyDraft(2000));
+
+    const deposit = screen.getByTestId("field-deposit");
+    await fireEvent.changeText(deposit, "12.");
+    expect(deposit).toHaveProp("value", "12.");
+
+    await fireEvent.changeText(deposit, "12.5");
+    expect(screen.getByTestId("deposit-and-start")).toHaveTextContent(/Deposit \$12\.50 and start/);
+  });
+
+  it("says how many mornings a week the chosen weekdays come to", async () => {
+    await renderScreen(readyDraft());
+
+    expect(screen.getByTestId("weekday-summary")).toHaveTextContent(/5 mornings a week/);
+
+    await userEvent.press(screen.getByTestId("weekday-saturday"));
+
+    expect(screen.getByTestId("weekday-summary")).toHaveTextContent(/6 mornings a week/);
+  });
+
+  it("reads No Regret Time back in hours, since nobody thinks in 480 minutes", async () => {
+    await renderScreen(readyDraft());
+
+    expect(screen.getByTestId("create-challenge")).toHaveTextContent(/That is 8 hours/);
+  });
+
+  it("leaves a way out of the funding screen rather than stranding the user there", async () => {
+    const cancelled = jest.fn();
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <SessionProvider
+          store={createMemorySessionStore(SESSION)}
+          createClient={() => fakeApi()}
+          providers={fakeProviders({ google: fakeProvider() })}
+        >
+          <CreateChallengeScreen initialDraft={readyDraft(2000)} onCancel={cancelled} />
+        </SessionProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(screen.queryByTestId("deposit-and-start")).not.toBeNull());
+
+    await userEvent.press(screen.getByTestId("deposit-and-start"));
+    await userEvent.press(screen.getByTestId("funding-done"));
+
+    expect(cancelled).toHaveBeenCalled();
   });
 });

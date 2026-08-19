@@ -34,7 +34,7 @@ import {
   Screen,
   TextButton,
 } from "../ui/components.tsx";
-import { formatDeadline } from "../ui/format.ts";
+import { formatDay, formatDeadline } from "../ui/format.ts";
 import { useTheme } from "../ui/theme.ts";
 import { CreateChallengeScreen } from "./create-challenge-screen.tsx";
 import { DailyCompletionScreen } from "./daily-completion-screen.tsx";
@@ -274,7 +274,7 @@ function ChallengeCard({
           <AppText variant="caption" tone="accent">
             YOUR NEXT WALK
           </AppText>
-          <AppText variant="title">{currentTask.date}</AppText>
+          <AppText variant="title">{formatDay(currentTask.date)}</AppText>
           <AppText variant="small" tone="muted" testID="home-task-deadline">
             Deadline {formatDeadline(currentTask.deadline, configuration.timeZone)}
           </AppText>
@@ -351,7 +351,7 @@ function ChallengeCard({
 
         <DetailRow
           label="Projected end"
-          value={challenge.projectedEndDate}
+          value={formatDay(challenge.projectedEndDate)}
           testID="home-end-date"
         />
         <DetailRow

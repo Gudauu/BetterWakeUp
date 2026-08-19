@@ -8,7 +8,7 @@
 import { render, screen, userEvent } from "@testing-library/react-native";
 import { StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { AppText, Button, Screen, TextButton } from "../src/ui/components.tsx";
+import { AppText, Button, Chip, Field, Screen, TextButton, Toggle } from "../src/ui/components.tsx";
 import { darkTheme, lightTheme, themeFor } from "../src/ui/theme.ts";
 
 const METRICS = {
@@ -99,6 +99,47 @@ describe("the actions", () => {
     await userEvent.press(screen.getByTestId("action"));
 
     expect(pressed).not.toHaveBeenCalled();
+  });
+});
+
+describe("the form controls", () => {
+  it("give a typed field the same 44pt a tap target gets", async () => {
+    // A box is as hard to hit as a button when it is short, and a field is the
+    // control most likely to be sized by its font alone.
+    await draw(
+      <Field label="Step target" testID="steps" value="250" onChangeText={() => {}} compact />,
+    );
+
+    const box = screen.getByTestId("steps").parent;
+    expect(StyleSheet.flatten(box?.props.style).minHeight).toBeGreaterThanOrEqual(44);
+  });
+
+  it("report a chip as selected rather than only painting it", async () => {
+    const pressed = jest.fn();
+    await draw(<Chip testID="mon" label="Mon" selected onPress={pressed} />);
+
+    expect(screen.getByTestId("mon").props.accessibilityState).toMatchObject({ selected: true });
+    expect(flatStyle("mon")).toMatchObject({ backgroundColor: lightTheme.colors.accent });
+
+    await userEvent.press(screen.getByTestId("mon"));
+    expect(pressed).toHaveBeenCalled();
+  });
+
+  it("announce a toggle by the statement it is agreeing to", async () => {
+    // The visible wording sits beside the switch, so without this a screen
+    // reader would reach an unnamed control.
+    await draw(
+      <Toggle
+        testID="agree"
+        label="I understand the deposit"
+        value={false}
+        onValueChange={() => {}}
+      >
+        <AppText>I understand the deposit</AppText>
+      </Toggle>,
+    );
+
+    expect(screen.getByLabelText("I understand the deposit")).toBeOnTheScreen();
   });
 });
 
