@@ -7,14 +7,18 @@
  * makes the day count, so the two are drawn as two rows and the day is called
  * complete only when `dailyCompletionState` says the server acknowledged it.
  *
+ * Honest is not the same as terse. The status is stated once as a headline, in
+ * the colour that status deserves, and followed by the one sentence that says
+ * what the user should do about it - a person who has just woken up should not
+ * have to infer their next move from two rows reading "waiting".
+ *
  * The screen owns no rules. It renders the state that module derives, and it
  * asks the movement capture and the completion sync to do the work.
  */
 
 import type { ChallengeView, TaskView } from "@betterwakeup/contract";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StyleSheet, View } from "react-native";
 import {
   type CheckState,
   type DailyCompletionState,
@@ -25,6 +29,18 @@ import type { PendingCompletionRecord, PendingCompletionStore } from "../complet
 import type { CompletionSync } from "../completions/sync.ts";
 import type { CaptureState, MovementCapture } from "../movement/capture.ts";
 import type { MovementSimulation } from "../movement/simulated-pedometer.ts";
+import {
+  AppText,
+  Banner,
+  Button,
+  Card,
+  Divider,
+  ProgressBar,
+  Screen,
+  TextButton,
+} from "../ui/components.tsx";
+import { formatDay, formatTimeOfDay } from "../ui/format.ts";
+import { useTheme } from "../ui/theme.ts";
 import { BackLink } from "./back-link.tsx";
 
 export interface DailyCompletionScreenProps {
@@ -51,7 +67,6 @@ const CLOCK_INTERVAL_MS = 30_000;
 
 export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
   const { challenge, capture, sync, store, appVersion } = props;
-  const insets = useSafeAreaInsets();
   const readClock = props.now ?? (() => new Date());
 
   const [records, setRecords] = useState<readonly PendingCompletionRecord[]>([]);
@@ -104,6 +119,7 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
   }, []);
 
   const state = dailyCompletionState({ task, records, now: clock });
+  const target = challenge.configuration.stepTarget;
 
   const onStart = useCallback(async () => {
     setShortfall(null);
@@ -118,10 +134,10 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
       if (observation === null || task === null) {
         return;
       }
-      if (observation.steps < challenge.configuration.stepTarget) {
+      if (observation.steps < target) {
         // Nothing is written down: a window that missed the target is not a
         // completion, and storing one would make the local check a lie.
-        setShortfall(challenge.configuration.stepTarget - observation.steps);
+        setShortfall(target - observation.steps);
         return;
       }
       await sync.record({
@@ -136,7 +152,7 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
     } finally {
       setBusy(false);
     }
-  }, [appVersion, capture, challenge, reload, sync, task]);
+  }, [appVersion, capture, challenge, reload, sync, target, task]);
 
   const onRetry = useCallback(async () => {
     setBusy(true);
@@ -150,30 +166,55 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
 
   if (task === null) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]} testID="no-task-today">
+      <Screen testID="no-task-today">
         <BackLink testID="daily-back" onBack={props.onBack} />
-        <Text style={styles.title}>Nothing due</Text>
-        <Text style={styles.body}>There is no open task right now.</Text>
-      </View>
+        <AppText variant="display" accessibilityRole="header">
+          Nothing due
+        </AppText>
+        <AppText variant="body" tone="muted">
+          There is no open task right now. The next one appears on your next active day.
+        </AppText>
+      </Screen>
     );
   }
 
+  const recording = captureState.status === "recording";
+  const steps = recording ? captureState.steps : 0;
+
   return (
-    <ScrollView
-      testID="daily-completion"
-      contentContainerStyle={[styles.container, { paddingTop: insets.top }]}
-    >
+    <Screen testID="daily-completion">
       <BackLink testID="daily-back" onBack={props.onBack} />
-      <Text style={styles.title}>{task.date}</Text>
-      <Text style={styles.note} testID="deadline">
-        Deadline {new Date(task.deadline).toISOString()}
-      </Text>
 
-      <Text style={styles.progression} testID="progression" accessibilityRole="header">
-        {PROGRESSION_HEADLINE[state.status]}
-      </Text>
+      <View style={styles.header}>
+        <AppText variant="caption" tone="accent">
+          TODAY'S TASK
+        </AppText>
+        <AppText variant="display" accessibilityRole="header">
+          {formatDay(task.date)}
+        </AppText>
+        <AppText variant="small" tone="muted" testID="deadline">
+          {target} steps by {formatTimeOfDay(task.deadline, challenge.configuration.timeZone)}
+        </AppText>
+      </View>
 
-      <View style={styles.section}>
+      {/* The status and the two checks it is derived from, in that order: the
+          headline is the answer and the checks are the working, so a user who
+          reads only the first line still leaves with the truth. */}
+      <Card testID="daily-status">
+        <AppText
+          variant="title"
+          tone={STATUS_TONE[state.status]}
+          testID="progression"
+          accessibilityRole="header"
+        >
+          {PROGRESSION_HEADLINE[state.status]}
+        </AppText>
+        <AppText variant="small" tone="muted">
+          {STATUS_ADVICE[state.status]}
+        </AppText>
+
+        <Divider />
+
         <CheckRow
           testID="local-check"
           label="Movement recorded on this device"
@@ -184,67 +225,101 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
           label="Acknowledged by the server"
           check={state.serverCheck}
         />
-      </View>
+      </Card>
 
       {state.deadlineWarning ? (
-        <Text style={styles.warning} testID="deadline-warning" accessibilityRole="alert">
-          {deadlineWarningText(state)}
-        </Text>
+        <Banner tone={state.deadlinePassed ? "danger" : "warning"}>
+          <AppText
+            variant="small"
+            tone={state.deadlinePassed ? "danger" : "warning"}
+            testID="deadline-warning"
+            accessibilityRole="alert"
+          >
+            {deadlineWarningText(state)}
+          </AppText>
+        </Banner>
       ) : null}
 
       {state.status === "rejected" && state.rejectedRecord !== null ? (
-        <Text style={styles.error} testID="rejected-detail" accessibilityRole="alert">
-          {state.rejectedRecord.lastErrorMessage ?? "The server refused this completion."}
-        </Text>
+        <Banner tone="danger">
+          <AppText variant="small" tone="danger" testID="rejected-detail" accessibilityRole="alert">
+            {state.rejectedRecord.lastErrorMessage ?? "The server refused this completion."}
+          </AppText>
+        </Banner>
       ) : null}
 
       {shortfall === null ? null : (
-        <Text style={styles.note} testID="shortfall">
-          {shortfall} more steps needed before this counts.
-        </Text>
+        <Banner tone="warning">
+          <AppText variant="small" tone="warning" testID="shortfall" accessibilityRole="alert">
+            {shortfall} more steps needed before this counts. Nothing was recorded, so start again
+            when you are ready to finish the walk.
+          </AppText>
+        </Banner>
       )}
 
-      {captureState.status === "recording" ? (
-        <>
-          <Text style={styles.body} testID="capture-steps">
-            {captureState.steps} steps so far, target {challenge.configuration.stepTarget}.
-          </Text>
-          <Action testID="stop-capture" label="Stop and check" busy={busy} onPress={onStop} />
-        </>
+      {recording ? (
+        <Card testID="capture">
+          <AppText variant="caption" tone="accent">
+            WALK IN PROGRESS
+          </AppText>
+          <AppText variant="display">
+            {steps}
+            <AppText variant="headline" tone="muted">
+              {" "}
+              / {target} steps
+            </AppText>
+          </AppText>
+          <ProgressBar done={steps} total={target} testID="capture-progress" />
+          <AppText variant="small" tone="muted" testID="capture-steps">
+            {steps} steps so far, target {target}.
+          </AppText>
+          <Button testID="stop-capture" label="Stop and check" busy={busy} onPress={onStop} />
+        </Card>
       ) : null}
 
-      {state.status === "incomplete" && captureState.status !== "recording" ? (
-        <Action testID="start-capture" label="Start moving" busy={busy} onPress={onStart} />
+      {state.status === "incomplete" && !recording ? (
+        <Button testID="start-capture" label="Start moving" busy={busy} onPress={onStart} />
       ) : null}
 
       {props.simulation === undefined ? null : (
         <SimulationPanel
           simulation={props.simulation}
-          recording={captureState.status === "recording"}
-          remaining={
-            captureState.status === "recording"
-              ? Math.max(0, challenge.configuration.stepTarget - captureState.steps)
-              : challenge.configuration.stepTarget
-          }
+          recording={recording}
+          remaining={recording ? Math.max(0, target - steps) : target}
         />
       )}
 
       {state.status === "syncPending" ? (
-        <Action testID="retry-sync" label="Try to send it again" busy={busy} onPress={onRetry} />
+        <Button
+          testID="retry-sync"
+          label="Try to send it again"
+          variant="secondary"
+          busy={busy}
+          onPress={onRetry}
+        />
       ) : null}
 
       {captureState.status === "permission-denied" ? (
-        <Text style={styles.error} testID="motion-denied" accessibilityRole="alert">
-          Motion access is off, so nothing can be counted. Turn it on in Settings.
-        </Text>
+        <Banner tone="danger">
+          <AppText variant="small" tone="danger" testID="motion-denied" accessibilityRole="alert">
+            Motion access is off, so nothing can be counted. Turn it on in Settings.
+          </AppText>
+        </Banner>
       ) : null}
 
       {captureState.status === "unsupported" ? (
-        <Text style={styles.error} testID="motion-unsupported" accessibilityRole="alert">
-          This device has no step counter.
-        </Text>
+        <Banner tone="danger">
+          <AppText
+            variant="small"
+            tone="danger"
+            testID="motion-unsupported"
+            accessibilityRole="alert"
+          >
+            This device has no step counter, so this challenge cannot be verified here.
+          </AppText>
+        </Banner>
       ) : null}
-    </ScrollView>
+    </Screen>
   );
 }
 
@@ -259,6 +334,24 @@ const PROGRESSION_HEADLINE: Readonly<Record<DailyCompletionState["status"], stri
   rejected: "The server refused this one. Action needed",
 };
 
+/** What to do about each state, which the headline alone does not say. */
+const STATUS_ADVICE: Readonly<Record<DailyCompletionState["status"], string>> = {
+  incomplete: "Start the walk when you are up. The steps are counted while this screen is open.",
+  syncPending: "Your walk is saved on this phone. Keep the app open until the server has it.",
+  acknowledged: "This day is yours. Nothing else to do until tomorrow.",
+  rejected: "This walk was not accepted. The reason is below.",
+};
+
+/** The colour each state is read in, so the news arrives before the sentence does. */
+const STATUS_TONE: Readonly<
+  Record<DailyCompletionState["status"], "default" | "warning" | "success" | "danger">
+> = {
+  incomplete: "default",
+  syncPending: "warning",
+  acknowledged: "success",
+  rejected: "danger",
+};
+
 function deadlineWarningText(state: DailyCompletionState): string {
   if (state.deadlinePassed) {
     return "The deadline has passed and the server never acknowledged today's result.";
@@ -271,6 +364,19 @@ const CHECK_MARK: Readonly<Record<CheckState, string>> = {
   waiting: "waiting",
   passed: "passed",
   failed: "failed",
+};
+
+/** The glyph in front of a check, so its state is legible without reading. */
+const CHECK_GLYPH: Readonly<Record<CheckState, string>> = {
+  waiting: "○",
+  passed: "✓",
+  failed: "✕",
+};
+
+const CHECK_TONE: Readonly<Record<CheckState, "muted" | "success" | "danger">> = {
+  waiting: "muted",
+  passed: "success",
+  failed: "danger",
 };
 
 /**
@@ -289,104 +395,57 @@ function SimulationPanel(props: {
   recording: boolean;
   remaining: number;
 }) {
+  const theme = useTheme();
   return (
-    <View style={styles.section} testID="simulated-movement">
-      <Text style={styles.note} testID="simulated-movement-banner">
+    <View style={[styles.simulation, { gap: theme.space.sm }]} testID="simulated-movement">
+      <AppText variant="caption" tone="warning" testID="simulated-movement-banner">
         This build simulates movement. No step counter is being read.
-      </Text>
+      </AppText>
       {props.recording ? (
-        <View style={styles.row}>
-          <SimulateButton
-            testID="simulate-some-steps"
-            label="+100 steps"
-            onPress={() => props.simulation.addSteps(100)}
-          />
-          <SimulateButton
-            testID="simulate-enough-steps"
-            label={`+${props.remaining} to target`}
-            onPress={() => props.simulation.addSteps(props.remaining)}
-          />
+        <View style={[styles.row, { gap: theme.space.md }]}>
+          <View style={styles.grow}>
+            <TextButton
+              testID="simulate-some-steps"
+              label="+100 steps"
+              tone="accent"
+              onPress={() => props.simulation.addSteps(100)}
+            />
+          </View>
+          <View style={styles.grow}>
+            <TextButton
+              testID="simulate-enough-steps"
+              label={`+${props.remaining} to target`}
+              tone="accent"
+              onPress={() => props.simulation.addSteps(props.remaining)}
+            />
+          </View>
         </View>
       ) : null}
     </View>
   );
 }
 
-function SimulateButton(props: { testID: string; label: string; onPress: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      testID={props.testID}
-      style={styles.simulateButton}
-      onPress={props.onPress}
-    >
-      <Text style={styles.simulateLabel}>{props.label}</Text>
-    </Pressable>
-  );
-}
-
 function CheckRow(props: { testID: string; label: string; check: CheckState }) {
+  const theme = useTheme();
+  const tone = CHECK_TONE[props.check];
   return (
-    <View style={styles.row} testID={props.testID}>
-      <Text style={styles.label}>{props.label}</Text>
-      <Text
-        style={props.check === "failed" ? styles.error : styles.label}
-        testID={`${props.testID}-state`}
-      >
+    <View style={[styles.row, { gap: theme.space.md }]} testID={props.testID}>
+      <AppText variant="body" tone={tone}>
+        {CHECK_GLYPH[props.check]}
+      </AppText>
+      <AppText variant="small" style={styles.grow}>
+        {props.label}
+      </AppText>
+      <AppText variant="caption" tone={tone} testID={`${props.testID}-state`}>
         {CHECK_MARK[props.check]}
-      </Text>
+      </AppText>
     </View>
   );
 }
 
-function Action(props: {
-  testID: string;
-  label: string;
-  busy: boolean;
-  onPress: () => Promise<void>;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ disabled: props.busy, busy: props.busy }}
-      testID={props.testID}
-      disabled={props.busy}
-      style={[styles.button, props.busy && styles.buttonDisabled]}
-      onPress={() => void props.onPress()}
-    >
-      <Text style={styles.buttonLabel}>{props.label}</Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  container: { gap: 16, paddingHorizontal: 24, paddingBottom: 48 },
-  section: { gap: 10 },
-  title: { fontSize: 28, fontWeight: "600" },
-  progression: { fontSize: 18, fontWeight: "600" },
-  body: { fontSize: 15, lineHeight: 21, flexShrink: 1 },
-  label: { fontSize: 15, flexShrink: 1 },
-  note: { fontSize: 13, opacity: 0.6, lineHeight: 18 },
-  warning: { fontSize: 14, color: "#8a5300", lineHeight: 20 },
-  error: { fontSize: 14, color: "#b00020", lineHeight: 20 },
-  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  button: {
-    alignItems: "center",
-    backgroundColor: "#111111",
-    borderRadius: 12,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-  },
-  buttonDisabled: { opacity: 0.4 },
-  buttonLabel: { color: "#ffffff", fontSize: 16, fontWeight: "600" },
-  simulateButton: {
-    alignItems: "center",
-    borderColor: "#8a5300",
-    borderRadius: 10,
-    borderWidth: 1,
-    flexGrow: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  simulateLabel: { color: "#8a5300", fontSize: 14, fontWeight: "600" },
+  header: { gap: 4 },
+  row: { flexDirection: "row", alignItems: "center" },
+  grow: { flexGrow: 1, flexShrink: 1 },
+  simulation: { alignItems: "stretch" },
 });

@@ -5,10 +5,15 @@
  * and read the same, so the press lives here rather than being written out
  * once per screen. It renders nothing when no caller owns the return trip,
  * which is what makes these screens still usable on their own.
+ *
+ * It sits left rather than centred, and carries a chevron, because it is a
+ * direction rather than a choice - the rest of the app's quiet actions are
+ * centred and this one should not be mistaken for them.
  */
 
 import type { ReactNode } from "react";
-import { Pressable, StyleSheet, Text } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { TextButton } from "../ui/components.tsx";
 
 export interface BackLinkProps {
   readonly testID: string;
@@ -20,12 +25,12 @@ export function BackLink({ testID, onBack }: BackLinkProps): ReactNode {
     return null;
   }
   return (
-    <Pressable accessibilityRole="button" testID={testID} onPress={onBack}>
-      <Text style={styles.label}>Back to home</Text>
-    </Pressable>
+    <View style={styles.left}>
+      <TextButton testID={testID} label="‹  Back to home" onPress={onBack} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  label: { fontSize: 15, opacity: 0.7 },
+  left: { alignItems: "flex-start" },
 });

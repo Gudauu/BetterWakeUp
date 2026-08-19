@@ -34,6 +34,7 @@ import {
   Screen,
   TextButton,
 } from "../ui/components.tsx";
+import { formatDeadline } from "../ui/format.ts";
 import { useTheme } from "../ui/theme.ts";
 import { CreateChallengeScreen } from "./create-challenge-screen.tsx";
 import { DailyCompletionScreen } from "./daily-completion-screen.tsx";
@@ -479,26 +480,6 @@ function SignOut({ onSignOut }: { onSignOut: (() => void) | undefined }): ReactN
     return null;
   }
   return <TextButton testID="home-sign-out" label="Sign out" onPress={onSignOut} />;
-}
-
-/**
- * A deadline read in the challenge's own time zone, which is the only zone it
- * means anything in. A build whose runtime cannot do zoned formatting falls
- * back to the instant rather than showing a time in the wrong zone.
- */
-function formatDeadline(instant: string, timeZone: string): string {
-  try {
-    return new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(new Date(instant));
-  } catch {
-    return new Date(instant).toISOString();
-  }
 }
 
 const styles = StyleSheet.create({

@@ -210,6 +210,9 @@ That is what lets the app follow the device between light and dark without a sin
 
 `useTheme` reads the device setting, which `app.json` already declares the app honours with `userInterfaceStyle: automatic`.
 
+`app/src/ui/format.ts` owns how instants and dates are read out loud, so no screen prints an ISO string at a person.
+A deadline is only true in the challenge's own time zone, so every screen that shows one formats it there rather than in the device's zone, and falls back to the raw instant when the runtime has no zone data.
+
 ### Movement
 
 Use the `expo-sensors` Pedometer, which wraps CMPedometer on iOS and the step counter on Android.

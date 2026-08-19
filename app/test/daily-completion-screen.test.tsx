@@ -182,6 +182,54 @@ describe("the two checks", () => {
   });
 });
 
+describe("what the screen says to do", () => {
+  it("names the day and the deadline in words rather than an ISO string", async () => {
+    await renderScreen(await harness());
+
+    // The fake challenge runs in America/Los_Angeles, so a 14:00Z deadline is
+    // a 7am walk. Neither line contains a T or a Z.
+    expect(screen.getByText("Tuesday, September 1")).toBeTruthy();
+    expect(screen.getByTestId("deadline")).toHaveTextContent("250 steps by 7:00 AM");
+  });
+
+  it("follows each status with the move that status calls for", async () => {
+    const given = await harness(
+      fakeApi({ createCompletion: new TypeError("Network request failed") }),
+    );
+    await renderScreen(given);
+
+    expect(screen.getByTestId("daily-status")).toHaveTextContent(/Start the walk when you are up/);
+
+    await completeLocally(given);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("daily-status")).toHaveTextContent(
+        /saved on this phone\. Keep the app open/,
+      ),
+    );
+  });
+
+  it("shows the walk against its target while the steps are being counted", async () => {
+    const given = await harness();
+    await renderScreen(given);
+    const user = userEvent.setup();
+
+    expect(screen.queryByTestId("capture-progress")).toBeNull();
+
+    await user.press(screen.getByTestId("start-capture"));
+    await act(async () => {
+      given.pedometer.deliver(100);
+    });
+
+    expect(screen.getByTestId("capture-progress")).toHaveProp("accessibilityValue", {
+      min: 0,
+      max: 250,
+      now: 100,
+    });
+    expect(screen.getByTestId("capture-steps")).toHaveTextContent("100 steps so far, target 250.");
+  });
+});
+
 describe("a refusal", () => {
   it("is surfaced with the server's own message and no retry offered", async () => {
     const given = await harness(
