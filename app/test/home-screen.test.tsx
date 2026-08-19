@@ -45,11 +45,12 @@ const METRICS = {
 };
 
 /**
- * The moment every test reads home at, unless it says otherwise. It sits in the
- * fixtures' own morning, well ahead of the recovery offer they carry, so the
- * offer reads as open for the tests that are about something else.
+ * The moment every test reads home at, unless it says otherwise. It sits two
+ * hours before the fixture task's 7:00 AM deadline - far enough out that the
+ * morning reads as quiet - and well ahead of the recovery offer the fixtures
+ * carry, so the offer reads as open for the tests that are about something else.
  */
-const NOW = new Date("2026-09-01T16:00:00.000Z");
+const NOW = new Date("2026-09-01T12:00:00.000Z");
 
 async function renderHome(
   api: ApiClient,
@@ -593,6 +594,85 @@ describe("home says what this device is still holding", () => {
     );
     // Today is untouched by it: the user has still not walked today.
     expect(screen.queryByTestId("home-task-waiting")).toBeNull();
+  });
+});
+
+/**
+ * Home is the screen most people open first, and it named the deadline as a
+ * wall-clock time and then said nothing about how near it was - including once
+ * it had gone by, where the card still offered a walk the server can no longer
+ * accept.
+ */
+describe("the clock on this morning's walk", () => {
+  const TASK_ID = "44444444-4444-4444-8444-444444444444";
+  const withTask = fakeApi({
+    getCurrentChallenge: {
+      challenge: challengeView({ currentTask: taskView({ id: TASK_ID }) }),
+      lastEnded: null,
+    },
+  });
+
+  /** A walk recorded on this device for today, waiting to be sent. */
+  const heldWalk = [
+    {
+      input: {
+        challengeId: "33333333-3333-4333-8333-333333333333",
+        taskId: TASK_ID,
+        completedAt: "2026-09-01T13:40:00.000Z",
+        observation: {
+          startedAt: "2026-09-01T13:30:00.000Z",
+          endedAt: "2026-09-01T13:40:00.000Z",
+          steps: 300,
+          provenance: "live-foreground",
+          source: "expo-pedometer-ios",
+        },
+        appVersion: "1.0.0-test",
+        verificationPolicyVersion: "live-foreground-steps.1",
+      },
+    },
+  ] as const;
+
+  it("counts the morning down quietly while there is time in it", async () => {
+    await renderHome(withTask, { now: new Date("2026-09-01T12:00:00.000Z") });
+
+    expect(await screen.findByTestId("home-task-time-left")).toHaveTextContent(
+      /2 hours left to walk/,
+    );
+  });
+
+  it("counts the last stretch down from the moment the alarm would have gone", async () => {
+    await renderHome(withTask, { now: new Date("2026-09-01T13:40:00.000Z") });
+
+    expect(await screen.findByTestId("home-task-time-left")).toHaveTextContent(
+      /20 minutes left to walk/,
+    );
+  });
+
+  it("stops asking for a walk once the deadline has gone by", async () => {
+    await renderHome(withTask, { now: new Date("2026-09-01T14:30:00.000Z") });
+
+    expect(await screen.findByTestId("home-task-morning-gone")).toHaveTextContent(
+      /7:00 AM deadline passed with no walk saved/,
+    );
+    // The step target is the answer to a question the morning no longer asks.
+    expect(screen.getByTestId("home-current-task")).not.toHaveTextContent(
+      /250 steps to keep the day/,
+    );
+    expect(screen.getByTestId("home-open-task")).toHaveTextContent("See what happened");
+    // A countdown to a deadline that passed would be counting to nothing.
+    expect(screen.queryByTestId("home-task-time-left")).toBeNull();
+  });
+
+  it("stops asking a held walk's owner to find signal once the deadline has gone", async () => {
+    await renderHome(withTask, { seed: heldWalk, now: new Date("2026-09-01T14:30:00.000Z") });
+
+    expect(await screen.findByTestId("home-task-waiting")).toHaveTextContent(
+      /deadline passed before it reached the server/,
+    );
+    expect(screen.getByTestId("home-task-waiting")).not.toHaveTextContent(
+      /keep the app open where there is signal/,
+    );
+    expect(screen.queryByTestId("home-task-morning-gone")).toBeNull();
   });
 });
 

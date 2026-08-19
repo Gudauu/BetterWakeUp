@@ -35,6 +35,11 @@ import {
   createConfiguredCompletionRuntime,
   useCompletionRuntime,
 } from "../completions/runtime.ts";
+import {
+  morningGoneText,
+  timeLeftUntil,
+  unsentPastDeadlineText,
+} from "../completions/time-left.ts";
 import { type UnsentWork, useUnsentWork } from "../completions/unsent-work.ts";
 import { createConfiguredPaymentSheet, type PaymentSheet } from "../payments/payment-sheet.ts";
 import { needsPaymentMethod } from "../payments/replace-payment-method.ts";
@@ -434,6 +439,7 @@ export function HomeScreen({
           reminders={reminders}
           unsent={unsent}
           recovery={recoveryWindow(state.challenge, readClock())}
+          now={readClock()}
           timeZoneMove={keptTimeZone ? null : timeZoneMoveFor(state.challenge, here)}
           onOpenTask={() => setRoute("task")}
           onOpenPause={() => setRoute("pause")}
@@ -475,6 +481,7 @@ function ChallengeCard({
   reminders,
   unsent,
   recovery,
+  now,
   timeZoneMove,
   onOpenTask,
   onOpenPause,
@@ -486,6 +493,7 @@ function ChallengeCard({
   reminders: RemindersState;
   unsent: UnsentWork;
   recovery: RecoveryWindow | null;
+  now: Date;
   timeZoneMove: TimeZoneMove | null;
   onOpenTask: () => void;
   onOpenPause: () => void;
@@ -495,6 +503,15 @@ function ChallengeCard({
 }) {
   const paused = challenge.pause.pausedAt !== null;
   const { progress, configuration, currentTask } = challenge;
+  // How much of this morning is left. Home is the screen most people open
+  // first, and a deadline stated as "7:00 AM" alone leaves the reader to work
+  // out whether that is hours away or eight minutes.
+  const left = currentTask === null ? null : timeLeftUntil(currentTask.deadline, now);
+  const deadlineTime =
+    currentTask === null ? "" : formatTimeOfDay(currentTask.deadline, configuration.timeZone);
+  // Past the deadline nothing walked now can count, so the card stops asking
+  // for a walk and says what happened instead.
+  const morningGone = left !== null && left.urgency === "expired";
   const history = challengeHistory(challenge);
   const streak = streakSentence(history);
   const remaining = Math.max(
@@ -518,13 +535,27 @@ function ChallengeCard({
           <AppText variant="small" tone="muted" testID="home-task-deadline">
             Deadline {formatDeadline(currentTask.deadline, configuration.timeZone)}
           </AppText>
+          {/* The clock, under the deadline it counts to: quiet while the
+              morning is long, amber from the moment the alarm would have gone
+              off, and silent once the deadline is behind - what is left to say
+              then is said in place of the step target below. */}
+          {left === null || morningGone ? null : (
+            <AppText
+              variant="small"
+              tone={left.urgency === "closing" ? "warning" : "muted"}
+              testID="home-task-time-left"
+            >
+              {left.sentence}
+            </AppText>
+          )}
           {/* What this device is holding for today, in place of the step
               target: someone who has already walked is asking a different
               question, and the target is no longer the answer to it. */}
           {unsent.currentTask === "waiting" ? (
             <AppText variant="small" tone="warning" testID="home-task-waiting">
-              Walked and saved on this phone. It still has to reach the server before the deadline,
-              so keep the app open where there is signal.
+              {morningGone
+                ? unsentPastDeadlineText(deadlineTime)
+                : "Walked and saved on this phone. It still has to reach the server before the deadline, so keep the app open where there is signal."}
             </AppText>
           ) : unsent.currentTask === "refused" ? (
             <AppText
@@ -535,6 +566,15 @@ function ChallengeCard({
             >
               The server would not take today's walk. Open it to see why.
             </AppText>
+          ) : morningGone ? (
+            <AppText
+              variant="small"
+              tone="danger"
+              testID="home-task-morning-gone"
+              accessibilityRole="alert"
+            >
+              {morningGoneText(deadlineTime)}
+            </AppText>
           ) : (
             <AppText variant="small" tone="muted">
               {configuration.stepTarget} steps to keep the day.
@@ -542,7 +582,7 @@ function ChallengeCard({
           )}
           <Button
             testID="home-open-task"
-            label={unsent.currentTask === "none" ? "Open today's task" : "See today's walk"}
+            label={taskButtonLabel(unsent.currentTask, morningGone)}
             onPress={onOpenTask}
           />
         </Card>
@@ -721,6 +761,20 @@ function ChallengeCard({
       </Card>
     </View>
   );
+}
+
+/**
+ * What the way into today's task is called.
+ *
+ * A walk this device is holding is opened to see it, and a morning that has
+ * gone by is opened to read what happened - "Open today's task" would be
+ * inviting a walk the server has already stopped being able to accept.
+ */
+function taskButtonLabel(held: UnsentWork["currentTask"], morningGone: boolean): string {
+  if (held !== "none") {
+    return "See today's walk";
+  }
+  return morningGone ? "See what happened" : "Open today's task";
 }
 
 /**

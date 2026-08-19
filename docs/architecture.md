@@ -383,6 +383,12 @@ The app has already decided that is the moment a user should be up and walking, 
 Past the deadline the screen withdraws the invitation rather than colouring it: the start button is gone, the advice says the window has closed, and a banner names the time that passed and points at the Emergency Recovery, which lives on home because the offer only exists once the server has recorded the missed day.
 While a walk is racing the clock the card adds the half of the rule a walker cannot guess - it is the instant the walk is saved that is judged, so a window opened in time and finished late is refused.
 
+Home reads the same clock from the other end.
+It holds the task the server sent rather than the state `dailyCompletionState` derives, so `timeLeftUntil` takes the deadline instant directly and the two screens cannot word one clock two ways.
+Home is the screen most people open first, and it named "Deadline 7:00 AM" and stopped there, leaving the reader to work out whether that was hours away or eight minutes - and once the deadline had gone it still offered "Open today's task" over a step target, which is an invitation to walk for nothing.
+Past it the card says the morning went by with nothing saved, stops short of calling the day lost because the sweep decides that, and mentions the Emergency Recovery only as a condition rather than as a promise, since a challenge that has already spent it gets no offer.
+A walk the deadline overtook while it sat unsent on the phone is told so plainly: the sentence that asked its owner to find signal was asking for work that could no longer buy anything.
+
 ### The clock on the recovery offer
 
 `app/src/challenges/recovery-window.ts` does for the Emergency Recovery offer what `time-left.ts` does for the morning: it reads the offer's `expiresAt` against the clock and answers how long is left, how urgent that is, and whether there is still a decision to make.

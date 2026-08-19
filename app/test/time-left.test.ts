@@ -11,8 +11,11 @@ import {
   CLOSING_MINUTES,
   deadlineMissedText,
   finishByText,
+  morningGoneText,
   type TimeLeft,
   timeLeft,
+  timeLeftUntil,
+  unsentPastDeadlineText,
 } from "../src/completions/time-left.ts";
 
 /** The reading for a given number of minutes, or a failure if there is none. */
@@ -61,6 +64,41 @@ describe("a morning that has run out", () => {
     expect(text).toContain("7:00 AM");
     expect(text).toContain("cannot count");
     expect(text).toContain("Emergency Recovery");
+  });
+});
+
+describe("the countdown read straight from the deadline", () => {
+  const DEADLINE = "2026-09-01T14:00:00.000Z";
+
+  it("reads the same as the countdown from derived minutes", () => {
+    expect(timeLeftUntil(DEADLINE, new Date("2026-09-01T12:00:00.000Z"))?.sentence).toBe(
+      "2 hours left to walk.",
+    );
+    expect(timeLeftUntil(DEADLINE, new Date("2026-09-01T13:40:00.000Z"))?.urgency).toBe("closing");
+    expect(timeLeftUntil(DEADLINE, new Date("2026-09-01T14:30:00.000Z"))?.urgency).toBe("expired");
+  });
+
+  it("rounds down, so a part-minute is not counted as one", () => {
+    expect(timeLeftUntil(DEADLINE, new Date("2026-09-01T13:59:30.000Z"))?.minutes).toBe(0);
+  });
+
+  it("counts to nothing when the instant cannot be read", () => {
+    expect(timeLeftUntil("not an instant", new Date("2026-09-01T12:00:00.000Z"))).toBeNull();
+  });
+});
+
+describe("a morning that went by on home", () => {
+  it("names the deadline, stops short of calling the day lost, and does not promise a recovery", () => {
+    const text = morningGoneText("7:00 AM");
+    expect(text).toContain("7:00 AM");
+    expect(text).toContain("no longer be kept");
+    expect(text).toContain("If your Emergency Recovery is still unspent");
+  });
+
+  it("stops asking a held walk's owner for work that can no longer buy anything", () => {
+    const text = unsentPastDeadlineText("7:00 AM");
+    expect(text).toContain("passed before it reached the server");
+    expect(text).not.toContain("keep the app open");
   });
 });
 

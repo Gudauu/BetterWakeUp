@@ -14,6 +14,11 @@
  * screen needs: how long is left, whether that is worth raising the user's
  * pulse over, and the sentence for each. The wording lives here beside the rule
  * that produced it, the way the interruption wording lives beside the walk.
+ *
+ * Home reads the same clock from the other end - it holds the task the server
+ * sent rather than the derived state - and it is the screen most people open
+ * first, so the countdown and the closed morning are worded once here and drawn
+ * on both.
  */
 
 import { ALARM_LEAD_MINUTES } from "../reminders/reminders.ts";
@@ -55,6 +60,44 @@ export function timeLeft(minutesToDeadline: number | null): TimeLeft | null {
     minutes: minutesToDeadline,
     sentence: `${formatDuration(minutesToDeadline)} left to walk.`,
   };
+}
+
+/**
+ * The same countdown, from the instant the server sent rather than from the
+ * minutes `dailyCompletionState` derived. Home holds the task and not the
+ * derived state, and the two screens must not word the same clock two ways.
+ */
+export function timeLeftUntil(deadline: string, now: Date): TimeLeft | null {
+  const at = new Date(deadline).getTime();
+  if (Number.isNaN(at)) {
+    return null;
+  }
+  return timeLeft(Math.floor((at - now.getTime()) / 60_000));
+}
+
+/**
+ * What home says in place of the step target once the morning has gone by with
+ * nothing saved on the device.
+ *
+ * It stops short of calling the day lost - the server decides that, and the
+ * sweep has not run yet - and it points at the offer that can still save it
+ * without promising one, because a challenge that has already spent its
+ * Emergency Recovery gets none.
+ */
+export function morningGoneText(deadlineTime: string): string {
+  return `The ${deadlineTime} deadline passed with no walk saved, so today can no longer be kept. If your Emergency Recovery is still unspent, the offer appears here once the missed day is recorded.`;
+}
+
+/**
+ * What home says when the device is holding a walk the deadline overtook.
+ *
+ * The waiting sentence otherwise asks the user to keep the app open where there
+ * is signal, which is work with nothing left to buy: the request had to reach
+ * the server by the deadline, so sending it now is the server's call and not
+ * something the user can still influence.
+ */
+export function unsentPastDeadlineText(deadlineTime: string): string {
+  return `Walked and saved on this phone, but the ${deadlineTime} deadline passed before it reached the server. It will still be sent, and BetterWakeUp decides whether it counts.`;
 }
 
 /**
