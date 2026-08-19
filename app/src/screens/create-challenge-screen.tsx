@@ -119,6 +119,32 @@ const NO_DEPOSIT_NOTICE =
 /** A sheet that could not even be opened, which is not the card's fault. */
 const SHEET_FAILED_MESSAGE = "Your card could not be confirmed. Nothing was charged.";
 
+/**
+ * Where the plan summary stands. The four states are drawn differently on
+ * purpose: an in-flight read and a read that failed look identical from the
+ * outside, and the second one waits forever unless it is named and given a
+ * press.
+ */
+type ProjectionState =
+  | { readonly status: "pending" }
+  | { readonly status: "unconfigured" }
+  | { readonly status: "projected"; readonly projection: CreateProjectionResponse }
+  | { readonly status: "unavailable"; readonly message: string };
+
+/** What is missing while the form is not yet a plan the server could price. */
+const PROJECTION_UNCONFIGURED =
+  "The first and last morning fill in here once the days, deadlines and counts above are set.";
+
+/** Said beside the retry, because the two cases cost the user different things. */
+const PROJECTION_FUNDED_CONSEQUENCE =
+  "A deposit cannot be taken until this comes back: the year-long limit on a funded challenge is measured against the end date.";
+const PROJECTION_UNFUNDED_CONSEQUENCE =
+  "The challenge can still be started - only this summary is missing.";
+
+/** The not-ready sentence for a funded plan whose end date never arrived. */
+const PROJECTION_BLOCKS_DEPOSIT =
+  "The end date could not be worked out, so the deposit step is not open. Try again in the summary above.";
+
 export interface CreateChallengeScreenProps {
   /** Injected in tests so the zone is not the machine running them. */
   readonly initialDraft?: ChallengeDraft;
@@ -168,7 +194,7 @@ export function CreateChallengeScreen({
   const [draft, dispatch] = useReducer(draftReducer, initialDraft ?? null, (given) =>
     given === null ? createDraft() : given,
   );
-  const [projection, setProjection] = useState<CreateProjectionResponse | null>(null);
+  const [projectionState, setProjectionState] = useState<ProjectionState>({ status: "pending" });
   const [outcome, setOutcome] = useState<StartChallengeOutcome | null>(null);
   const [busy, setBusy] = useState(false);
   // What the wait for the bank has come to. Null while it is still watching.
@@ -225,6 +251,7 @@ export function CreateChallengeScreen({
     );
   };
   const funded = draft.depositMinorUnits > 0;
+  const projection = projectionState.status === "projected" ? projectionState.projection : null;
   // The maximum duration is the server's answer, not the app's, so the action
   // waits for a projection before it is offered on a funded challenge.
   const withinDuration = !funded || projection?.withinMaximumDuration === true;
@@ -240,23 +267,38 @@ export function CreateChallengeScreen({
   const current = useRef(draft);
   current.current = draft;
 
-  useEffect(() => {
-    let active = true;
-    // The old projection describes a plan that is no longer on screen, so it
-    // goes now rather than when its replacement lands.
-    setProjection(null);
+  // The read in flight, so the answer to a plan that has since been edited
+  // away - or to a screen that has been left - cannot land on the summary.
+  const projectionRequest = useRef<AbortController | null>(null);
+
+  // A useCallback rather than the body of the effect, because the retry press
+  // asks the same question without anything about the draft having changed.
+  const askForProjection = useCallback(() => {
+    projectionRequest.current?.abort();
     if (configurationKey === null) {
+      // Not a plan yet, so there is nothing in flight and nothing to retry -
+      // saying "working it out" here would be the screen waiting on itself.
+      projectionRequest.current = null;
+      setProjectionState({ status: "unconfigured" });
       return;
     }
-    void projectChallenge(api, current.current).then((result) => {
-      if (active) {
-        setProjection(result);
+    const request = new AbortController();
+    projectionRequest.current = request;
+    // The old projection describes a plan that is no longer on screen, so it
+    // goes now rather than when its replacement lands.
+    setProjectionState({ status: "pending" });
+    void projectChallenge(api, current.current, { signal: request.signal }).then((result) => {
+      if (request.signal.aborted || result.status === "unconfigured") {
+        return;
       }
+      setProjectionState(result);
     });
-    return () => {
-      active = false;
-    };
   }, [api, configurationKey]);
+
+  useEffect(() => {
+    askForProjection();
+    return () => projectionRequest.current?.abort();
+  }, [askForProjection]);
 
   // The card is asked for as soon as the intent exists, because the intent is
   // only useful at a sheet: the client secret is what the provider's sheet
@@ -646,11 +688,31 @@ export function CreateChallengeScreen({
 
       <Card testID="plan-summary">
         <SectionTitle title="What this comes to" />
-        {projection === null ? (
+        {projectionState.status === "pending" ? (
           <AppText variant="small" tone="muted" testID="projection-pending">
             Working out the end date.
           </AppText>
-        ) : (
+        ) : null}
+        {projectionState.status === "unconfigured" ? (
+          <AppText variant="small" tone="muted" testID="projection-unconfigured">
+            {PROJECTION_UNCONFIGURED}
+          </AppText>
+        ) : null}
+        {/* A read that did not come back, named and given the press that asks
+            again. Left as "Working out the end date" it is a form that never
+            becomes ready, with nothing on screen admitting why. */}
+        {projectionState.status === "unavailable" ? (
+          <Banner tone="warning" testID="projection-unavailable">
+            <AppText variant="small" tone="warning" accessibilityRole="alert">
+              {projectionState.message}
+            </AppText>
+            <AppText variant="small" tone="muted">
+              {funded ? PROJECTION_FUNDED_CONSEQUENCE : PROJECTION_UNFUNDED_CONSEQUENCE}
+            </AppText>
+            <Button testID="projection-retry" label="Try again" onPress={askForProjection} />
+          </Banner>
+        ) : null}
+        {projection === null ? null : (
           <View testID="projection" style={styles.group}>
             {/* The days and times are set two cards above, one control each;
                 this is where they are read back as the arrangement they add up
@@ -735,14 +797,15 @@ export function CreateChallengeScreen({
       ) : (
         <Banner tone="info">
           <AppText variant="small" testID="not-ready">
-            {nextStep(
+            {nextStep({
               readiness,
               withinDuration,
               phoneCanWalk,
               deadlinesReadable,
               countsReadable,
               depositReadable,
-            )}
+              projectionStatus: projectionState.status,
+            })}
           </AppText>
         </Banner>
       )}
@@ -897,14 +960,23 @@ function CountField({
  * maximum duration is deliberately absent: it has its own alert beside the end
  * date, and repeating it here would say the same thing twice.
  */
-function nextStep(
-  readiness: DraftReadiness,
-  withinDuration: boolean,
-  phoneCanWalk: boolean,
-  deadlinesReadable: boolean,
-  countsReadable: boolean,
-  depositReadable: boolean,
-): string {
+function nextStep({
+  readiness,
+  withinDuration,
+  phoneCanWalk,
+  deadlinesReadable,
+  countsReadable,
+  depositReadable,
+  projectionStatus,
+}: {
+  readonly readiness: DraftReadiness;
+  readonly withinDuration: boolean;
+  readonly phoneCanWalk: boolean;
+  readonly deadlinesReadable: boolean;
+  readonly countsReadable: boolean;
+  readonly depositReadable: boolean;
+  readonly projectionStatus: ProjectionState["status"];
+}): string {
   // First, because nothing else about the draft matters on a phone that could
   // never complete a day of it.
   if (!phoneCanWalk) {
@@ -934,7 +1006,18 @@ function nextStep(
   if (readiness.outstandingDisclosureIds.length > 0) {
     return "Acknowledge each statement above to continue.";
   }
-  return withinDuration ? "Working out the end date." : "";
+  if (withinDuration) {
+    return "";
+  }
+  // Everything the user can do is done, and the deposit step is held back by
+  // the end date alone. Which of the three reasons it is decides whether there
+  // is anything to wait for.
+  if (projectionStatus === "unavailable") {
+    return PROJECTION_BLOCKS_DEPOSIT;
+  }
+  // The over-a-year case has its own alert beside the end date, so the banner
+  // here would say the same thing twice.
+  return projectionStatus === "projected" ? "" : "Working out the end date.";
 }
 
 /**

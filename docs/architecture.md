@@ -736,6 +736,21 @@ This is the only place the app does the subtraction itself, and it does it in wa
 Once a challenge is running, the server's own `pauseCutoff` is what is compared against the clock, and the pause screen counts it down: it already named the morning pausing would skip and said nothing about the notice on it, so a user deciding at bedtime whether to skip tomorrow had no way to know the answer stops being available before they wake up.
 The countdown is drawn from `useClock` for the same reason every other countdown in the app is, and it is withdrawn rather than shown at zero once the cutoff passes, because the sentence beside it already says the task stays live.
 
+### The end date that never came back
+
+`POST /challenges/projections` is asked for on every edit of the setup form, and its answer is the whole of the plan summary: the first morning, the projected end, and whether a funded challenge finishes inside the maximum duration.
+
+The read used to be reported as a projection or as nothing, and the screen drew nothing as "Working out the end date."
+A projection that failed - no signal in a bedroom, a server having a bad minute - is therefore indistinguishable on screen from one still in flight, and it waits forever, because the request is only re-sent when the configuration changes and a user staring at that sentence has no reason to change anything.
+On a funded plan it is worse than a wrong sentence: the deposit action is gated on the server's maximum-duration answer, so a failed projection withholds the button as well, and the not-ready banner beside it had nothing to say about a state it did not know existed.
+
+`projectChallenge` therefore answers one of three things - projected, unconfigured, unavailable - and the screen draws each differently.
+Unconfigured is the form before it is a plan, and it says what will fill the summary in rather than claiming work is under way.
+Unavailable names the failure, separates no connection from a server that answered badly (the two are worth retrying in different places), and carries the press that asks again, which is the only way a read whose configuration has not changed is ever repeated.
+
+What the failure costs is stated with it, because it differs by deposit.
+An unfunded challenge starts without an end date and only loses the summary; a funded one cannot be deposited against until the projection lands, and the not-ready banner says so in the same words rather than going quiet.
+
 ### Being signed out without asking
 
 There are three ways to arrive at the signed-out screen and they are not the same event.

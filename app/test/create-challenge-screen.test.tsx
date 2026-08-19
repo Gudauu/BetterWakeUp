@@ -9,6 +9,7 @@
 import { disclosuresFor, type SessionView } from "@betterwakeup/contract";
 import { fireEvent, render, screen, userEvent, waitFor } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { ApiError } from "../src/api/errors.ts";
 import { type ChallengeDraft, createDraft } from "../src/challenges/draft.ts";
 import type { SettingsLauncher } from "../src/device/settings.ts";
 import { NO_PROVIDER_MESSAGE, type PaymentSheet } from "../src/payments/payment-sheet.ts";
@@ -63,6 +64,9 @@ async function renderScreen(
   // test not about the device itself assumes.
   movementDevice: FakePedometer = createFakePedometer(),
   settings: SettingsLauncher = fakeSettings(),
+  // Every test but the ones about a projection that never arrives asserts on a
+  // screen whose end date has landed.
+  awaitProjection = true,
 ) {
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
@@ -82,7 +86,11 @@ async function renderScreen(
   );
   // The screen asks for a projection as it mounts; letting that settle here
   // keeps every test below asserting on a settled screen.
-  await waitFor(() => expect(screen.queryByTestId("projection")).not.toBeNull());
+  if (awaitProjection) {
+    await waitFor(() => expect(screen.queryByTestId("projection")).not.toBeNull());
+  } else {
+    await waitFor(() => expect(screen.queryByTestId("projection-pending")).toBeNull());
+  }
   return api;
 }
 
@@ -345,6 +353,115 @@ describe("what the screen shows about the plan", () => {
     await fireEvent(screen.getByTestId("confirm-time-zone"), "valueChange", true);
 
     expect(api.names().filter((name) => name === "createChallengeProjection").length).toBe(before);
+  });
+
+  it("says the end date did not come back, rather than working it out forever", async () => {
+    // Left as "Working out the end date", a failed read is a form that never
+    // becomes ready with nothing on screen admitting why.
+    await renderScreen(
+      readyDraft(),
+      fakeApi({
+        createChallengeProjection: new ApiError("internal_error", "boom", { status: 500 }),
+      }),
+      undefined,
+      undefined,
+      undefined,
+      false,
+    );
+
+    expect(screen.getByTestId("projection-unavailable")).toHaveTextContent(
+      /could not be worked out just now/,
+    );
+    expect(screen.queryByTestId("projection-pending")).toBeNull();
+  });
+
+  it("names the connection when the projection never reached the server", async () => {
+    await renderScreen(
+      readyDraft(),
+      fakeApi({
+        createChallengeProjection: new ApiError("internal_error", "offline", { status: null }),
+      }),
+      undefined,
+      undefined,
+      undefined,
+      false,
+    );
+
+    expect(screen.getByTestId("projection-unavailable")).toHaveTextContent(/No connection/);
+    // An unfunded challenge is startable without an end date, so the press it
+    // came for is still there.
+    expect(screen.getByTestId("start-challenge")).toBeOnTheScreen();
+    expect(screen.getByTestId("projection-unavailable")).toHaveTextContent(
+      /only this summary is missing/,
+    );
+  });
+
+  it("asks again when the retry is pressed, and shows what comes back", async () => {
+    let attempts = 0;
+    const api = await renderScreen(
+      readyDraft(),
+      fakeApi({
+        createChallengeProjection: () => {
+          attempts += 1;
+          return attempts === 1
+            ? new ApiError("internal_error", "offline", { status: null })
+            : PROJECTION;
+        },
+      }),
+      undefined,
+      undefined,
+      undefined,
+      false,
+    );
+    const before = api.names().filter((name) => name === "createChallengeProjection").length;
+
+    await userEvent.press(screen.getByTestId("projection-retry"));
+
+    expect(await screen.findByTestId("projection")).toHaveTextContent(
+      new RegExp(formatDay(PROJECTION.projectedEndDate)),
+    );
+    expect(screen.queryByTestId("projection-unavailable")).toBeNull();
+    expect(api.names().filter((name) => name === "createChallengeProjection").length).toBe(
+      before + 1,
+    );
+  });
+
+  it("tells a funded plan that the deposit step is held back by the missing end date", async () => {
+    // The deposit action is gated on the server's maximum-duration answer, so a
+    // projection that never arrives withholds it. Before, that left an empty
+    // banner and no button, with nothing to press and nothing to read.
+    await renderScreen(
+      readyDraft(2000),
+      fakeApi({
+        createChallengeProjection: new ApiError("internal_error", "offline", { status: null }),
+      }),
+      undefined,
+      undefined,
+      undefined,
+      false,
+    );
+
+    expect(screen.queryByTestId("deposit-and-start")).toBeNull();
+    expect(screen.getByTestId("not-ready")).toHaveTextContent(/deposit step is not open/);
+    expect(screen.getByTestId("projection-unavailable")).toHaveTextContent(
+      /A deposit cannot be taken until this comes back/,
+    );
+  });
+
+  it("says what the summary is waiting for while the form is not yet a plan", async () => {
+    await renderScreen(
+      { ...readyDraft(), schedule: [] },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+    );
+
+    expect(screen.getByTestId("projection-unconfigured")).toHaveTextContent(
+      /once the days, deadlines and counts above are set/,
+    );
+    expect(screen.queryByTestId("projection-pending")).toBeNull();
   });
 
   it("says one plain sentence when the server refuses the challenge", async () => {

@@ -184,26 +184,57 @@ describe("the projection", () => {
   it("asks the server for the configuration on screen", async () => {
     const api = fakeApi();
 
-    const projection = await projectChallenge(api, readyDraft());
+    const outcome = await projectChallenge(api, readyDraft());
 
-    expect(projection).toEqual(PROJECTION);
+    expect(outcome).toEqual({ status: "projected", projection: PROJECTION });
     expect(api.names()).toEqual(["createChallengeProjection"]);
   });
 
   it("asks nothing while the configuration is invalid", async () => {
     const api = fakeApi();
 
-    expect(await projectChallenge(api, { ...readyDraft(), schedule: [] })).toBeNull();
+    expect(await projectChallenge(api, { ...readyDraft(), schedule: [] })).toEqual({
+      status: "unconfigured",
+    });
     expect(api.calls).toHaveLength(0);
   });
 
-  it("reports a failure as no projection rather than throwing", async () => {
+  it("reports a failure rather than throwing", async () => {
     // A projection the app could not fetch has to block a deposit, not crash a
     // screen that is being typed into.
+    const api = fakeApi({
+      createChallengeProjection: new ApiError("internal_error", "boom", { status: 500 }),
+    });
+
+    const outcome = await projectChallenge(api, readyDraft());
+
+    expect(outcome.status).toBe("unavailable");
+    expect(outcome.status === "unavailable" && outcome.message).toMatch(
+      /could not be worked out just now/,
+    );
+  });
+
+  it("names a request that never reached the server as a connection problem", async () => {
+    // The difference matters to the user: one is worth retrying where there is
+    // signal, and the other is worth retrying in a minute.
     const api = fakeApi({
       createChallengeProjection: new ApiError("internal_error", "offline", { status: null }),
     });
 
-    expect(await projectChallenge(api, readyDraft())).toBeNull();
+    const outcome = await projectChallenge(api, readyDraft());
+
+    expect(outcome.status === "unavailable" && outcome.message).toMatch(/No connection/);
+  });
+
+  it("does not repeat the server's own words to the user", async () => {
+    const api = fakeApi({
+      createChallengeProjection: new ApiError("internal_error", "connection pool exhausted", {
+        status: 500,
+      }),
+    });
+
+    const outcome = await projectChallenge(api, readyDraft());
+
+    expect(outcome.status === "unavailable" && outcome.message).not.toContain("connection pool");
   });
 });

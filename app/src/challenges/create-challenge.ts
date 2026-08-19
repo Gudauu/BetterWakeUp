@@ -127,28 +127,56 @@ export async function startChallenge(input: StartChallengeInput): Promise<StartC
 }
 
 /**
+ * What came back when the plan on screen was priced by the server.
+ *
+ * The three answers are different things to say to the user, which is why a
+ * failure is not folded into an absent projection: a plan that is not a
+ * challenge yet is waiting on the form above, while a read that did not come
+ * back is waiting on nothing at all and needs a press to happen again.
+ */
+export type ProjectionOutcome =
+  | { readonly status: "projected"; readonly projection: CreateProjectionResponse }
+  /** Nothing to ask about: the configuration on screen is not a challenge yet. */
+  | { readonly status: "unconfigured" }
+  /** The server was asked and did not answer. Retryable, and said so. */
+  | { readonly status: "unavailable"; readonly message: string };
+
+const PROJECTION_NETWORK_MESSAGE =
+  "No connection to BetterWakeUp, so the end date could not be worked out.";
+const PROJECTION_GENERIC_MESSAGE = "The end date could not be worked out just now.";
+
+/**
  * The projection, which persists nothing and is safe to ask for on every edit.
- * A failure is reported as an absent projection rather than thrown, because a
- * projection the app could not fetch must block a deposit rather than crash a
- * screen.
+ * A failure is reported rather than thrown, because a projection the app could
+ * not fetch must block a deposit rather than crash a screen that is being
+ * typed into - and must say that it failed, because a funded challenge cannot
+ * start without one and a silent failure is a form that never becomes ready.
  */
 export async function projectChallenge(
   api: ApiClient,
   draft: ChallengeDraft,
   options: { signal?: AbortSignal } = {},
-): Promise<CreateProjectionResponse | null> {
+): Promise<ProjectionOutcome> {
   const configuration = configurationOf(draft);
   if (!configuration.ok) {
-    return null;
+    return { status: "unconfigured" };
   }
   try {
-    return await api.request("createChallengeProjection", {
+    const projection = await api.request("createChallengeProjection", {
       body: { configuration: configuration.configuration },
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
-  } catch {
-    return null;
+    return { status: "projected", projection };
+  } catch (cause) {
+    return { status: "unavailable", message: projectionMessageFor(cause) };
   }
+}
+
+function projectionMessageFor(cause: unknown): string {
+  if (cause instanceof ApiError && cause.status === null) {
+    return PROJECTION_NETWORK_MESSAGE;
+  }
+  return PROJECTION_GENERIC_MESSAGE;
 }
 
 function outstandingSentences(draft: ChallengeDraft, ids: readonly string[]): readonly string[] {
