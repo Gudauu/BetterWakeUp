@@ -8,6 +8,7 @@ import { WelcomeScreen } from "../src/screens/welcome-screen.tsx";
 import { SessionProvider } from "../src/session/session-context.tsx";
 import { createMemorySessionStore, type SessionStore } from "../src/session/session-store.ts";
 import { fakeApi } from "./support/fake-api.ts";
+import { fakeNotifier } from "./support/fake-notifier.ts";
 import { appleCredential, fakeProvider, fakeProviders } from "./support/fake-providers.ts";
 
 const SESSION: SessionView = {
@@ -47,7 +48,7 @@ async function renderScreen(
         createClient={() => options.api ?? api}
         providers={options.providers ?? fakeProviders({ google: fakeProvider() })}
       >
-        <WelcomeScreen />
+        <WelcomeScreen notifier={fakeNotifier()} />
       </SessionProvider>
     </SafeAreaProvider>,
   );

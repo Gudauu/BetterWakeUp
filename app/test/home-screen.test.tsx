@@ -24,6 +24,7 @@ import {
   type FakeCompletionRuntime,
   fakeCompletionRuntimeFactory,
 } from "./support/fake-completion-runtime.ts";
+import { type FakeNotifier, fakeNotifier } from "./support/fake-notifier.ts";
 import { fakeProviders } from "./support/fake-providers.ts";
 
 const SESSION = {
@@ -49,6 +50,12 @@ async function renderHome(
      * which is the "user has not travelled" case every other test is about.
      */
     deviceTimeZone?: string;
+    /**
+     * How reminders reach the device. Stated so that no test asks a machine
+     * with no notification centre for permission, and so that what home would
+     * have scheduled is readable.
+     */
+    notifier?: FakeNotifier;
   } = {},
 ) {
   // Home holds a completion runtime for as long as it is on screen, so every
@@ -65,6 +72,7 @@ async function renderHome(
       >
         <HomeScreen
           createRuntime={createRuntime}
+          notifier={options.notifier ?? fakeNotifier()}
           deviceTimeZone={options.deviceTimeZone ?? "America/Los_Angeles"}
           {...(options.onSignOut === undefined ? {} : { onSignOut: options.onSignOut })}
         />
@@ -602,5 +610,91 @@ describe("home's own actions", () => {
     await renderHome(fakeApi());
     expect(await screen.findByTestId("home")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-sign-out")).toBeNull();
+  });
+});
+
+describe("home and the device's reminders", () => {
+  const running = (overrides = {}) =>
+    fakeApi({
+      getCurrentChallenge: {
+        lastEnded: null,
+        challenge: challengeView({ currentTask: taskView(), ...overrides }),
+      },
+    });
+
+  it("offers reminders by naming the time it would wake the user", async () => {
+    // The whole product is being at the phone before a wall-clock time, so a
+    // challenge on a silent device is the quietest way to lose a deposit.
+    const notifier = fakeNotifier({ permission: "undetermined" });
+
+    await renderHome(running(), { notifier });
+
+    expect(await screen.findByTestId("home-reminders-offer")).toHaveTextContent(/6:15 AM/);
+    expect(screen.getByTestId("home-enable-reminders")).toBeOnTheScreen();
+    // Never asked before it is pressed: iOS gives an app one prompt for the
+    // lifetime of an install.
+    expect(notifier.requests).toBe(0);
+    expect(notifier.scheduled).toHaveLength(0);
+  });
+
+  it("schedules the challenge's reminders when the user turns them on", async () => {
+    const notifier = fakeNotifier({ permission: "undetermined", onRequest: "granted" });
+
+    await renderHome(running(), { notifier });
+    await userEvent.press(await screen.findByTestId("home-enable-reminders"));
+
+    expect(await screen.findByTestId("home-reminders-on")).toHaveTextContent(/6:15 AM/);
+    await waitFor(() => expect(notifier.scheduled).toHaveLength(1));
+    expect(notifier.scheduled.at(-1)?.map((reminder) => reminder.id)).toEqual([
+      "44444444-4444-4444-8444-444444444444:alarm",
+      "44444444-4444-4444-8444-444444444444:last-call",
+    ]);
+  });
+
+  it("schedules without asking again once the device has already agreed", async () => {
+    const notifier = fakeNotifier({ permission: "granted" });
+
+    await renderHome(running(), { notifier });
+
+    expect(await screen.findByTestId("home-reminders-on")).toBeOnTheScreen();
+    await waitFor(() => expect(notifier.scheduled).toHaveLength(1));
+    expect(notifier.requests).toBe(0);
+    expect(screen.queryByTestId("home-enable-reminders")).toBeNull();
+  });
+
+  it("says where to turn them back on when the device has refused", async () => {
+    const notifier = fakeNotifier({ permission: "denied" });
+
+    await renderHome(running(), { notifier });
+
+    expect(await screen.findByTestId("home-reminders-denied")).toHaveTextContent(/device settings/);
+    expect(screen.queryByTestId("home-enable-reminders")).toBeNull();
+  });
+
+  it("says nothing about reminders while the challenge is paused", async () => {
+    // Nothing is due, so an alarm would be waking someone for a walk the server
+    // is not judging them on.
+    const notifier = fakeNotifier({ permission: "granted" });
+
+    await renderHome(running({ pause: { pausedAt: PAUSED_AT, expiresAt: PAUSE_EXPIRES_AT } }), {
+      notifier,
+    });
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-reminders-on")).toBeNull();
+    await waitFor(() => expect(notifier.scheduled).toHaveLength(1));
+    expect(notifier.scheduled.at(-1)).toEqual([]);
+  });
+
+  it("clears the device's reminders once the account holds no challenge", async () => {
+    const notifier = fakeNotifier({ permission: "granted" });
+
+    await renderHome(fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } }), {
+      notifier,
+    });
+
+    expect(await screen.findByTestId("home-no-challenge")).toBeOnTheScreen();
+    await waitFor(() => expect(notifier.scheduled).toHaveLength(1));
+    expect(notifier.scheduled.at(-1)).toEqual([]);
   });
 });

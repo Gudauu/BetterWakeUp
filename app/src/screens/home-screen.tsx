@@ -23,6 +23,13 @@ import {
   createConfiguredCompletionRuntime,
   useCompletionRuntime,
 } from "../completions/runtime.ts";
+import {
+  createConfiguredNotifier,
+  type Notifier,
+  type RemindersState,
+  useReminders,
+} from "../reminders/notifier.ts";
+import { ALARM_LEAD_MINUTES, nextAlarmAt } from "../reminders/reminders.ts";
 import { useSession } from "../session/session-context.tsx";
 import {
   AppText,
@@ -59,6 +66,12 @@ export interface HomeScreenProps {
    * can stand somewhere without moving the machine.
    */
   readonly deviceTimeZone?: string;
+  /**
+   * How reminders reach the device. Substituted in tests, so that home can be
+   * rendered without a notification permission prompt; a build passes nothing
+   * and the real scheduler is used.
+   */
+  readonly notifier?: Notifier;
 }
 
 /**
@@ -94,7 +107,12 @@ const STATUS_TONE: Readonly<Record<ChallengeStatus, "accent" | "success" | "dang
     recovery_pending: "warning",
   };
 
-export function HomeScreen({ onSignOut, createRuntime, deviceTimeZone }: HomeScreenProps) {
+export function HomeScreen({
+  onSignOut,
+  createRuntime,
+  deviceTimeZone,
+  notifier,
+}: HomeScreenProps) {
   const { api, signOut } = useSession();
   const theme = useTheme();
   const { state, reload } = useCurrentChallenge(api);
@@ -126,6 +144,15 @@ export function HomeScreen({ onSignOut, createRuntime, deviceTimeZone }: HomeScr
   // open: opening it is what sends a completion recorded on a day with no
   // network, and that must not wait for the user to tap anything.
   const runtime = useCompletionRuntime(api, createRuntime ?? createConfiguredCompletionRuntime);
+  // Built once for as long as home lives, so the effect that follows the
+  // challenge is not re-run by a new object on every render.
+  const [reminderNotifier] = useState<Notifier>(() => notifier ?? createConfiguredNotifier());
+  // Only a loaded read says anything about what is due. A read in flight or a
+  // read that failed leaves the device's reminders where they are.
+  const reminders = useReminders(
+    state.status === "loaded" ? state.challenge : undefined,
+    reminderNotifier,
+  );
   // Opening the form retires the finish: whatever comes back from it, the last
   // challenge is no longer the thing the screen is about.
   const openCreate = (endedId?: string) => {
@@ -303,6 +330,7 @@ export function HomeScreen({ onSignOut, createRuntime, deviceTimeZone }: HomeScr
       ) : (
         <ChallengeCard
           challenge={state.challenge}
+          reminders={reminders}
           timeZoneMove={keptTimeZone ? null : timeZoneMoveFor(state.challenge, here)}
           onOpenTask={() => setRoute("task")}
           onOpenPause={() => setRoute("pause")}
@@ -332,6 +360,7 @@ export function HomeScreen({ onSignOut, createRuntime, deviceTimeZone }: HomeScr
 
 function ChallengeCard({
   challenge,
+  reminders,
   timeZoneMove,
   onOpenTask,
   onOpenPause,
@@ -339,6 +368,7 @@ function ChallengeCard({
   onOpenTimeZone,
 }: {
   challenge: ChallengeView;
+  reminders: RemindersState;
   timeZoneMove: TimeZoneMove | null;
   onOpenTask: () => void;
   onOpenPause: () => void;
@@ -374,6 +404,8 @@ function ChallengeCard({
           <Button testID="home-open-task" label="Open today's task" onPress={onOpenTask} />
         </Card>
       )}
+
+      <Reminders challenge={challenge} reminders={reminders} />
 
       {challenge.recoveryOffer === null ? null : (
         <Banner tone="warning" testID="home-recovery-offer">
@@ -492,6 +524,66 @@ function ChallengeCard({
         ) : null}
       </Card>
     </View>
+  );
+}
+
+/**
+ * Whether the device will wake the user for this challenge.
+ *
+ * The whole product rests on the user being at their phone before a wall-clock
+ * time with money on it, so a challenge running on a device that will never
+ * make a sound is the quietest way to lose a deposit. The offer names the time
+ * the nudge would arrive rather than the feature, because "6:15 AM" is the
+ * thing worth agreeing to.
+ *
+ * A challenge that is over or paused has nothing to be woken for, so it says
+ * nothing at all rather than offering a switch that would schedule nothing.
+ */
+function Reminders({
+  challenge,
+  reminders,
+}: {
+  challenge: ChallengeView;
+  reminders: RemindersState;
+}) {
+  const alarm = nextAlarmAt(challenge);
+  if (challenge.status !== "active" || challenge.pause.pausedAt !== null) {
+    return null;
+  }
+
+  if (reminders.permission === "granted") {
+    return (
+      <AppText variant="small" tone="muted" testID="home-reminders-on">
+        {alarm === null
+          ? "Reminders are on. You will be nudged before your next walk."
+          : `Reminders are on. You will be nudged at ${formatTimeOfDay(alarm, challenge.configuration.timeZone)}, ${ALARM_LEAD_MINUTES} minutes before the deadline.`}
+      </AppText>
+    );
+  }
+
+  if (reminders.permission === "denied") {
+    return (
+      <AppText variant="small" tone="muted" testID="home-reminders-denied">
+        Reminders are off. Turn on notifications for BetterWakeUp in your device settings and you
+        will be nudged before each walk.
+      </AppText>
+    );
+  }
+
+  return (
+    <Banner tone="info" testID="home-reminders-offer">
+      <AppText variant="small">
+        {alarm === null
+          ? `Let us wake you ${ALARM_LEAD_MINUTES} minutes before each deadline, so a walk is never missed by forgetting it.`
+          : `Let us wake you at ${formatTimeOfDay(alarm, challenge.configuration.timeZone)}, ${ALARM_LEAD_MINUTES} minutes before your deadline, so a walk is never missed by forgetting it.`}
+      </AppText>
+      <Button
+        testID="home-enable-reminders"
+        label="Turn on reminders"
+        busy={reminders.enabling}
+        onPress={reminders.enable}
+      />
+    </Banner>
   );
 }
 

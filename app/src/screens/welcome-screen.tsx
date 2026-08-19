@@ -16,6 +16,7 @@ import type { IdentityProvider } from "@betterwakeup/contract";
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import type { CompletionRuntimeFactory } from "../completions/runtime.ts";
+import type { Notifier } from "../reminders/notifier.ts";
 import { useSession } from "../session/session-context.tsx";
 import { AppText, Banner, Button, Screen } from "../ui/components.tsx";
 import { useTheme } from "../ui/theme.ts";
@@ -44,9 +45,11 @@ export interface WelcomeScreenProps {
    * today's task; a build passes nothing and home builds its own.
    */
   readonly createRuntime?: CompletionRuntimeFactory;
+  /** Handed straight to home for the same reason, so a test schedules nothing. */
+  readonly notifier?: Notifier;
 }
 
-export function WelcomeScreen({ createRuntime }: WelcomeScreenProps = {}) {
+export function WelcomeScreen({ createRuntime, notifier }: WelcomeScreenProps = {}) {
   const { state, availability, signIn, signOut } = useSession();
   const theme = useTheme();
   const [busy, setBusy] = useState<IdentityProvider | null>(null);
@@ -83,6 +86,7 @@ export function WelcomeScreen({ createRuntime }: WelcomeScreenProps = {}) {
         <HomeScreen
           onSignOut={() => void signOut()}
           {...(createRuntime === undefined ? {} : { createRuntime })}
+          {...(notifier === undefined ? {} : { notifier })}
         />
       </View>
     );

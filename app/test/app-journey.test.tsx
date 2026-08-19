@@ -21,6 +21,7 @@ import { WelcomeScreen } from "../src/screens/welcome-screen.tsx";
 import { SessionProvider } from "../src/session/session-context.tsx";
 import { createMemorySessionStore } from "../src/session/session-store.ts";
 import { simulatedCompletionRuntimeFactory } from "./support/fake-completion-runtime.ts";
+import { fakeNotifier } from "./support/fake-notifier.ts";
 import { fakeProviders } from "./support/fake-providers.ts";
 import { type JourneyServer, journeyServer } from "./support/journey-server.ts";
 
@@ -46,20 +47,23 @@ const DEPOSIT_MINOR_UNITS = 2000;
  */
 async function launch(server: JourneyServer) {
   const store = createMemorySessionStore(null);
+  // A device that has not been asked about notifications yet, which is the
+  // state a freshly installed app is in.
+  const notifier = fakeNotifier({ permission: "undetermined" });
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <SessionProvider store={store} createClient={() => server} providers={fakeProviders()}>
-        <WelcomeScreen createRuntime={simulatedCompletionRuntimeFactory()} />
+        <WelcomeScreen createRuntime={simulatedCompletionRuntimeFactory()} notifier={notifier} />
       </SessionProvider>
     </SafeAreaProvider>,
   );
-  return { store };
+  return { store, notifier };
 }
 
 describe("one account's life through the app's own screens", () => {
   it("signs in, starts a challenge, walks the day, pauses, and deletes the account", async () => {
     const server = journeyServer();
-    const { store } = await launch(server);
+    const { store, notifier } = await launch(server);
     const user = userEvent.setup();
 
     // Signed out, with the provider this build and device can use.
@@ -91,6 +95,16 @@ describe("one account's life through the app's own screens", () => {
     );
     // A zero deposit challenge is created without any payment step.
     expect(server.names()).not.toContain("createFundingIntent");
+
+    // The device is offered the alarm and scheduled it: everything after this
+    // depends on the user being at their phone before a wall-clock deadline,
+    // and until they say yes nothing on the device would tell them.
+    await user.press(screen.getByTestId("home-enable-reminders"));
+    await waitFor(() => expect(notifier.scheduled).toHaveLength(1));
+    expect(notifier.scheduled.at(-1)?.map((reminder) => reminder.title)).toEqual([
+      "Time to get moving",
+      expect.stringContaining("Last call"),
+    ]);
 
     // Today's task, walked with the development build's step controls.
     await user.press(screen.getByTestId("home-open-task"));

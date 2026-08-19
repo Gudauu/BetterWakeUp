@@ -233,6 +233,29 @@ Only a failure forfeits a deposit: a challenge that succeeded, and one that expi
 Home draws both the same way, so a month that ended reads as a month that ended however the app came to hear about it.
 Without this, a challenge that failed would read as an account that never held one, and a charged deposit would be something the user found out from their card statement.
 
+### Reminders
+
+The product asks the user to be at their phone before a wall-clock time with money riding on it, so a device that never makes a sound is the quietest way to lose a deposit.
+`app/src/reminders/reminders.ts` owns what should be scheduled, and `native-notifier.ts` is the only module that imports `expo-notifications`, the same way `native-pedometer.ts` is the only one that imports `expo-sensors`.
+
+Everything is a local notification.
+A reminder is a fact the device already holds - the deadline arrived on the last read of the challenge - so it needs no push token and no network at the moment it fires, which is the moment a phone on a bedside table is least likely to have one.
+
+What is scheduled comes from instants the server sent, never from the weekly schedule.
+A challenge carries one open task at a time, so the app reminds about that task and asks again on the next read.
+Two per task: the alarm 45 minutes before the deadline, which is time enough to get up and walk, and a last call 10 minutes before it for a morning already going wrong.
+A recovery offer gets one an hour before it lapses, because that one is about the deposit rather than about walking.
+
+The set is replaced whole on every read rather than added to, and each reminder's identifier is derived from the task it belongs to.
+That is what makes a task that has since been completed, skipped or paused away take its reminders with it instead of firing at someone who has nothing to do.
+
+A read that is still in flight, or one that failed, schedules nothing at all - it is `undefined` rather than `null` to the hook that does the scheduling.
+An answer of "this account holds no challenge" clears the device; a momentary network failure must not.
+
+Permission is requested from a press and never on launch.
+iOS gives an app one prompt for the lifetime of an install, and spending it in front of a user who has not yet seen what the app is for is how an app ends up permanently unable to remind anyone of anything.
+Home therefore offers the switch by naming the time the nudge would arrive rather than the feature, and says where to turn notifications back on for a device that has already refused.
+
 ### Movement
 
 Use the `expo-sensors` Pedometer, which wraps CMPedometer on iOS and the step counter on Android.
