@@ -40,6 +40,7 @@ import { type FakeNotifier, fakeNotifier } from "./support/fake-notifier.ts";
 import { type FakePaymentSheet, fakePaymentSheet } from "./support/fake-payment-sheet.ts";
 import { fakeProviders } from "./support/fake-providers.ts";
 import { fakeReminderTaps } from "./support/fake-reminder-taps.ts";
+import { type FakeScreenReader, fakeScreenReader } from "./support/fake-screen-reader.ts";
 import { type FakeSettingsLauncher, fakeSettings } from "./support/fake-settings.ts";
 
 const SESSION = {
@@ -101,6 +102,12 @@ async function renderHome(
      */
     reminderTaps?: ReminderTapTrigger;
     /**
+     * What the app says out loud about the screen it has just opened. Stated
+     * so an announcement is readable back rather than being handed to a device
+     * with nothing reading the screen.
+     */
+    screenReader?: FakeScreenReader;
+    /**
      * What the clock says while home is on screen. Stated rather than read
      * from the machine, so how long is left on a recovery offer is a fact of
      * the fixture instead of a fact of the day the suite is run on.
@@ -138,6 +145,7 @@ async function renderHome(
           {...(options.appReturn === undefined ? {} : { appReturn: options.appReturn })}
           {...(options.backPress === undefined ? {} : { backPress: options.backPress })}
           {...(options.reminderTaps === undefined ? {} : { reminderTaps: options.reminderTaps })}
+          {...(options.screenReader === undefined ? {} : { screenReader: options.screenReader })}
           {...(options.onSignOut === undefined ? {} : { onSignOut: options.onSignOut })}
         />
       </SessionProvider>
@@ -1900,5 +1908,97 @@ describe("the alarm being tapped", () => {
 
     expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
     expect(screen.queryByTestId("daily-completion")).toBeNull();
+  });
+});
+
+describe("saying which screen home has opened", () => {
+  it("says nothing about home itself on arrival", async () => {
+    // The reader is already about to read this screen from the top; naming it
+    // would talk over the screen it names.
+    const reader = fakeScreenReader();
+    await renderHome(fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } }), {
+      screenReader: reader,
+    });
+    await screen.findByTestId("home-no-challenge");
+
+    expect(reader.said()).toEqual([]);
+  });
+
+  it("names today's walk and its way out when the task screen is opened", async () => {
+    // Home swaps what it renders rather than pushing a screen, so nothing else
+    // tells a screen reader that the control it was on has gone.
+    const reader = fakeScreenReader();
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: challengeView({ currentTask: taskView() }),
+          lastEnded: null,
+        },
+      }),
+      { screenReader: reader },
+    );
+    await userEvent.press(await screen.findByTestId("home-open-task"));
+    await screen.findByTestId("daily-completion");
+
+    expect(reader.said()).toEqual(["Today's walk. Back to home is at the top of the screen."]);
+  });
+
+  it("names home again on the way back", async () => {
+    const reader = fakeScreenReader();
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: challengeView({ currentTask: taskView() }),
+          lastEnded: null,
+        },
+      }),
+      { screenReader: reader },
+    );
+    await userEvent.press(await screen.findByTestId("home-open-task"));
+    await screen.findByTestId("daily-completion");
+
+    await userEvent.press(screen.getByTestId("daily-back"));
+    await screen.findByTestId("home-challenge");
+
+    expect(reader.said()[1]).toBe("Home.");
+  });
+
+  it("names the screen a back gesture landed on, the same as the link does", async () => {
+    const back = fakeBackPress();
+    const reader = fakeScreenReader();
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: challengeView({ currentTask: taskView() }),
+          lastEnded: null,
+        },
+      }),
+      { backPress: back.trigger, screenReader: reader },
+    );
+    await userEvent.press(await screen.findByTestId("home-open-task"));
+    await screen.findByTestId("daily-completion");
+
+    await back.press();
+    await screen.findByTestId("home-challenge");
+
+    expect(reader.said()[1]).toBe("Home.");
+  });
+
+  it("names the screen a tapped alarm opened, which the user did not press for", async () => {
+    // A tap from the lock screen is the one arrival where the user has no idea
+    // what the app decided to show them.
+    const reader = fakeScreenReader();
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: challengeView({ currentTask: taskView() }),
+          lastEnded: null,
+        },
+      }),
+      { reminderTaps: fakeReminderTaps({ launchedBy: "walk" }).trigger, screenReader: reader },
+    );
+    await screen.findByTestId("daily-completion");
+
+    expect(reader.said()).toEqual(["Today's walk. Back to home is at the top of the screen."]);
   });
 });

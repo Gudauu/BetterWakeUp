@@ -216,6 +216,22 @@ Two of those answers are not just `setRoute("home")`.
 Backing out of the time zone offer counts as declining it, the same as the link does, or the banner that sent the user there would be waiting for them when they arrive.
 Leaving the setup form re-reads the challenge, because leaving an authorized hold might have changed the account and home cannot tell from outside the form which half of it the press came from.
 
+### Saying where the user has arrived
+
+The same simplification costs a screen-reader user something the back gesture does not cover.
+Because home swaps what it renders rather than pushing a screen, no navigation ever happens as far as the platform is concerned, and no screen reader is told anything.
+The control the user just activated is unmounted by the render it caused, so the reader's focus falls off it in silence: nothing names the screen that is now up, and the `Back to home` control that gets them out is one they have to hunt for by swiping.
+
+`app/src/ui/screen-change.ts` says it instead, through React Native's own `announceForAccessibility` behind a `ScreenReader` port.
+The sentence names the screen, and - for anything sitting on top of home - names where the way back is, which is the control such a user most likely wants next and the one every one of these screens puts in the same place.
+
+The names are destinations rather than headlines.
+A screen's own title depends on what it found there - today's walk leads with the date, the pause screen with whether the challenge is running - and none of those answer the question a lost focus raises, which is which screen this is.
+
+A first arrival is never announced.
+The reader is already about to read that screen from the top, so naming it would talk over the screen it names; only a swap, which nothing else reports, is worth a sentence.
+That covers the arrival the user did not ask for as well: a tapped wake-up reminder opens today's walk with no press behind it, and it is announced the same way, because home is already mounted by the time the tap is resolved.
+
 ### The screen that failed to draw
 
 A render error anywhere below the router used to end the app.

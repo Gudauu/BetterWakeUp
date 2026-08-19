@@ -97,6 +97,11 @@ import {
   TextButton,
 } from "../ui/components.tsx";
 import { formatDay, formatDeadline, formatTimeOfDay } from "../ui/format.ts";
+import {
+  createConfiguredScreenReader,
+  type ScreenReader,
+  useScreenChangeAnnouncement,
+} from "../ui/screen-change.ts";
 import { useTheme } from "../ui/theme.ts";
 import { ConfirmAction } from "./confirm-action.tsx";
 import { CreateChallengeScreen } from "./create-challenge-screen.tsx";
@@ -158,6 +163,13 @@ export interface HomeScreenProps {
    */
   readonly reminderTaps?: ReminderTapTrigger;
   /**
+   * How the app says out loud which screen it has just opened, since swapping
+   * what home renders is not a navigation any screen reader can see.
+   * Substituted in tests so what is announced is readable back; a build passes
+   * nothing and React Native's own announcement is used.
+   */
+  readonly screenReader?: ScreenReader;
+  /**
    * How the device's settings page is opened, which is the only way out of a
    * refused notification or motion permission. Substituted in tests so a press
    * opens nothing; a build passes nothing and the real one is used.
@@ -188,6 +200,26 @@ type Route =
   | "delete"
   | "timeZone"
   | "paymentMethod";
+
+/**
+ * What each screen is called when the app has to say where it has just gone.
+ *
+ * These are destinations rather than headlines: a screen's own title depends on
+ * what it found there - today's walk leads with the date, the pause screen with
+ * whether the challenge is running - and none of those answer the question a
+ * reader whose focus has just been thrown off is asking, which is which screen
+ * this is.
+ */
+const ROUTE_NAMES: Readonly<Record<Route, string>> = {
+  home: "Home",
+  create: "Set up a challenge",
+  task: "Today's walk",
+  pause: "Pause or resume",
+  recovery: "Emergency Recovery",
+  delete: "Delete your account",
+  timeZone: "Your time zone",
+  paymentMethod: "Your card",
+};
 
 /**
  * The headline states, worded as the user's situation rather than as the
@@ -263,6 +295,7 @@ export function HomeScreen({
   reminderTaps,
   now,
   settings,
+  screenReader,
 }: HomeScreenProps) {
   const { api, signOut } = useSession();
   // The clock is state that ticks, not a read at render time. Everything on
@@ -314,6 +347,14 @@ export function HomeScreen({
     () => settings ?? createConfiguredSettingsLauncher(),
   );
   const openSettings = useOpenSettings(settingsLauncher);
+  // Built once for the life of the screen, so the announcement effect is not
+  // re-run by a new object arriving on every render.
+  const [reader] = useState<ScreenReader>(() => screenReader ?? createConfiguredScreenReader());
+  // Home swaps what it renders instead of pushing a screen, which no screen
+  // reader can see: without this, activating "Open today's task" leaves the
+  // reader focused on a control that no longer exists and silent about where
+  // the user now is.
+  useScreenChangeAnnouncement({ name: ROUTE_NAMES[route], overHome: route !== "home" }, reader);
   // Only a loaded read says anything about what is due. A read in flight or a
   // read that failed leaves the device's reminders where they are.
   const reminders = useReminders(
