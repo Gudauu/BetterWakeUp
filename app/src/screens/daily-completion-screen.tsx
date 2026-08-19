@@ -17,7 +17,7 @@
  */
 
 import type { ChallengeView, TaskView } from "@betterwakeup/contract";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { formatMoney } from "../challenges/draft.ts";
 import {
@@ -32,6 +32,7 @@ import { deadlineMissedText, finishByText, timeLeft } from "../completions/time-
 import type { CaptureState, MovementCapture } from "../movement/capture.ts";
 import type { MovementSimulation } from "../movement/simulated-pedometer.ts";
 import { interruptionText, walkProgress } from "../movement/walk-progress.ts";
+import { useClock } from "../ui/clock.ts";
 import {
   AppText,
   Banner,
@@ -72,22 +73,17 @@ export interface DailyCompletionScreenProps {
   readonly onBack?: () => void;
 }
 
-/** How often the screen re-reads the clock, for the deadline warning. */
-const CLOCK_INTERVAL_MS = 30_000;
-
 export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
   const { challenge, capture, sync, store, appVersion } = props;
-  const readClock = props.now ?? (() => new Date());
 
   const [records, setRecords] = useState<readonly PendingCompletionRecord[]>([]);
   const [captureState, setCaptureState] = useState<CaptureState>(() => capture.getState());
   const [shortfall, setShortfall] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  // The clock is state rather than a read at render time, so the deadline
-  // warning appears while the screen sits open rather than on the next touch.
-  const [clock, setClock] = useState<Date>(readClock);
-  const clockRef = useRef(readClock);
-  clockRef.current = readClock;
+  // The clock ticks rather than being read at render time, so the countdown
+  // counts and the deadline passing withdraws the walk while the screen sits
+  // open, rather than on the next touch.
+  const clock = useClock(props.now);
   /**
    * The task as the server described it when it acknowledged the completion.
    * The challenge this screen was handed was read before the walk, so its copy
@@ -133,11 +129,6 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
   }, [reload, sync, props.onAcknowledged, props.onFinished]);
 
   useEffect(() => capture.subscribe(setCaptureState), [capture]);
-
-  useEffect(() => {
-    const timer = setInterval(() => setClock(clockRef.current()), CLOCK_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, []);
 
   const state = dailyCompletionState({ task, records, now: clock });
   const target = challenge.configuration.stepTarget;

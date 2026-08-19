@@ -9,11 +9,12 @@
  */
 
 import type { ChallengeView } from "@betterwakeup/contract";
-import { render, screen, userEvent } from "@testing-library/react-native";
+import { act, render, screen, userEvent } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { DeleteAccountScreen } from "../src/screens/delete-account-screen.tsx";
 import { PauseScreen } from "../src/screens/pause-screen.tsx";
 import { RecoveryScreen } from "../src/screens/recovery-screen.tsx";
+import { CLOCK_INTERVAL_MS } from "../src/ui/clock.ts";
 import { challengeView, type FakeApi, fakeApi, taskView } from "./support/fake-api.ts";
 
 const METRICS = {
@@ -238,6 +239,37 @@ describe("RecoveryScreen", () => {
     await user.press(screen.getByTestId("recovery-back"));
     expect(back).toHaveBeenCalledTimes(1);
     expect(api.names()).toEqual([]);
+  });
+
+  it("withdraws the decision as the window closes under an untouched screen", async () => {
+    // Somebody weighing the most expensive choice in the app can sit on this
+    // screen for the last minutes of the window. Read once at render, it would
+    // still be offering both buttons after the offer had gone.
+    jest.useFakeTimers();
+    try {
+      const instants = [new Date("2026-09-01T23:59:00.000Z"), new Date("2026-09-02T00:01:00.000Z")];
+      let index = 0;
+      const api = fakeApi();
+      await draw(
+        <RecoveryScreen
+          api={api}
+          challenge={offered}
+          now={() => instants[Math.min(index++, 1)] as Date}
+        />,
+      );
+
+      expect(screen.getByTestId("recovery-time-left")).toHaveTextContent(/1 minute left to decide/);
+
+      await act(async () => {
+        jest.advanceTimersByTime(CLOCK_INTERVAL_MS);
+      });
+
+      expect(screen.getByTestId("recovery-closed")).toHaveTextContent(/the missed day stands/);
+      expect(screen.queryByTestId("accept-recovery")).toBeNull();
+      expect(api.names()).toEqual([]);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 

@@ -57,6 +57,7 @@ import {
 } from "../reminders/notifier.ts";
 import { ALARM_LEAD_MINUTES, nextAlarmAt } from "../reminders/reminders.ts";
 import { useSession } from "../session/session-context.tsx";
+import { useClock } from "../ui/clock.ts";
 import {
   AppText,
   Banner,
@@ -113,9 +114,12 @@ export interface HomeScreenProps {
    */
   readonly appReturn?: AppReturnTrigger;
   /**
-   * The clock the recovery offer's window is measured against. Stated in tests
-   * so that how long is left to decide is a fact of the test rather than of the
-   * day it is run on; a build passes nothing and the device's clock is read.
+   * How the clock is read, for the two windows this screen counts down: the
+   * morning's deadline and the recovery offer's expiry. Stated in tests so that
+   * how long is left is a fact of the test rather than of the day it is run on
+   * - and a stated clock that keeps answering the same instant never ticks, so
+   * a test's screen stands still. A build passes nothing and the device's clock
+   * is read on a timer.
    */
   readonly now?: () => Date;
 }
@@ -185,7 +189,12 @@ export function HomeScreen({
   now,
 }: HomeScreenProps) {
   const { api, signOut } = useSession();
-  const readClock = now ?? (() => new Date());
+  // The clock is state that ticks, not a read at render time. Everything on
+  // this screen that counts down - how much of the morning is left, how long
+  // is left to decide on a recovery offer, whether either window has closed -
+  // would otherwise be true only for the instant home was drawn, and a phone
+  // left face-up would go on offering a walk the server stopped accepting.
+  const clock = useClock(now);
   const theme = useTheme();
   const { state, refreshing, refreshFailed, reload, refresh } = useCurrentChallenge(api);
   const [route, setRoute] = useState<Route>("home");
@@ -383,7 +392,7 @@ export function HomeScreen({
         <RecoveryScreen
           api={api}
           challenge={state.challenge}
-          now={readClock}
+          {...(now === undefined ? {} : { now })}
           onBack={() => goHome(false)}
           onAccepted={() => goHome(true)}
           // Declining spends nothing and changes nothing at the server, so
@@ -454,8 +463,8 @@ export function HomeScreen({
           challenge={state.challenge}
           reminders={reminders}
           unsent={unsent}
-          recovery={recoveryWindow(state.challenge, readClock())}
-          now={readClock()}
+          recovery={recoveryWindow(state.challenge, clock)}
+          now={clock}
           timeZoneMove={keptTimeZone ? null : timeZoneMoveFor(state.challenge, here)}
           onOpenTask={() => setRoute("task")}
           onOpenPause={() => setRoute("pause")}

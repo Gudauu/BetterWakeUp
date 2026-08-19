@@ -406,6 +406,20 @@ Neither of them says what became of the money: a zero-deposit challenge settles 
 
 The duration wording itself lives in `app/src/ui/format.ts` as `formatDuration`, because two countdowns now use it and "2 hours 30 minutes" must not be said two ways.
 
+### A countdown that counts
+
+Both of those clocks were read once, at the instant their screen was drawn.
+That is correct exactly then and wrong from the next minute on, which is the difference between a countdown and a number that happens to be a duration.
+A phone put down at 6:59 with "1 minute left to walk" on it went on saying so at 7:20, still offering a walk the server had already stopped accepting; a user weighing the recovery decision through the last minutes of the window kept both buttons in front of them after the offer had gone.
+Neither screen was wrong about a rule - the rules landed in the two sections above - and both drew the state of a moment that had passed.
+
+`app/src/ui/clock.ts` is the fix and the only place a screen gets a moving instant.
+`useClock(now)` holds the current instant as state and re-reads it every `CLOCK_INTERVAL_MS`, which is half a minute: everything the app counts down is worded in whole minutes, so a reading is never more than one tick stale.
+Home, the daily task screen and the recovery screen all draw from it, so a countdown on one cannot tick while the same countdown on another stands still.
+
+The `now` seam each of those screens already carried is what the hook reads, so a test still states the clock.
+A stated clock that keeps answering the same instant publishes nothing: the tick only replaces the instant on screen when it differs from the one already there, so a fixed-clock test renders exactly as still as it did before, and a test that wants time to pass hands in a function that answers a later instant and advances the timer.
+
 ### A pause standing still
 
 A pause is the one state in the app that nothing ends but the user.

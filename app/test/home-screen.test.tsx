@@ -5,7 +5,7 @@
  */
 
 import type { ChallengeDay } from "@betterwakeup/contract";
-import { fireEvent, render, screen, userEvent, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, userEvent, waitFor } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import type { ApiClient } from "../src/api/client.ts";
 import { ApiError } from "../src/api/errors.ts";
@@ -13,6 +13,7 @@ import type { AppReturnTrigger } from "../src/challenges/app-return.ts";
 import { HomeScreen } from "../src/screens/home-screen.tsx";
 import { SessionProvider } from "../src/session/session-context.tsx";
 import { createMemorySessionStore } from "../src/session/session-store.ts";
+import { CLOCK_INTERVAL_MS } from "../src/ui/clock.ts";
 import {
   challengeView,
   endedChallenge,
@@ -83,10 +84,17 @@ async function renderHome(
      * What the clock says while home is on screen. Stated rather than read
      * from the machine, so how long is left on a recovery offer is a fact of
      * the fixture instead of a fact of the day the suite is run on.
+     *
+     * A single instant stands still, which is what almost every test wants. A
+     * function is how a test lets time pass: home re-reads it on a timer, so a
+     * clock that answers a later instant is a morning going by under a screen
+     * nobody is touching.
      */
-    now?: Date;
+    now?: Date | (() => Date);
   } = {},
 ) {
+  const stated = options.now;
+  const readClock = typeof stated === "function" ? stated : () => stated ?? NOW;
   // Home holds a completion runtime for as long as it is on screen, so every
   // one of these tests gets one with no device under it.
   const createRuntime = fakeCompletionRuntimeFactory({
@@ -104,7 +112,7 @@ async function renderHome(
           createRuntime={createRuntime}
           notifier={options.notifier ?? fakeNotifier()}
           deviceTimeZone={options.deviceTimeZone ?? "America/Los_Angeles"}
-          now={() => options.now ?? NOW}
+          now={readClock}
           {...(options.paymentSheet === undefined ? {} : { paymentSheet: options.paymentSheet })}
           {...(options.appReturn === undefined ? {} : { appReturn: options.appReturn })}
           {...(options.onSignOut === undefined ? {} : { onSignOut: options.onSignOut })}
@@ -708,6 +716,36 @@ describe("the clock on this morning's walk", () => {
     expect(screen.getByTestId("home-open-task")).toHaveTextContent("See what happened");
     // A countdown to a deadline that passed would be counting to nothing.
     expect(screen.queryByTestId("home-task-time-left")).toBeNull();
+  });
+
+  it("withdraws the walk as the deadline goes by under an untouched screen", async () => {
+    // The case the countdown exists for: a phone put down at 6:59 with the
+    // walk still on offer. Home read the clock once when it drew, so without a
+    // tick it would go on inviting a walk the server has stopped accepting -
+    // and the user would find out by pressing it.
+    jest.useFakeTimers();
+    try {
+      const instants = [new Date("2026-09-01T13:59:00.000Z"), new Date("2026-09-01T14:01:00.000Z")];
+      let index = 0;
+      await renderHome(withTask, { now: () => instants[Math.min(index++, 1)] as Date });
+
+      expect(await screen.findByTestId("home-task-time-left")).toHaveTextContent(
+        /1 minute left to walk/,
+      );
+      expect(screen.getByTestId("home-open-task")).toHaveTextContent("Open today's task");
+
+      await act(async () => {
+        jest.advanceTimersByTime(CLOCK_INTERVAL_MS);
+      });
+
+      expect(screen.getByTestId("home-task-morning-gone")).toHaveTextContent(
+        /7:00 AM deadline passed with no walk saved/,
+      );
+      expect(screen.queryByTestId("home-task-time-left")).toBeNull();
+      expect(screen.getByTestId("home-open-task")).toHaveTextContent("See what happened");
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("stops asking a held walk's owner to find signal once the deadline has gone", async () => {

@@ -19,6 +19,7 @@ import { StyleSheet, View } from "react-native";
 import type { ApiClient } from "../api/client.ts";
 import { acceptRecovery } from "../challenges/lifecycle-commands.ts";
 import { recoveryWindow } from "../challenges/recovery-window.ts";
+import { useClock } from "../ui/clock.ts";
 import { AppText, Banner, Card, Screen, StatusPill, TextButton } from "../ui/components.tsx";
 import { formatDeadline } from "../ui/format.ts";
 import { BackLink } from "./back-link.tsx";
@@ -40,7 +41,9 @@ export const RECOVERY_PERMANENCE =
 
 export function RecoveryScreen(props: RecoveryScreenProps) {
   const { api, challenge } = props;
-  const readClock = props.now ?? (() => new Date());
+  // Ticking rather than read once: the window this screen is about can close
+  // while it is open, and the choice it draws has to go with it.
+  const clock = useClock(props.now);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -54,7 +57,7 @@ export function RecoveryScreen(props: RecoveryScreenProps) {
         api,
         challenge,
         confirmed: true,
-        now: readClock(),
+        now: clock,
       });
       if (outcome.status === "done") {
         props.onAccepted?.(outcome.value.challenge);
@@ -64,7 +67,7 @@ export function RecoveryScreen(props: RecoveryScreenProps) {
     } finally {
       setBusy(false);
     }
-  }, [api, challenge, props.onAccepted, readClock]);
+  }, [api, challenge, clock, props.onAccepted]);
 
   if (offer === null) {
     return (
@@ -81,7 +84,7 @@ export function RecoveryScreen(props: RecoveryScreenProps) {
   }
 
   const closing = formatDeadline(offer.expiresAt, challenge.configuration.timeZone);
-  const window = recoveryWindow(challenge, readClock());
+  const window = recoveryWindow(challenge, clock);
 
   // The window went by while the offer was on screen, or before the user ever
   // reached it. There is nothing to decide: the command refuses an expired
