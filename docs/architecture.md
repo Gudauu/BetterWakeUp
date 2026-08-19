@@ -369,6 +369,24 @@ Only a failure forfeits a deposit: a challenge that succeeded, and one that expi
 Home draws both the same way, so a month that ended reads as a month that ended however the app came to hear about it.
 Without this, a challenge that failed would read as an account that never held one, and a charged deposit would be something the user found out from their card statement.
 
+#### When it ended, and what ended it
+
+`app/src/challenges/ended-challenge.ts` owns the two sentences the card was missing.
+
+The status pill names the outcome and the day count names the score, and between them the card said nothing about _when_ this happened or _what_ the app did.
+`endedAt` was on the response and was discarded.
+That is the first question of anyone who opens the app late and finds a deposit charged: which morning was it, and was it this one.
+
+The instant is read in the device's own zone rather than the challenge's.
+The challenge is gone and the summary carries no zone, and the phone's clock is the only one the reader is holding.
+That is a smaller compromise than it looks: the ending is a fact about a day that has passed, not a deadline anybody has to act on.
+
+The cause is one sentence per terminal status, and the one that matters is the failure: a morning went by with no walk saved in time, and one missed morning ends a challenge.
+Without it the pill reads as a verdict with the charge left off.
+An expiry names the pause limit it reached and says explicitly that it is neither a success nor a failure, which is the same thing `pauseExpirySentence` promises before it happens.
+
+The finish the task screen reports locally stamps `endedAt` from home's own clock seam rather than from `new Date()`, so the two ways a challenge ends produce the same shape and a test states the instant it reads back.
+
 ### The answer on screen going out of date
 
 Everything home shows is tied to a wall-clock moment: which task is open, when it is due, whether the recovery offer has expired, how many days are done.

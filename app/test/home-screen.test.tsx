@@ -1174,6 +1174,43 @@ describe("home says what happened to the challenge that ended", () => {
     );
   });
 
+  it("says when it ended and what ended it", async () => {
+    // The two questions the card never answered. A sweep decides a failure
+    // overnight, so "which morning was it" is the first thing asked, and the
+    // status pill says the outcome without ever saying the rule behind it.
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: null,
+          lastEnded: endedChallenge({ status: "failed", endedAt: "2026-10-12T14:00:00.000Z" }),
+        },
+      }),
+      { deviceTimeZone: "America/Los_Angeles" },
+    );
+
+    expect(await screen.findByTestId("home-finished-when")).toHaveTextContent(
+      /Ended Mon, Oct 12, 7:00 AM/,
+    );
+    expect(screen.getByTestId("home-finished-cause")).toHaveTextContent(
+      /one missed morning ends a challenge/,
+    );
+  });
+
+  it("says an expiry was the pause limit rather than a failure", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: null,
+          lastEnded: endedChallenge({ status: "expired", depositOutcome: "kept" }),
+        },
+      }),
+    );
+
+    expect(await screen.findByTestId("home-finished-cause")).toHaveTextContent(
+      /neither a success nor a failure/,
+    );
+  });
+
   it("says an expired challenge kept its deposit", async () => {
     await renderHome(
       fakeApi({

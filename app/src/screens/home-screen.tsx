@@ -17,6 +17,7 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { type AppReturnTrigger, useAppReturn } from "../challenges/app-return.ts";
 import { useCurrentChallenge } from "../challenges/current-challenge.ts";
 import { detectTimeZone, formatMoney } from "../challenges/draft.ts";
+import { endedReading } from "../challenges/ended-challenge.ts";
 import {
   challengeHistory,
   type DayState,
@@ -567,7 +568,7 @@ export function HomeScreen({
           runtime={runtime}
           settings={settingsLauncher}
           onBack={() => goHome(true)}
-          onFinished={() => setFinished(succeededSummary(open))}
+          onFinished={() => setFinished(succeededSummary(open, clock))}
         />
       );
     }
@@ -679,6 +680,7 @@ export function HomeScreen({
         ) : (
           <FinishedCard
             ended={ended}
+            timeZone={here}
             onStartAnother={() => openCreate(ended.id)}
             onDismiss={() => {
               setFinished(null);
@@ -1306,22 +1308,38 @@ const ENDED_PILL: Readonly<
  */
 function FinishedCard({
   ended,
+  timeZone,
   onStartAnother,
   onDismiss,
 }: {
   ended: EndedChallengeSummary;
+  timeZone: string;
   onStartAnother: () => void;
   onDismiss: () => void;
 }) {
   const pill = ENDED_PILL[ended.status];
+  const reading = endedReading(ended, timeZone);
   return (
     <Card testID="home-finished">
       <StatusPill testID="home-finished-status" label={pill.label} tone={pill.tone} />
+      {/* When it happened. A sweep decides a failure and an expiry, so the
+          first thing anyone opening this card wants is which morning it was -
+          above all the reader who woke up late and is asking whether it was
+          this one. */}
+      <AppText variant="small" tone="muted" testID="home-finished-when">
+        {reading.when}
+      </AppText>
       <AppText variant="display" testID="home-finished-days">
         {endedDaysCount(ended)}
         <AppText variant="headline" tone="muted">
           {endedDaysSuffix(ended)}
         </AppText>
+      </AppText>
+      {/* What ended it. The pill names the outcome and the count names the
+          score, and neither says what the app did - a failure otherwise reads
+          as a verdict with the charge left off. */}
+      <AppText variant="small" tone="muted" testID="home-finished-cause">
+        {reading.cause}
       </AppText>
       <AppText variant="small" tone="muted" testID="home-finished-deposit">
         {endedDepositText(ended)}
@@ -1379,12 +1397,12 @@ function endedDepositText(ended: EndedChallengeSummary): string {
  * for a read, and the two have to be the same shape or the card would have to
  * know which of them it was looking at.
  */
-function succeededSummary(challenge: ChallengeView): EndedChallengeSummary {
+function succeededSummary(challenge: ChallengeView, endedAt: Date): EndedChallengeSummary {
   const { configuration } = challenge;
   return {
     id: challenge.id,
     status: "succeeded",
-    endedAt: new Date().toISOString(),
+    endedAt: endedAt.toISOString(),
     requiredTaskCount: configuration.requiredTaskCount,
     // The completion that ended it was the last one the challenge asked for.
     completedTaskCount: configuration.requiredTaskCount,

@@ -327,6 +327,9 @@ describe("one account's life through the app's own screens", () => {
     expect(await screen.findByTestId("home-finished")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-no-challenge")).toBeNull();
     expect(screen.getByTestId("home-finished-days")).toHaveTextContent(/1 day, all yours/);
+    // The finish the app heard on the acknowledgment carries its own instant,
+    // so a success reports when it ended the same way a swept failure does.
+    expect(screen.getByTestId("home-finished-when")).toHaveTextContent(/^Ended /);
 
     // And the way on from it is another challenge.
     await user.press(screen.getByTestId("home-create-challenge"));
