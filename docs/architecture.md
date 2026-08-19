@@ -384,6 +384,17 @@ A device that will not hold its screen on fails silently - the walk is being cou
 
 The wording on the walk card follows the guarantee: it now leads with the screen staying on, and names leaving the app as the one thing left that ends the walk, rather than reading as an instruction to keep touching the phone.
 
+#### The permission the app cannot grant itself
+
+Three of the app's dead ends belong to the operating system rather than to the app: motion access refused before a walk, motion access revoked during one, and notifications refused so no alarm can be scheduled.
+In all three the app knows exactly what has to change, cannot change it, and until now said so as prose - "Turn it on in Settings" - which leaves a user who has just been stopped from walking to go and find the right page themselves, on the morning they have least patience for it.
+
+`app/src/device/settings.ts` is the port for opening this app's own page in the device's settings, and `app/src/screens/open-settings-action.tsx` is the one press all three places draw.
+It is a port for the same reasons the notifier and the pedometer are: a test must be able to press the button without the machine leaving for a settings app, and a platform with no such page has to be able to refuse.
+A refusal is reported rather than swallowed - the prose instruction the button replaced is drawn under the button that just failed - because at that point walking there by hand is the only route left, and a press that silently did nothing reads as the app being broken on top of the permission already being off.
+
+A walk the app was merely switched away from gets no such press: nothing in Settings would have saved it, the fix is to start again, and a button pointing elsewhere would be a wrong instruction.
+
 #### The clock on the morning
 
 `app/src/completions/time-left.ts` reads the minutes to the deadline that `dailyCompletionState` already carries and answers how much of the morning is left, how urgent that is, and the sentence for each.

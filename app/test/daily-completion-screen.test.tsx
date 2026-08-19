@@ -19,6 +19,7 @@ import { createMovementCapture, type MovementCapture } from "../src/movement/cap
 import { DailyCompletionScreen } from "../src/screens/daily-completion-screen.tsx";
 import { challengeView, type FakeApi, fakeApi } from "./support/fake-api.ts";
 import { createFakeForeground, createFakePedometer } from "./support/fake-pedometer.ts";
+import { type FakeSettingsLauncher, fakeSettings } from "./support/fake-settings.ts";
 import { createMemoryDatabase } from "./support/node-sqlite.ts";
 
 const METRICS = {
@@ -53,6 +54,7 @@ const COMPLETION_RESPONSE = {
 
 interface Harness {
   readonly api: FakeApi;
+  readonly settings: FakeSettingsLauncher;
   readonly store: PendingCompletionStore;
   readonly sync: CompletionSync;
   readonly capture: MovementCapture;
@@ -76,6 +78,7 @@ async function harness(api: FakeApi = fakeApi({ createCompletion: COMPLETION_RES
   const foreground = createFakeForeground();
   return {
     api,
+    settings: fakeSettings(),
     store,
     sync: createCompletionSync({ store, client: api }),
     capture: createMovementCapture({
@@ -105,6 +108,7 @@ function tree(
         store={given.store}
         appVersion="1.0.0"
         now={() => now}
+        settings={given.settings}
         {...(onAcknowledged === undefined ? {} : { onAcknowledged })}
         {...(onFinished === undefined ? {} : { onFinished })}
       />
@@ -332,6 +336,72 @@ describe("the walk itself", () => {
 
     expect(screen.queryByTestId("walk-interrupted")).toBeNull();
     expect(screen.getByTestId("capture")).toBeTruthy();
+  });
+});
+
+describe("a permission the app cannot grant itself", () => {
+  it("offers the settings page when motion access is refused", async () => {
+    const given = await harness();
+    given.pedometer.permission = "denied";
+    given.pedometer.onRequest = "denied";
+    await renderScreen(given);
+
+    await userEvent.setup().press(screen.getByTestId("start-capture"));
+
+    await waitFor(() => expect(screen.queryByTestId("motion-denied")).not.toBeNull());
+    // The sentence names the fix, and the button under it performs the fix -
+    // being told to go to Settings on a money-backed morning is not a fix.
+    await userEvent.setup().press(screen.getByTestId("motion-denied-settings"));
+    expect(given.settings.opened).toBe(1);
+    expect(screen.queryByTestId("motion-denied-settings-unavailable")).toBeNull();
+  });
+
+  it("says where to go by hand when the platform will not open its settings", async () => {
+    const given = { ...(await harness()), settings: fakeSettings({ refuses: true }) };
+    given.pedometer.permission = "denied";
+    given.pedometer.onRequest = "denied";
+    await renderScreen(given);
+
+    await userEvent.setup().press(screen.getByTestId("start-capture"));
+    await waitFor(() => expect(screen.queryByTestId("motion-denied")).not.toBeNull());
+    await userEvent.setup().press(screen.getByTestId("motion-denied-settings"));
+
+    expect(screen.getByTestId("motion-denied-settings-unavailable")).toHaveTextContent(
+      /Open the Settings app/,
+    );
+  });
+
+  it("offers it again to a walk that motion access was turned off during", async () => {
+    const given = await harness();
+    await renderScreen(given);
+    const user = userEvent.setup();
+
+    await user.press(screen.getByTestId("start-capture"));
+    await act(async () => {
+      given.pedometer.deliver(120);
+      given.pedometer.permission = "denied";
+      given.foreground.set(false);
+    });
+
+    await waitFor(() => expect(screen.queryByTestId("walk-interrupted")).not.toBeNull());
+    await user.press(screen.getByTestId("walk-interrupted-settings"));
+    expect(given.settings.opened).toBe(1);
+  });
+
+  it("does not offer it to a walk the app was switched away from", async () => {
+    // Nothing in Settings would have saved that walk; the only fix is to start
+    // again, and a settings button beside it would be a wrong instruction.
+    const given = await harness();
+    await renderScreen(given);
+    const user = userEvent.setup();
+
+    await user.press(screen.getByTestId("start-capture"));
+    await act(async () => {
+      given.foreground.set(false);
+    });
+
+    await waitFor(() => expect(screen.queryByTestId("walk-interrupted")).not.toBeNull());
+    expect(screen.queryByTestId("walk-interrupted-settings")).toBeNull();
   });
 });
 

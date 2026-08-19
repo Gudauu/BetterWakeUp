@@ -33,6 +33,7 @@ import {
 import { type FakeNotifier, fakeNotifier } from "./support/fake-notifier.ts";
 import { type FakePaymentSheet, fakePaymentSheet } from "./support/fake-payment-sheet.ts";
 import { fakeProviders } from "./support/fake-providers.ts";
+import { type FakeSettingsLauncher, fakeSettings } from "./support/fake-settings.ts";
 
 const SESSION = {
   accountId: "11111111-1111-4111-8111-111111111111",
@@ -73,6 +74,8 @@ async function renderHome(
     notifier?: FakeNotifier;
     /** How a card is asked for, once home offers to replace one that lapsed. */
     paymentSheet?: FakePaymentSheet;
+    /** How the device's settings page is opened, once home offers the press. */
+    settings?: FakeSettingsLauncher;
     /** Walks already recorded on this device and not yet sent. */
     seed?: FakeRuntimeOptions["seed"];
     /**
@@ -114,6 +117,7 @@ async function renderHome(
           deviceTimeZone={options.deviceTimeZone ?? "America/Los_Angeles"}
           now={readClock}
           {...(options.paymentSheet === undefined ? {} : { paymentSheet: options.paymentSheet })}
+          {...(options.settings === undefined ? {} : { settings: options.settings })}
           {...(options.appReturn === undefined ? {} : { appReturn: options.appReturn })}
           {...(options.onSignOut === undefined ? {} : { onSignOut: options.onSignOut })}
         />
@@ -1328,6 +1332,18 @@ describe("home and the device's reminders", () => {
 
     expect(await screen.findByTestId("home-reminders-denied")).toHaveTextContent(/device settings/);
     expect(screen.queryByTestId("home-enable-reminders")).toBeNull();
+  });
+
+  it("opens those settings rather than only naming them", async () => {
+    // The app cannot ask again once the device has refused, so the sentence is
+    // the whole of the fix and it has to be one press away.
+    const notifier = fakeNotifier({ permission: "denied" });
+    const settings = fakeSettings();
+
+    await renderHome(running(), { notifier, settings });
+
+    await userEvent.setup().press(await screen.findByTestId("home-reminders-settings"));
+    expect(settings.opened).toBe(1);
   });
 
   it("says nothing about reminders while the challenge is paused", async () => {

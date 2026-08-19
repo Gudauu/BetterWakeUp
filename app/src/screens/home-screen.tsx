@@ -47,6 +47,12 @@ import {
   unsentPastDeadlineText,
 } from "../completions/time-left.ts";
 import { heldWalksText, type UnsentWork, useUnsentWork } from "../completions/unsent-work.ts";
+import {
+  createConfiguredSettingsLauncher,
+  type OpenSettingsState,
+  type SettingsLauncher,
+  useOpenSettings,
+} from "../device/settings.ts";
 import { createConfiguredPaymentSheet, type PaymentSheet } from "../payments/payment-sheet.ts";
 import { needsPaymentMethod } from "../payments/replace-payment-method.ts";
 import {
@@ -77,6 +83,7 @@ import { useTheme } from "../ui/theme.ts";
 import { CreateChallengeScreen } from "./create-challenge-screen.tsx";
 import { DailyCompletionScreen } from "./daily-completion-screen.tsx";
 import { DeleteAccountScreen } from "./delete-account-screen.tsx";
+import { OpenSettingsAction } from "./open-settings-action.tsx";
 import { PauseScreen } from "./pause-screen.tsx";
 import { PaymentMethodScreen } from "./payment-method-screen.tsx";
 import { RecoveryScreen } from "./recovery-screen.tsx";
@@ -113,6 +120,12 @@ export interface HomeScreenProps {
    * without an operating system; a build passes nothing.
    */
   readonly appReturn?: AppReturnTrigger;
+  /**
+   * How the device's settings page is opened, which is the only way out of a
+   * refused notification or motion permission. Substituted in tests so a press
+   * opens nothing; a build passes nothing and the real one is used.
+   */
+  readonly settings?: SettingsLauncher;
   /**
    * How the clock is read, for the two windows this screen counts down: the
    * morning's deadline and the recovery offer's expiry. Stated in tests so that
@@ -187,6 +200,7 @@ export function HomeScreen({
   paymentSheet,
   appReturn,
   now,
+  settings,
 }: HomeScreenProps) {
   const { api, signOut } = useSession();
   // The clock is state that ticks, not a read at render time. Everything on
@@ -231,6 +245,13 @@ export function HomeScreen({
   // The same sheet the form uses, kept here as well: a lapsed hold is asked
   // about from home, and the card that answers it is the same kind of card.
   const [cardSheet] = useState<PaymentSheet>(() => paymentSheet ?? createConfiguredPaymentSheet());
+  // The way to the page that answers a refused permission. Held here rather
+  // than in the two places that offer the press, so home and today's task send
+  // the user to the same place.
+  const [settingsLauncher] = useState<SettingsLauncher>(
+    () => settings ?? createConfiguredSettingsLauncher(),
+  );
+  const openSettings = useOpenSettings(settingsLauncher);
   // Only a loaded read says anything about what is due. A read in flight or a
   // read that failed leaves the device's reminders where they are.
   const reminders = useReminders(
@@ -341,6 +362,7 @@ export function HomeScreen({
         <TodayTask
           challenge={open}
           runtime={runtime}
+          settings={settingsLauncher}
           onBack={() => goHome(true)}
           onFinished={() => setFinished(succeededSummary(open))}
         />
@@ -462,6 +484,7 @@ export function HomeScreen({
         <ChallengeCard
           challenge={state.challenge}
           reminders={reminders}
+          settings={openSettings}
           unsent={unsent}
           recovery={recoveryWindow(state.challenge, clock)}
           now={clock}
@@ -504,6 +527,7 @@ export function HomeScreen({
 function ChallengeCard({
   challenge,
   reminders,
+  settings,
   unsent,
   recovery,
   now,
@@ -516,6 +540,7 @@ function ChallengeCard({
 }: {
   challenge: ChallengeView;
   reminders: RemindersState;
+  settings: OpenSettingsState;
   unsent: UnsentWork;
   recovery: RecoveryWindow | null;
   now: Date;
@@ -656,7 +681,7 @@ function ChallengeCard({
         </AppText>
       )}
 
-      <Reminders challenge={challenge} reminders={reminders} />
+      <Reminders challenge={challenge} reminders={reminders} settings={settings} />
 
       {/* The offer that decides whether the deposit is charged. It leads with
           how long is left rather than with when it closes, turns red inside the
@@ -851,9 +876,11 @@ function taskButtonLabel(held: UnsentWork["currentTask"], morningGone: boolean):
 function Reminders({
   challenge,
   reminders,
+  settings,
 }: {
   challenge: ChallengeView;
   reminders: RemindersState;
+  settings: OpenSettingsState;
 }) {
   const alarm = nextAlarmAt(challenge);
   if (challenge.status !== "active" || challenge.pause.pausedAt !== null) {
@@ -872,10 +899,13 @@ function Reminders({
 
   if (reminders.permission === "denied") {
     return (
-      <AppText variant="small" tone="muted" testID="home-reminders-denied">
-        Reminders are off. Turn on notifications for BetterWakeUp in your device settings and you
-        will be nudged before each walk.
-      </AppText>
+      <Banner tone="info" testID="home-reminders-denied-banner">
+        <AppText variant="small" tone="muted" testID="home-reminders-denied">
+          Reminders are off. Turn on notifications for BetterWakeUp in your device settings and you
+          will be nudged before each walk.
+        </AppText>
+        <OpenSettingsAction testID="home-reminders-settings" settings={settings} tone="muted" />
+      </Banner>
     );
   }
 
@@ -1019,11 +1049,13 @@ function succeededSummary(challenge: ChallengeView): EndedChallengeSummary {
 function TodayTask({
   challenge,
   runtime,
+  settings,
   onBack,
   onFinished,
 }: {
   challenge: ChallengeView;
   runtime: CompletionRuntimeState;
+  settings: SettingsLauncher;
   onBack: () => void;
   onFinished: () => void;
 }) {
@@ -1057,6 +1089,7 @@ function TodayTask({
       store={runtime.runtime.store}
       appVersion={runtime.runtime.appVersion}
       simulation={runtime.runtime.simulation}
+      settings={settings}
       onBack={onBack}
       onFinished={onFinished}
     />

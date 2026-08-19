@@ -29,6 +29,11 @@ import { VERIFICATION_POLICY_VERSION } from "../completions/policy.ts";
 import type { PendingCompletionRecord, PendingCompletionStore } from "../completions/store.ts";
 import type { CompletionSync } from "../completions/sync.ts";
 import { deadlineMissedText, finishByText, timeLeft } from "../completions/time-left.ts";
+import {
+  createConfiguredSettingsLauncher,
+  type SettingsLauncher,
+  useOpenSettings,
+} from "../device/settings.ts";
 import type { CaptureState, MovementCapture } from "../movement/capture.ts";
 import type { MovementSimulation } from "../movement/simulated-pedometer.ts";
 import { interruptionText, walkingHintText, walkProgress } from "../movement/walk-progress.ts";
@@ -46,6 +51,7 @@ import {
 import { formatDay, formatTimeOfDay } from "../ui/format.ts";
 import { useTheme } from "../ui/theme.ts";
 import { BackLink } from "./back-link.tsx";
+import { OpenSettingsAction } from "./open-settings-action.tsx";
 
 export interface DailyCompletionScreenProps {
   readonly challenge: ChallengeView;
@@ -60,6 +66,12 @@ export interface DailyCompletionScreenProps {
   readonly simulation?: MovementSimulation | undefined;
   /** Injected in tests so the deadline warning is not the clock of the machine. */
   readonly now?: () => Date;
+  /**
+   * How the device's settings page is opened, which is the only way out of a
+   * refused motion permission. Substituted in tests so a press opens nothing;
+   * a build passes nothing and the real one is used.
+   */
+  readonly settings?: SettingsLauncher;
   /** Called when the server acknowledges, so the caller can re-read the challenge. */
   readonly onAcknowledged?: () => void;
   /**
@@ -100,6 +112,12 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
    * challenge would then vanish from home with no one having said so.
    */
   const [finished, setFinished] = useState(false);
+  // Built once for as long as the screen lives, so the hook below is not handed
+  // a new object on every render.
+  const [settingsLauncher] = useState<SettingsLauncher>(
+    () => props.settings ?? createConfiguredSettingsLauncher(),
+  );
+  const settings = useOpenSettings(settingsLauncher);
 
   const current = challenge.currentTask;
   const task =
@@ -331,6 +349,12 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
           >
             {interruptionText(walk.interruption)}
           </AppText>
+          {/* Only a revoked permission has somewhere to be sent: a walk lost by
+              the app being switched away from is fixed by starting again, and
+              the settings page has nothing to do with it. */}
+          {walk.interruption.reason === "permission-revoked" ? (
+            <OpenSettingsAction testID="walk-interrupted-settings" settings={settings} />
+          ) : null}
         </Banner>
       )}
 
@@ -408,8 +432,10 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
       {captureState.status === "permission-denied" ? (
         <Banner tone="danger">
           <AppText variant="small" tone="danger" testID="motion-denied" accessibilityRole="alert">
-            Motion access is off, so nothing can be counted. Turn it on in Settings.
+            Motion access is off, so nothing can be counted. Turn it on in Settings, then start the
+            walk again.
           </AppText>
+          <OpenSettingsAction testID="motion-denied-settings" settings={settings} />
         </Banner>
       ) : null}
 
