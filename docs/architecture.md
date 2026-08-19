@@ -488,6 +488,11 @@ The task screen shows these states while it is open, but home is the screen some
 So home reports what this device is holding - today's walk saved but not yet sent, today's walk refused, or a walk left over from an earlier day - and a walk from an earlier day is reported without any action beside it, because sync retries it on its own and the task it belonged to is closed.
 The store is read again whenever sync publishes an outcome, so the moment a walk lands home stops saying it is waiting.
 
+Home reports the store on its error screen too, not only on the loaded one.
+The read of the challenge fails exactly when the device has no connection, which is exactly when a walk stays on the phone, so the two coincide rather than being independent.
+An error screen that says only that the challenge could not be loaded reads, to someone who got up and walked ten minutes ago, as though the walk went with it - and the one thing they might do about that cannot help, because the record is already written and a second walk would be refused as a duplicate.
+So when the read fails and the device is holding records, the screen names how many and says they send themselves; when it is holding none it says nothing, rather than reassuring someone about work they never did.
+
 ## Authentication
 
 Version 1 supports Sign in with Apple and Google Sign-In only.

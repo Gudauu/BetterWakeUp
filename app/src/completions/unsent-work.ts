@@ -55,6 +55,32 @@ export function unsentWork(
 }
 
 /**
+ * What to say about the walks this device is holding when the challenge itself
+ * could not be read.
+ *
+ * This is the state the store exists for and the one place the user has least
+ * to go on: the read fails exactly when there is no connection, which is
+ * exactly when a walk stays on the phone. An error screen that says only that
+ * the challenge could not be loaded reads, to someone who got up and walked ten
+ * minutes ago, as though the walk went with it - and the one thing they might
+ * do about that, walking it again, cannot help, because the record is already
+ * written and the second walk would be refused as a duplicate.
+ *
+ * Answers null when the device is holding nothing, so the screen says nothing
+ * rather than reassuring someone about work they never did.
+ */
+export function heldWalksText(waiting: number): string | null {
+  if (waiting <= 0) {
+    return null;
+  }
+  const subject =
+    waiting === 1
+      ? "A walk you saved is still on this phone."
+      : `${waiting} walks you saved are still on this phone.`;
+  return `${subject} Nothing was lost: they send themselves as soon as the app can reach BetterWakeUp again, so there is no need to walk again.`;
+}
+
+/**
  * The store's answer, kept level with it for as long as the caller is mounted.
  *
  * Sync's own events are the trigger: a record being acknowledged, refused or

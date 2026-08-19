@@ -417,10 +417,19 @@ describe("one account's life through the app's own screens", () => {
     );
     expect(server.completions()).toHaveLength(0);
 
+    // Still with no signal, the user goes back. Home cannot read the challenge
+    // at all, so all it has left to say is the one thing that matters: the walk
+    // is on the phone, and walking it again would buy nothing.
+    await user.press(screen.getByTestId("daily-back"));
+
+    expect(await screen.findByTestId("home-error-held-walks")).toHaveTextContent(
+      /A walk you saved is still on this phone/,
+    );
+
     // Back in signal, but nothing has re-sent it yet: home is where the user
     // looks, and home says the walk is real and not yet counted.
     server.setOffline(false);
-    await user.press(screen.getByTestId("daily-back"));
+    await user.press(screen.getByTestId("home-retry"));
 
     expect(await screen.findByTestId("home-task-waiting")).toHaveTextContent(
       /Walked and saved on this phone/,

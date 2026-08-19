@@ -46,7 +46,7 @@ import {
   timeLeftUntil,
   unsentPastDeadlineText,
 } from "../completions/time-left.ts";
-import { type UnsentWork, useUnsentWork } from "../completions/unsent-work.ts";
+import { heldWalksText, type UnsentWork, useUnsentWork } from "../completions/unsent-work.ts";
 import { createConfiguredPaymentSheet, type PaymentSheet } from "../payments/payment-sheet.ts";
 import { needsPaymentMethod } from "../payments/replace-payment-method.ts";
 import {
@@ -281,6 +281,9 @@ export function HomeScreen({
   }
 
   if (state.status === "failed") {
+    // With no challenge read there is no current task to belong to, so every
+    // record the device holds counts as waiting here.
+    const held = heldWalksText(unsent.earlierWaiting);
     return (
       <Screen centered testID="home-error">
         <AppText variant="title" accessibilityRole="header">
@@ -296,6 +299,13 @@ export function HomeScreen({
             {state.message}
           </AppText>
         </Banner>
+        {held === null ? null : (
+          <Banner tone="info">
+            <AppText variant="small" testID="home-error-held-walks">
+              {held}
+            </AppText>
+          </Banner>
+        )}
         <Button testID="home-retry" label="Try again" onPress={reload} style={styles.wide} />
         <SignOut onSignOut={onSignOut} />
       </Screen>

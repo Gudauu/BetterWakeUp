@@ -8,7 +8,7 @@
  */
 
 import type { PendingCompletionRecord } from "../src/completions/store.ts";
-import { NO_UNSENT_WORK, unsentWork } from "../src/completions/unsent-work.ts";
+import { heldWalksText, NO_UNSENT_WORK, unsentWork } from "../src/completions/unsent-work.ts";
 
 const TASK = "44444444-4444-4444-8444-444444444444";
 const OTHER_TASK = "55555555-5555-4555-8555-555555555555";
@@ -71,5 +71,23 @@ describe("unsent work", () => {
   it("leaves an earlier refusal out, because nothing can be pressed about it", () => {
     const records = [record({ taskId: OTHER_TASK, status: "rejected" })];
     expect(unsentWork(records, TASK)).toEqual(NO_UNSENT_WORK);
+  });
+});
+
+describe("what a device holding walks is told when the challenge cannot be read", () => {
+  it("says nothing when the device is holding nothing", () => {
+    expect(heldWalksText(0)).toBeNull();
+  });
+
+  it("speaks of one walk in the singular", () => {
+    expect(heldWalksText(1)).toMatch(/^A walk you saved is still on this phone\./);
+  });
+
+  it("counts the walks when there is more than one", () => {
+    expect(heldWalksText(3)).toMatch(/^3 walks you saved are still on this phone\./);
+  });
+
+  it("rules out walking again, which the server would refuse as a duplicate", () => {
+    expect(heldWalksText(1)).toMatch(/no need to walk again/);
   });
 });

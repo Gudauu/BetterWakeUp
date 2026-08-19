@@ -408,6 +408,53 @@ describe("home when the read fails", () => {
 
     expect(await screen.findByTestId("home-error-message")).toHaveTextContent(/No connection/);
   });
+
+  it("says the walks on this phone are safe when the read fails with work held", async () => {
+    // The read fails exactly when there is no connection, which is exactly when
+    // a walk stays on the phone: an error screen alone reads, to someone who
+    // walked ten minutes ago, as though the walk went with the challenge.
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: new ApiError("internal_error", "fetch failed", { status: null }),
+      }),
+      {
+        seed: [
+          {
+            input: {
+              challengeId: "33333333-3333-4333-8333-333333333333",
+              taskId: "44444444-4444-4444-8444-444444444444",
+              completedAt: "2026-09-01T13:40:00.000Z",
+              observation: {
+                startedAt: "2026-09-01T13:30:00.000Z",
+                endedAt: "2026-09-01T13:40:00.000Z",
+                steps: 300,
+                provenance: "live-foreground",
+                source: "expo-pedometer-ios",
+              },
+              appVersion: "1.0.0-test",
+              verificationPolicyVersion: "live-foreground-steps.1",
+            },
+          },
+        ],
+      },
+    );
+
+    expect(await screen.findByTestId("home-error-held-walks")).toHaveTextContent(
+      /A walk you saved is still on this phone/,
+    );
+    expect(screen.getByTestId("home-error-held-walks")).toHaveTextContent(/no need to walk again/);
+  });
+
+  it("says nothing about held walks when the device is holding none", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: new ApiError("internal_error", "fetch failed", { status: null }),
+      }),
+    );
+
+    expect(await screen.findByTestId("home-error")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-error-held-walks")).toBeNull();
+  });
 });
 
 describe("home is the door to creating a challenge", () => {
