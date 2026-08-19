@@ -36,7 +36,12 @@ import {
 } from "../device/settings.ts";
 import type { CaptureState, MovementCapture } from "../movement/capture.ts";
 import type { MovementSimulation } from "../movement/simulated-pedometer.ts";
-import { interruptionText, walkingHintText, walkProgress } from "../movement/walk-progress.ts";
+import {
+  abandonWalkText,
+  interruptionText,
+  walkingHintText,
+  walkProgress,
+} from "../movement/walk-progress.ts";
 import { useClock } from "../ui/clock.ts";
 import {
   AppText,
@@ -51,6 +56,7 @@ import {
 import { formatDay, formatTimeOfDay } from "../ui/format.ts";
 import { useTheme } from "../ui/theme.ts";
 import { BackLink } from "./back-link.tsx";
+import { ConfirmAction } from "./confirm-action.tsx";
 import { OpenSettingsAction } from "./open-settings-action.tsx";
 
 export interface DailyCompletionScreenProps {
@@ -393,12 +399,31 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
               {finishByText(deadlineTime)}
             </AppText>
           ) : null}
-          <Button
-            testID="stop-capture"
-            label={walk.reachedTarget ? "Save my walk" : "Stop and check"}
-            busy={busy}
-            onPress={onStop}
-          />
+          {/* Two different presses wearing one label until now. Once the target
+              is met, stopping saves the morning and is offered outright. Short
+              of it, stopping throws the window away - the steps cannot be
+              carried into a later walk - so the cost is named and the press is
+              asked for twice. A window with nothing in it costs nothing, and a
+              confirmation over it would be ceremony. */}
+          {walk.reachedTarget || steps === 0 ? (
+            <Button
+              testID="stop-capture"
+              label={walk.reachedTarget ? "Save my walk" : "Stop the walk"}
+              busy={busy}
+              onPress={onStop}
+            />
+          ) : (
+            <ConfirmAction
+              testID="stop-capture"
+              label="End this walk"
+              variant="danger"
+              consequence={abandonWalkText(steps, walk.remaining)}
+              confirmLabel="End it and lose these steps"
+              cancelLabel="Keep walking"
+              busy={busy}
+              onConfirm={onStop}
+            />
+          )}
         </Card>
       ) : null}
 

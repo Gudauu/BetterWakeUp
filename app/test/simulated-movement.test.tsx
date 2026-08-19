@@ -220,7 +220,10 @@ describe("the task screen in a simulated build", () => {
     await act(async () => {
       await user.press(screen.getByTestId("simulate-some-steps"));
     });
+    // Short of the target, ending the walk is a two-press action: the first
+    // opens what it costs and the second spends it.
     await user.press(screen.getByTestId("stop-capture"));
+    await user.press(screen.getByTestId("stop-capture-confirm"));
 
     await waitFor(() =>
       expect(screen.getByTestId("shortfall")).toHaveTextContent(

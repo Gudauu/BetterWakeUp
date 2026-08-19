@@ -136,7 +136,10 @@ async function renderAt(now: Date, given: Harness, view = challenge()) {
   await waitFor(() => expect(screen.queryByTestId("daily-completion")).not.toBeNull());
 }
 
-/** Run a full capture window that reaches the target and record it. */
+/**
+ * Run a capture window and close it. Below the target, closing a window that
+ * counted something is a two-press action, because it throws those steps away.
+ */
 async function completeLocally(given: Harness, steps = 400) {
   const user = userEvent.setup();
   await user.press(screen.getByTestId("start-capture"));
@@ -144,6 +147,9 @@ async function completeLocally(given: Harness, steps = 400) {
     given.pedometer.deliver(steps);
   });
   await user.press(screen.getByTestId("stop-capture"));
+  if (steps > 0 && steps < challenge().configuration.stepTarget) {
+    await user.press(screen.getByTestId("stop-capture-confirm"));
+  }
 }
 
 describe("the two checks", () => {
@@ -281,7 +287,7 @@ describe("the walk itself", () => {
       given.pedometer.deliver(249);
     });
     expect(screen.getByTestId("capture")).toHaveTextContent(/WALK IN PROGRESS/);
-    expect(screen.getByTestId("stop-capture")).toHaveTextContent(/Stop and check/);
+    expect(screen.getByTestId("stop-capture")).toHaveTextContent(/End this walk/);
 
     await act(async () => {
       given.pedometer.deliver(250);
@@ -292,6 +298,58 @@ describe("the walk itself", () => {
       /That is the walk\. Save it and the morning is yours\./,
     );
     expect(screen.getByTestId("stop-capture")).toHaveTextContent(/Save my walk/);
+  });
+
+  it("names what ending a walk short of the target costs before it is ended", async () => {
+    const given = await harness();
+    await renderScreen(given);
+    const user = userEvent.setup();
+
+    await user.press(screen.getByTestId("start-capture"));
+    await act(async () => {
+      given.pedometer.deliver(100);
+    });
+    await user.press(screen.getByTestId("stop-capture"));
+
+    // The first press only opens the cost. The window is still counting.
+    expect(screen.getByTestId("stop-capture-consequence")).toHaveTextContent(
+      /150 steps short.*the 100 steps counted so far are discarded/,
+    );
+    expect(screen.getByTestId("capture")).not.toBeNull();
+    expect(screen.getByTestId("stop-capture-cancel")).toHaveTextContent(/Keep walking/);
+  });
+
+  it("leaves the walk running when the cost is read and declined", async () => {
+    const given = await harness();
+    await renderScreen(given);
+    const user = userEvent.setup();
+
+    await user.press(screen.getByTestId("start-capture"));
+    await act(async () => {
+      given.pedometer.deliver(100);
+    });
+    await user.press(screen.getByTestId("stop-capture"));
+    await user.press(screen.getByTestId("stop-capture-cancel"));
+
+    // Still the same window: the steps kept counting through the question.
+    await act(async () => {
+      given.pedometer.deliver(250);
+    });
+    expect(screen.getByTestId("capture")).toHaveTextContent(/TARGET REACHED/);
+    expect(screen.getByTestId("stop-capture")).toHaveTextContent(/Save my walk/);
+  });
+
+  it("asks for no confirmation over a window that has counted nothing", async () => {
+    const given = await harness();
+    await renderScreen(given);
+    const user = userEvent.setup();
+
+    await user.press(screen.getByTestId("start-capture"));
+
+    expect(screen.getByTestId("stop-capture")).toHaveTextContent(/Stop the walk/);
+    await user.press(screen.getByTestId("stop-capture"));
+    expect(screen.queryByTestId("stop-capture-confirmation")).toBeNull();
+    await waitFor(() => expect(screen.queryByTestId("capture")).toBeNull());
   });
 
   it("explains a walk the app itself ended rather than offering a fresh start", async () => {

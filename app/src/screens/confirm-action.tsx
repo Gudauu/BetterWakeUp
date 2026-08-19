@@ -27,6 +27,13 @@ export interface ConfirmActionProps {
    * something the user cannot get back; the default for the rest.
    */
   readonly variant?: ButtonVariant;
+  /**
+   * The label of the press that backs out. The default speaks for a setting
+   * being left alone, which is wrong for an action taken in the middle of
+   * something - a walk is kept by carrying on with it, not by keeping things
+   * as they are.
+   */
+  readonly cancelLabel?: string;
   readonly busy?: boolean;
   readonly onConfirm: () => Promise<void> | void;
 }
@@ -74,7 +81,7 @@ export function ConfirmAction(props: ConfirmActionProps) {
       />
       <TextButton
         testID={`${props.testID}-cancel`}
-        label="Keep things as they are"
+        label={props.cancelLabel ?? "Keep things as they are"}
         onPress={() => setOpen(false)}
       />
     </Banner>

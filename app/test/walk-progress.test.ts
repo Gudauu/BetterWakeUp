@@ -10,6 +10,7 @@
 import type { MovementObservation } from "@betterwakeup/contract";
 import type { CaptureState } from "../src/movement/capture.ts";
 import {
+  abandonWalkText,
   interruptionText,
   type WalkProgress,
   walkingHintText,
@@ -121,5 +122,23 @@ describe("what a walking user is told while the window is open", () => {
     expect(walkingHintText(150)).toBe(
       "150 to go. The screen stays on while you walk - leave the app, though, and the walk ends.",
     );
+  });
+});
+
+describe("what ending a walk short of the target costs", () => {
+  it("names the steps that go and says a later walk cannot inherit them", () => {
+    const text = abandonWalkText(180, 70);
+
+    expect(text).toContain("70 steps short");
+    expect(text).toContain("the 180 steps counted so far are discarded");
+    expect(text).toContain("a new walk starts from zero");
+  });
+
+  it("reads as English for a single step either side", () => {
+    const text = abandonWalkText(1, 1);
+
+    expect(text).toContain("1 step short");
+    expect(text).toContain("the 1 step counted so far is discarded");
+    expect(text).not.toContain("1 steps");
   });
 });

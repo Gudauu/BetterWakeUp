@@ -85,6 +85,25 @@ export function walkingHintText(remaining: number): string {
 }
 
 /**
+ * What a user is told before they end a walk that has not reached the target.
+ *
+ * A window cannot be resumed: the observation the server accepts is one
+ * continuous stretch of foreground time, so the steps in an abandoned window
+ * are not carried into the next one and the next one starts at zero. The
+ * button that ended it had read "Stop and check", which promises a look at a
+ * number the screen is already showing and delivers the loss of the walk, so
+ * the cost is named here and the press is asked for twice.
+ */
+export function abandonWalkText(steps: number, remaining: number): string {
+  const short = remaining === 1 ? "1 step" : `${remaining} steps`;
+  const lost =
+    steps === 1
+      ? "the 1 step counted so far is discarded"
+      : `the ${steps} steps counted so far are discarded`;
+  return `You are ${short} short. End the walk now and ${lost} - a new walk starts from zero and has to reach the target on its own.`;
+}
+
+/**
  * What a user is told about a walk that ended on its own.
  *
  * Every wording names the same three things in the same order: what ended it,

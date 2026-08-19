@@ -369,6 +369,17 @@ The screen now names what ended the walk and how many steps it cost, and the sta
 
 The first is the other half of the same rule: while a window is open the screen says how many steps are left and that leaving the app ends the walk, and the moment the target is met it says so and turns the button into "Save my walk", because the walk is earned at that step and every second after it is a second the window can still be lost.
 
+#### The press that ended the walk
+
+Below the target, the button that closes a window had read "Stop and check".
+That promises a look at a number the screen is already showing live and delivers something else entirely: a window cannot be resumed, because the observation the server accepts is one continuous stretch of foreground time, so the steps in a window closed early are thrown away and the next walk starts at zero.
+One tap of a control labelled as a check therefore cost a user their whole walk.
+
+The press is now split by what it does rather than sharing a label.
+With the target met, stopping saves the morning and is offered outright.
+Short of it, the control reads "End this walk" and opens `abandonWalkText` - how far short the walk is, how many steps go, and that a later walk cannot inherit them - before a second, danger-toned press ends it; backing out reads "Keep walking", because a walk is kept by carrying on with it rather than by keeping things as they are, which is what `ConfirmAction`'s default cancel says.
+A window that has counted nothing is closed by a single press: there is nothing to lose, and a confirmation over it would be ceremony.
+
 #### Why the phone does not lock during a walk
 
 The foreground-only rule and the device's auto-lock timer were in direct conflict, and the timer won.
