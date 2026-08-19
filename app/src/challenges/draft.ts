@@ -21,6 +21,8 @@ import {
   type Weekday,
 } from "@betterwakeup/contract";
 
+import { DAYS_TO_COMPLETE, NO_REGRET_MINUTES, STEP_TARGET } from "./counts.ts";
+
 /**
  * The one currency the product takes a deposit in. Named here so the payment
  * sheet asks for the same money the configuration states, rather than the two
@@ -181,8 +183,25 @@ export function configurationOf(draft: ChallengeDraft): DraftConfiguration {
     : { ok: true, configuration: parsed.data as ChallengeConfiguration };
 }
 
+/**
+ * The schema's complaints in the words the form uses.
+ *
+ * A path into the request body is the right thing to log and the wrong thing to
+ * show: `stepTarget: Too small: expected number to be >=1` names a field the
+ * user never saw under that name. Every field the form can actually put in this
+ * state has its sentence here, and the wording is shared with the field's own
+ * reader so the banner and the line under the box cannot disagree.
+ */
+const PROBLEM_BY_PATH: Readonly<Record<string, string>> = {
+  requiredTaskCount: DAYS_TO_COMPLETE.tooSmall,
+  schedule: "Pick at least one morning for your challenge.",
+  stepTarget: STEP_TARGET.tooSmall,
+  noRegretMinutes: NO_REGRET_MINUTES.tooSmall,
+  timeZone: "That time zone is not one deadlines can be read in.",
+};
+
 function describeIssue(path: string, message: string): string {
-  return path.length === 0 ? message : `${path}: ${message}`;
+  return PROBLEM_BY_PATH[path] ?? message;
 }
 
 /** `2000` reads as `$20.00`, which is the only place the app writes dollars. */

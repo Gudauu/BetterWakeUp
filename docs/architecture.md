@@ -226,6 +226,18 @@ That is what `Field`'s `problem` and `reading` are for: what is wrong, or - once
 The draft only ever receives text that reads as a time, so the schedule it holds is always valid. Text that does not read as one is therefore invisible to `configurationOf`, and the setup screen holds the affected weekdays itself and withholds the action that commits while any of them stands.
 Without that, a challenge could be started against the last accepted deadline while the field on screen showed something else. A weekday turned off drops out of that set, so a half-typed Saturday cannot block a form from a field that is no longer drawn.
 
+### The numbers being typed
+
+The same split applies to the three whole numbers a challenge is configured with - days to complete, step target, No Regret Time - and `app/src/challenges/counts.ts` reads them.
+
+The reading exists for two reasons. The first is that a field which writes its own value back on every keystroke cannot be cleared: emptying the box used to be stored as zero and read back as `0` under the cursor, so a `30` could only be replaced by selecting it first.
+The second is that the zero it stored was then judged by the contract's schema, which answered with a path into the request body drawn in a banner two cards below the field that caused it.
+
+So an empty box is not a zero: it is a field whose value has not been typed yet, held as text in the field and reported upward the way an unreadable deadline is, with the action that commits withheld while any of them stands.
+A number below its field's minimum is read but refused, and the sentence naming what is wrong belongs to the field rather than to the reader, because "at least one day" and "at least one step" are different sentences about the same rule.
+
+`configurationOf` states its remaining complaints in the same words. A path into the request body is the right thing to log and the wrong thing to show, so the schema's issues are mapped to sentences, sharing the fields' own wording so the banner and the line under the box cannot disagree.
+
 ### The month as a row of days
 
 `challengeView.days` is the challenge's own calendar: every day it holds, oldest first, each with the status the server gave it.

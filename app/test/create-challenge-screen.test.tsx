@@ -468,6 +468,54 @@ describe("the form the user fills in", () => {
     expect(screen.getByTestId("create-challenge")).toHaveTextContent(/That is 8 hours/);
   });
 
+  it("lets a number be cleared and retyped rather than snapping the box back to zero", async () => {
+    const api = await renderScreen(readyDraft());
+
+    await fireEvent.changeText(screen.getByTestId("field-required-task-count"), "");
+    // The old behaviour: an empty box was written down as zero and read back
+    // as "0", so the next digit typed made 30 into 03.
+    expect(screen.getByTestId("field-required-task-count")).toHaveProp("value", "");
+
+    await fireEvent.changeText(screen.getByTestId("field-required-task-count"), "45");
+    expect(screen.getByTestId("field-required-task-count")).toHaveProp("value", "45");
+
+    await userEvent.press(screen.getByTestId("start-challenge"));
+
+    const created = api.calls.find((call) => call.name === "createChallenge");
+    expect(
+      (created?.input as { body: { configuration: { requiredTaskCount: number } } }).body
+        .configuration.requiredTaskCount,
+    ).toBe(45);
+  });
+
+  it("will not start a challenge against a number the user is midway through replacing", async () => {
+    await renderScreen(readyDraft());
+
+    await fireEvent.changeText(screen.getByTestId("field-step-target"), "");
+
+    expect(screen.queryByTestId("start-challenge")).toBeNull();
+    expect(screen.getByTestId("field-step-target-problem")).toHaveTextContent(
+      /how many steps a morning walk has to reach/,
+    );
+    expect(screen.getByTestId("not-ready")).toHaveTextContent(/numbers is not filled in yet/);
+
+    await fireEvent.changeText(screen.getByTestId("field-step-target"), "250");
+
+    expect(screen.getByTestId("start-challenge")).toBeOnTheScreen();
+  });
+
+  it("names a number below its minimum beside the field rather than as a schema path", async () => {
+    await renderScreen(readyDraft());
+
+    await fireEvent.changeText(screen.getByTestId("field-step-target"), "0");
+
+    expect(screen.getByTestId("field-step-target-problem")).toHaveTextContent(/at least one step/);
+    // The old behaviour: "stepTarget: Too small: expected number to be >=1",
+    // in a card below the field that caused it.
+    expect(screen.getByTestId("create-challenge")).not.toHaveTextContent(/stepTarget/);
+    expect(screen.queryByTestId("configuration-problems")).toBeNull();
+  });
+
   it("leaves a way out of the funding screen rather than stranding the user there", async () => {
     const cancelled = jest.fn();
     await render(

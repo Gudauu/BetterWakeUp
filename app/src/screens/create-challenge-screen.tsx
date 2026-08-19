@@ -26,6 +26,13 @@ import {
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import {
+  type CountSpec,
+  DAYS_TO_COMPLETE,
+  NO_REGRET_MINUTES,
+  readCount,
+  STEP_TARGET,
+} from "../challenges/counts.ts";
+import {
   projectChallenge,
   type StartChallengeOutcome,
   startChallenge,
@@ -173,6 +180,10 @@ export function CreateChallengeScreen({
   // stops a challenge being started against a time the user is mid-way through
   // replacing - without it the form would look wrong and start anyway.
   const [unreadableDeadlines, setUnreadableDeadlines] = useState<readonly Weekday[]>([]);
+  // The same rule for the three numeric fields, keyed by the field's testID: the
+  // draft holds the last number that read as one, so an emptied or half-typed
+  // box is remembered here rather than being written down as a zero.
+  const [unreadableCounts, setUnreadableCounts] = useState<readonly string[]>([]);
   // Built once for as long as the screen lives, so the effect that presents it
   // is not re-run by a new object on every render.
   const [sheet] = useState<PaymentSheet>(() => paymentSheet ?? createConfiguredPaymentSheet());
@@ -195,6 +206,16 @@ export function CreateChallengeScreen({
   const deadlinesReadable = !unreadableDeadlines.some((weekday) =>
     draft.schedule.some((day) => day.weekday === weekday),
   );
+  const countsReadable = unreadableCounts.length === 0;
+  const rememberCount = (field: string, count: number | null) => {
+    setUnreadableCounts((current) =>
+      count === null
+        ? current.includes(field)
+          ? current
+          : [...current, field]
+        : current.filter((other) => other !== field),
+    );
+  };
   const funded = draft.depositMinorUnits > 0;
   // The maximum duration is the server's answer, not the app's, so the action
   // waits for a projection before it is offered on a funded challenge.
@@ -466,17 +487,18 @@ export function CreateChallengeScreen({
 
       <Card>
         <SectionTitle title="The mornings" step={1} />
-        <Field
+        <CountField
           label="Days to complete"
           hint="How many active days you have to finish before the challenge is done."
           testID="field-required-task-count"
-          keyboardType="number-pad"
-          value={String(draft.requiredTaskCount)}
-          // An empty field is zero rather than NaN: the contract refuses zero
-          // where zero is illegal, and the reason is already on screen.
-          onChangeText={(text) =>
-            dispatch({ type: "setRequiredTaskCount", count: wholeNumber(text) })
-          }
+          spec={DAYS_TO_COMPLETE}
+          count={draft.requiredTaskCount}
+          onChange={(count) => {
+            rememberCount("field-required-task-count", count);
+            if (count !== null) {
+              dispatch({ type: "setRequiredTaskCount", count });
+            }
+          }}
         />
 
         <View style={styles.group}>
@@ -551,25 +573,34 @@ export function CreateChallengeScreen({
 
       <Card>
         <SectionTitle title="The walk" step={2} />
-        <Field
+        <CountField
           label="Step target"
           hint="The steps you have to take before the deadline for the day to count."
           testID="field-step-target"
-          keyboardType="number-pad"
           suffix="steps"
-          value={String(draft.stepTarget)}
-          onChangeText={(text) => dispatch({ type: "setStepTarget", steps: wholeNumber(text) })}
+          spec={STEP_TARGET}
+          count={draft.stepTarget}
+          onChange={(steps) => {
+            rememberCount("field-step-target", steps);
+            if (steps !== null) {
+              dispatch({ type: "setStepTarget", steps });
+            }
+          }}
         />
-        <Field
+        <CountField
           label="No Regret Time"
-          hint={`How long you have to stay up once you are awake. ${describeMinutes(draft.noRegretMinutes)}.`}
+          hint="How long you have to stay up once you are awake."
           testID="field-no-regret-minutes"
-          keyboardType="number-pad"
           suffix="minutes"
-          value={String(draft.noRegretMinutes)}
-          onChangeText={(text) =>
-            dispatch({ type: "setNoRegretMinutes", minutes: wholeNumber(text) })
-          }
+          spec={NO_REGRET_MINUTES}
+          count={draft.noRegretMinutes}
+          reading={describeMinutes}
+          onChange={(minutes) => {
+            rememberCount("field-no-regret-minutes", minutes);
+            if (minutes !== null) {
+              dispatch({ type: "setNoRegretMinutes", minutes });
+            }
+          }}
         />
         <Divider />
         {/* The phone is part of the walk's terms: it is what settles every
@@ -666,7 +697,7 @@ export function CreateChallengeScreen({
         </Banner>
       ) : null}
 
-      {readiness.ready && withinDuration && phoneCanWalk && deadlinesReadable ? (
+      {readiness.ready && withinDuration && phoneCanWalk && deadlinesReadable && countsReadable ? (
         <Button
           testID={funded ? "deposit-and-start" : "start-challenge"}
           label={funded ? `Deposit ${formatMoney(draft.depositMinorUnits)} and start` : "Start"}
@@ -676,7 +707,7 @@ export function CreateChallengeScreen({
       ) : (
         <Banner tone="info">
           <AppText variant="small" testID="not-ready">
-            {nextStep(readiness, withinDuration, phoneCanWalk, deadlinesReadable)}
+            {nextStep(readiness, withinDuration, phoneCanWalk, deadlinesReadable, countsReadable)}
           </AppText>
         </Banner>
       )}
@@ -774,18 +805,66 @@ function money(text: string): string {
   return rest.length === 0 ? whole : `${whole}.${rest.join("").slice(0, 2)}`;
 }
 
-function wholeNumber(text: string): number {
-  return Number.parseInt(text.replace(/[^0-9]/g, ""), 10) || 0;
+/**
+ * One of the challenge's whole numbers, held as the text it was typed as.
+ *
+ * The draft keeps the last value that read as a number, which is what lets the
+ * box be emptied: a field that wrote its own reading back on every keystroke
+ * answered a cleared box with `0` under the cursor, so a `30` could only be
+ * replaced by selecting it first. An unreadable box is reported upward instead,
+ * because a challenge must not be started against a number the user is midway
+ * through replacing.
+ */
+function CountField({
+  label,
+  hint,
+  testID,
+  suffix,
+  spec,
+  count,
+  reading,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  testID: string;
+  suffix?: string;
+  spec: CountSpec;
+  count: number;
+  reading?: (count: number) => string;
+  onChange: (count: number | null) => void;
+}) {
+  const [text, setText] = useState(() => String(count));
+  const read = readCount(text, spec);
+  return (
+    <Field
+      label={label}
+      hint={hint}
+      testID={testID}
+      keyboardType="number-pad"
+      value={text}
+      {...(suffix === undefined ? {} : { suffix })}
+      {...(read.problem !== null
+        ? { problem: read.problem }
+        : reading === undefined || read.count === null
+          ? {}
+          : { reading: reading(read.count) })}
+      onChangeText={(next) => {
+        setText(next);
+        onChange(readCount(next, spec).count);
+      }}
+    />
+  );
 }
 
 /** `480` reads as `That is 8 hours`, so the unit on screen is not the only one. */
 function describeMinutes(minutes: number): string {
   if (minutes < 60) {
-    return `That is under an hour`;
+    return `That is under an hour.`;
   }
   const hours = minutes / 60;
   const rounded = Number.isInteger(hours) ? String(hours) : hours.toFixed(1);
-  return `That is ${rounded} hours`;
+  return `That is ${rounded} hours.`;
 }
 
 /**
@@ -798,6 +877,7 @@ function nextStep(
   withinDuration: boolean,
   phoneCanWalk: boolean,
   deadlinesReadable: boolean,
+  countsReadable: boolean,
 ): string {
   // First, because nothing else about the draft matters on a phone that could
   // never complete a day of it.
@@ -808,6 +888,10 @@ function nextStep(
   // deadline and so has no complaint of its own to make about this.
   if (!deadlinesReadable) {
     return "One of your deadlines is not a time yet. Fix it to continue.";
+  }
+  // For the same reason: the draft still holds the last number that read as one.
+  if (!countsReadable) {
+    return "One of your numbers is not filled in yet. Fix it to continue.";
   }
   if (!readiness.configuration.ok) {
     return "Check the days, deadlines, and deposit above.";
