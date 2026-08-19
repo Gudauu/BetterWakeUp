@@ -21,9 +21,12 @@ import type {
   ChallengeStatus,
   ChallengeView,
   ChangeTimeZoneResponse,
+  TaskView,
 } from "@betterwakeup/contract";
 import type { ApiClient } from "../api/client.ts";
 import { ApiError } from "../api/errors.ts";
+import { ALARM_LEAD_MINUTES } from "../reminders/reminders.ts";
+import { formatDuration, formatTimeOfDay } from "../ui/format.ts";
 import type { CommandOutcome } from "./lifecycle-commands.ts";
 
 /** A disagreement between the device's zone and the challenge's, worth offering. */
@@ -137,6 +140,114 @@ function zoneOffsetMinutes(zone: string, at: Date): number | null {
   }
 }
 
+/**
+ * The instant a deadline becomes once the challenge is read in another zone.
+ *
+ * The promise a move keeps is the wall clock, so the answer is "these same
+ * hours and minutes, in the new zone". It is computed by reading the deadline's
+ * wall-clock fields in the old zone and then finding the instant that shows
+ * those fields in the new one, which needs two passes: the new zone's offset
+ * depends on the instant being asked about, and a move across a daylight-saving
+ * boundary would otherwise be an hour out.
+ *
+ * Null when the runtime cannot answer for either zone, the same fallback the
+ * formatters take.
+ */
+export function deadlineAfterMove(move: TimeZoneMove, deadline: Date): Date | null {
+  const fromOffset = zoneOffsetMinutes(move.from, deadline);
+  if (fromOffset === null) {
+    return null;
+  }
+  const wallClock = deadline.getTime() + fromOffset * 60_000;
+  const first = zoneOffsetMinutes(move.to, deadline);
+  if (first === null) {
+    return null;
+  }
+  const guess = new Date(wallClock - first * 60_000);
+  const settled = zoneOffsetMinutes(move.to, guess);
+  if (settled === null) {
+    return null;
+  }
+  return new Date(wallClock - settled * 60_000);
+}
+
+/** Where a move leaves the morning it is about. */
+export type MoveLanding = "past" | "closing" | "ahead";
+
+/** What a move would do to the morning the user is standing in front of. */
+export interface MoveImpact {
+  /** The instant this morning's deadline would become. */
+  readonly deadline: Date;
+  readonly landing: MoveLanding;
+  /** What the move does to this morning, in the user's terms. */
+  readonly sentence: string;
+}
+
+export interface MoveImpactInput {
+  readonly move: TimeZoneMove;
+  readonly task: Pick<TaskView, "deadline" | "pauseCutoff">;
+  readonly now: Date;
+}
+
+/**
+ * The concrete answer to "what does switching do to today?", or null where
+ * there is nothing concrete to say.
+ *
+ * The screen used to state the eastward case as a hypothetical - "if it lands
+ * in the past, that day counts as missed" - while every number needed to
+ * answer it was already on the device. The server states the same case as a
+ * consequence it applies rather than refuses, so the only place it can be
+ * headed off is in front of the press.
+ *
+ * Null in three cases, all of them the same fact: this morning is not at risk.
+ * A task whose pause cutoff has already passed is left exactly where it is by
+ * the server, so nothing this screen can say about it is true; a move that
+ * leaves the deadline where it was or later gives time rather than taking it;
+ * and a runtime that cannot read one of the zones is not guessed at.
+ */
+export function moveImpact(input: MoveImpactInput): MoveImpact | null {
+  const deadline = new Date(input.task.deadline);
+  const cutoff = new Date(input.task.pauseCutoff);
+  if (Number.isNaN(deadline.getTime()) || Number.isNaN(cutoff.getTime())) {
+    return null;
+  }
+  // The server re-materializes only tasks whose stored cutoff is still ahead.
+  if (cutoff.getTime() <= input.now.getTime()) {
+    return null;
+  }
+  const moved = deadlineAfterMove(input.move, deadline);
+  if (moved === null || moved.getTime() >= deadline.getTime()) {
+    return null;
+  }
+
+  // Both times are read where the user is standing, because the comparison the
+  // sentence makes is between two deadlines on one clock - the one in front of
+  // them - and not between two zones.
+  const was = formatTimeOfDay(input.task.deadline, input.move.to);
+  const becomes = formatTimeOfDay(moved.toISOString(), input.move.to);
+  const minutes = Math.round((moved.getTime() - input.now.getTime()) / 60_000);
+
+  if (minutes <= 0) {
+    return {
+      deadline: moved,
+      landing: "past",
+      sentence: `Switching now moves this morning's deadline from ${was} to ${becomes} where you are, which has already gone by. That morning would count as missed, and switching back afterwards does not undo it.`,
+    };
+  }
+  if (minutes <= ALARM_LEAD_MINUTES) {
+    return {
+      deadline: moved,
+      landing: "closing",
+      sentence: `Switching now moves this morning's deadline from ${was} to ${becomes} where you are, which is ${formatDuration(minutes)} from now. You would have to walk it straight away.`,
+    };
+  }
+  return {
+    deadline: moved,
+    landing: "ahead",
+    sentence: `Switching now moves this morning's deadline from ${was} to ${becomes} where you are, which is ${formatDuration(minutes)} away.`,
+  };
+}
+
 const NETWORK_MESSAGE = "No connection to BetterWakeUp. Check your network and try again.";
 const GENERIC_MESSAGE = "Your time zone could not be changed. Try again in a moment.";
 
@@ -158,11 +269,13 @@ export interface ChangeTimeZoneInput {
 /**
  * Move the challenge's deadlines into a zone.
  *
- * Not confirmation-gated: the move gives nothing up and can be made again in
- * the other direction, and a confirmation that guards a reversible action
- * teaches the user to dismiss the ones that matter. The one refusal is a move
- * to the zone the challenge is already in, which the server would answer as a
- * change that changed nothing.
+ * The command itself takes no confirmation: the move usually gives nothing up
+ * and can be made again in the other direction, and a confirmation that guards
+ * a reversible action teaches the user to dismiss the ones that matter. The
+ * screen gates the one case that is not reversible - a move that drops this
+ * morning's deadline into the past, which `moveImpact` answers before the
+ * press. The one refusal here is a move to the zone the challenge is already
+ * in, which the server would answer as a change that changed nothing.
  */
 export async function changeTimeZone(
   input: ChangeTimeZoneInput,

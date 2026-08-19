@@ -10,6 +10,8 @@
 import { ApiError } from "../src/api/errors.ts";
 import {
   changeTimeZone,
+  deadlineAfterMove,
+  moveImpact,
   movesDeadlinesEarlier,
   timeZoneLabel,
   timeZoneMoveFor,
@@ -146,5 +148,59 @@ describe("asking the server to move the challenge", () => {
       status: "failed",
       message: expect.stringContaining("No connection"),
     });
+  });
+});
+
+describe("what the move does to this morning", () => {
+  const EAST = { from: LOS_ANGELES, to: NEW_YORK };
+  // 7:00 AM in Los Angeles, which is 10:00 AM in New York.
+  const DEADLINE = "2026-09-02T14:00:00.000Z";
+  // Still ahead of every clock below, so the server would re-materialize it.
+  const CUTOFF = "2026-09-02T13:00:00.000Z";
+  const task = { deadline: DEADLINE, pauseCutoff: CUTOFF };
+
+  it("keeps the wall clock and reads it in the new zone", () => {
+    const moved = deadlineAfterMove(EAST, new Date(DEADLINE));
+
+    // 7:00 AM in New York is 11:00Z, three hours earlier than it was.
+    expect(moved?.toISOString()).toBe("2026-09-02T11:00:00.000Z");
+  });
+
+  it("says the morning has already gone rather than that it might", () => {
+    const impact = moveImpact({ move: EAST, task, now: new Date("2026-09-02T12:00:00.000Z") });
+
+    expect(impact?.landing).toBe("past");
+    expect(impact?.deadline.toISOString()).toBe("2026-09-02T11:00:00.000Z");
+    expect(impact?.sentence).toContain("from 10:00 AM to 7:00 AM where you are");
+    expect(impact?.sentence).toContain("already gone by");
+    expect(impact?.sentence).toContain("switching back afterwards does not undo it");
+  });
+
+  it("names the minutes left when the move lands inside the alarm's lead", () => {
+    const impact = moveImpact({ move: EAST, task, now: new Date("2026-09-02T10:30:00.000Z") });
+
+    expect(impact?.landing).toBe("closing");
+    expect(impact?.sentence).toContain("30 minutes from now");
+  });
+
+  it("still names the new time when the morning is comfortably ahead", () => {
+    const impact = moveImpact({ move: EAST, task, now: new Date("2026-09-02T08:00:00.000Z") });
+
+    expect(impact?.landing).toBe("ahead");
+    expect(impact?.sentence).toContain("3 hours away");
+  });
+
+  it("says nothing about a task the server would leave exactly where it is", () => {
+    const settled = { deadline: DEADLINE, pauseCutoff: "2026-09-02T08:00:00.000Z" };
+
+    expect(
+      moveImpact({ move: EAST, task: settled, now: new Date("2026-09-02T09:00:00.000Z") }),
+    ).toBeNull();
+  });
+
+  it("says nothing when the move only gives the morning more time", () => {
+    const west = { from: NEW_YORK, to: LOS_ANGELES };
+
+    expect(moveImpact({ move: west, task, now: new Date("2026-09-02T08:00:00.000Z") })).toBeNull();
   });
 });

@@ -28,16 +28,28 @@ function challengeIn(timeZone: string) {
   return { ...base, configuration: { ...base.configuration, timeZone } };
 }
 
+/**
+ * The fixture task's pause cutoff (06:00Z) is behind the suite's clock, so the
+ * server would leave it exactly where it is and the screen has nothing
+ * concrete to say about this morning. A test that is about the move's effect
+ * on today states a cutoff that is still ahead instead.
+ */
+function movableTask() {
+  return taskView({ pauseCutoff: "2026-09-01T13:30:00.000Z" });
+}
+
 async function drawScreen(
   move: { from: string; to: string },
-  options: { api?: FakeApi; onChanged?: () => void } = {},
+  options: { api?: FakeApi; onChanged?: () => void; task?: ReturnType<typeof taskView> } = {},
 ) {
   const api = options.api ?? fakeApi();
+  const base = challengeIn(move.from);
+  const challenge = options.task === undefined ? base : { ...base, currentTask: options.task };
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <TimeZoneScreen
         api={api}
-        challenge={challengeIn(move.from)}
+        challenge={challenge}
         move={move}
         now={() => NOW}
         {...(options.onChanged === undefined ? {} : { onChanged: options.onChanged })}
@@ -66,6 +78,47 @@ describe("TimeZoneScreen", () => {
     await drawScreen({ from: NEW_YORK, to: LOS_ANGELES });
 
     expect(screen.queryByTestId("time-zone-earlier-warning")).toBeNull();
+  });
+
+  it("names the time this morning would land on rather than supposing it might", async () => {
+    await drawScreen({ from: LOS_ANGELES, to: NEW_YORK }, { task: movableTask() });
+
+    expect(screen.getByTestId("time-zone-impact")).toHaveTextContent(
+      /from 10:00 AM to 7:00 AM where you are/,
+    );
+    expect(screen.getByTestId("time-zone-impact")).toHaveTextContent(/already gone by/);
+    // The supposition it replaces is not left on screen beside it.
+    expect(screen.queryByTestId("time-zone-earlier-warning")).toBeNull();
+  });
+
+  it("confirms before a switch that would drop this morning into the past", async () => {
+    const user = userEvent.setup();
+    const api = await drawScreen({ from: LOS_ANGELES, to: NEW_YORK }, { task: movableTask() });
+
+    await user.press(screen.getByTestId("time-zone-switch"));
+    expect(api.calls).toEqual([]);
+    expect(screen.getByTestId("time-zone-switch-consequence")).toHaveTextContent(/already gone by/);
+
+    await user.press(screen.getByTestId("time-zone-switch-confirm"));
+    expect(api.calls).toHaveLength(1);
+  });
+
+  it("asks for no confirmation when the morning survives the move", async () => {
+    const user = userEvent.setup();
+    const api = await drawScreen(
+      { from: LOS_ANGELES, to: NEW_YORK },
+      {
+        task: taskView({
+          deadline: "2026-09-01T20:00:00.000Z",
+          pauseCutoff: "2026-09-01T13:30:00.000Z",
+        }),
+      },
+    );
+
+    expect(screen.getByTestId("time-zone-impact")).toHaveTextContent(/4 hours away/);
+
+    await user.press(screen.getByTestId("time-zone-switch"));
+    expect(api.calls).toHaveLength(1);
   });
 
   it("moves the challenge and names what moved with it", async () => {

@@ -1089,7 +1089,14 @@ The offer names the two times rather than the two zone identifiers, and it is on
 
 Declining is remembered for as long as the app is open, so a weekend away is not a banner on every launch, and the device is checked again on the next launch.
 
-The move is not confirmation-gated - it gives nothing up and can be made again in either direction - but travelling east pulls the next deadline earlier and can land it in the past, which the sweep will treat as missed, so the app says so before the press.
+**What the move does to this morning.**
+Travelling east pulls the next deadline earlier and can land it in the past, which the sweep will treat as missed, and the server states that case as a consequence it applies rather than one it refuses.
+So the only place it can be headed off is in front of the press, and the app answers it rather than supposing it: `moveImpact` re-reads this morning's deadline as the wall clock it would keep in the new zone and names the two times on the clock the user is standing in front of - "from 10:00 AM to 7:00 AM where you are".
+
+It says nothing in the three cases where there is nothing true to say: a task whose pause cutoff has already passed is left exactly where it is by the server's own rule, a move that leaves the deadline where it was or later gives time rather than taking it, and a runtime that cannot read one of the zones is not guessed at.
+The generic eastward caution is kept for those, because the direction is still worth stating when the morning cannot be named.
+
+The move itself is not confirmation-gated - it gives nothing up and can be made again in either direction - with one exception, which is the only irreversible move there is: a deadline that lands in the past is a missed morning the sweep will settle, and switching back afterwards does not undo it, so that press alone is confirmed and painted like the rest of the presses that cost money.
 
 ### Deadlines and the receipt grace
 

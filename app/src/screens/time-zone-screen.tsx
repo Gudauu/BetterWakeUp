@@ -20,6 +20,7 @@ import { StyleSheet, View } from "react-native";
 import type { ApiClient } from "../api/client.ts";
 import {
   changeTimeZone,
+  moveImpact,
   movesDeadlinesEarlier,
   type TimeZoneMove,
   timeZoneLabel,
@@ -27,6 +28,7 @@ import {
 import { AppText, Banner, Button, Card, Divider, Screen, StatusPill } from "../ui/components.tsx";
 import { formatDeadline, formatTimeOfDay } from "../ui/format.ts";
 import { BackLink } from "./back-link.tsx";
+import { ConfirmAction } from "./confirm-action.tsx";
 
 export interface TimeZoneScreenProps {
   readonly api: ApiClient;
@@ -50,6 +52,8 @@ export function TimeZoneScreen(props: TimeZoneScreenProps) {
   const here = timeZoneLabel(move.to);
   const there = timeZoneLabel(move.from);
   const task = challenge.currentTask;
+  const impact = task === null ? null : moveImpact({ move, task, now: readClock() });
+  const lost = impact?.landing === "past";
 
   const onSwitch = useCallback(async () => {
     setBusy(true);
@@ -141,21 +145,55 @@ export function TimeZoneScreen(props: TimeZoneScreenProps) {
         </AppText>
       </Card>
 
-      {movesDeadlinesEarlier(move, readClock()) === true ? (
-        <Banner tone="warning">
-          <AppText variant="small" tone="warning" testID="time-zone-earlier-warning">
-            You have travelled east, so switching pulls your next deadline earlier. If it lands in
-            the past, that day counts as missed.
+      {/* What the move does to the morning in front of the user, answered
+          rather than supposed. The generic eastward caution is kept only for
+          the cases the concrete answer cannot cover: no open task, or one the
+          server would leave exactly where it is. */}
+      {impact === null ? (
+        movesDeadlinesEarlier(move, readClock()) === true ? (
+          <Banner tone="warning">
+            <AppText variant="small" tone="warning" testID="time-zone-earlier-warning">
+              You have travelled east, so switching pulls your next deadline earlier. If it lands in
+              the past, that day counts as missed.
+            </AppText>
+          </Banner>
+        ) : null
+      ) : (
+        <Banner tone={lost ? "danger" : "warning"}>
+          <AppText
+            variant="small"
+            tone={lost ? "danger" : "warning"}
+            testID="time-zone-impact"
+            accessibilityRole="alert"
+          >
+            {impact.sentence}
           </AppText>
         </Banner>
-      ) : null}
+      )}
 
-      <Button
-        testID="time-zone-switch"
-        label={`Use ${here} time`}
-        busy={busy}
-        onPress={() => void onSwitch()}
-      />
+      {/* The only irreversible move there is. Everywhere else a switch can be
+          made again in the other direction; a deadline that lands in the past
+          is a missed morning the sweep will settle, so this one press is
+          confirmed and painted like the rest of the presses that cost money. */}
+      {lost && impact !== null ? (
+        <ConfirmAction
+          testID="time-zone-switch"
+          label={`Use ${here} time`}
+          consequence={impact.sentence}
+          confirmLabel="Switch anyway and lose this morning"
+          cancelLabel="Leave my deadlines where they are"
+          variant="danger"
+          busy={busy}
+          onConfirm={onSwitch}
+        />
+      ) : (
+        <Button
+          testID="time-zone-switch"
+          label={`Use ${here} time`}
+          busy={busy}
+          onPress={() => void onSwitch()}
+        />
+      )}
 
       {problem === null ? null : (
         <Banner tone="danger">
