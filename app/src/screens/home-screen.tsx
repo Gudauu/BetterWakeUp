@@ -492,7 +492,10 @@ export function HomeScreen({
       : (finished ?? (state.lastEnded?.id === dismissed ? null : state.lastEnded));
 
   return (
-    <Screen testID="home">
+    // Pulling down is what a user does to a screen of this morning's facts, and
+    // it goes down the same quiet path as the footer's button and the app
+    // coming back to the front: the numbers stay on screen while it runs.
+    <Screen testID="home" onRefresh={refresh} refreshing={refreshing}>
       <View style={styles.header}>
         <AppText variant="caption" tone="accent">
           {state.challenge !== null

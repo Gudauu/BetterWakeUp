@@ -277,6 +277,17 @@ It is also dismissable by dragging (`keyboardDismissMode="interactive"`). That i
 
 `Field` asks the keyboard for a value rather than for English - no autocorrect, no sentence case - because nothing this app collects is prose, and both would rewrite a typed `7am`. Its return key reads Done and blurs: there is nothing to submit from a field, since every form here is committed by a button further down.
 
+### Pulling the screen down
+
+Home is made almost entirely of wall-clock facts - a deadline counting down, a walk that may have landed, a recovery window closing - and the gesture a phone user reaches for on a screen like that is a pull down.
+Until it existed, the only way to ask again by hand was a `Refresh` link under a divider at the bottom of a page that scrolls, which is not where anyone looks.
+
+The gesture belongs to `Screen` rather than to home, so no screen that wants it has to draw a `RefreshControl` of its own, and both platforms' spinner colours are named from the theme's accent - their defaults are chosen against a white page and disappear on the dark theme's background.
+A `centered` screen gets none: it does not scroll, so there is nothing to pull, which is why home's failed read carries an explicit `Try again` button instead.
+
+The pull runs `refresh`, the same quiet path as the footer's link and the app coming back to the front - the numbers stay on screen while it runs, and a read that does not come back leaves the last answer where it is.
+The footer's link stays: a gesture is not discoverable, and it is not a control a screen reader can find.
+
 ### The month as a row of days
 
 `challengeView.days` is the challenge's own calendar: every day it holds, oldest first, each with the status the server gave it.

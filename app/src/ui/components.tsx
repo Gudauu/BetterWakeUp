@@ -16,6 +16,7 @@ import {
   type KeyboardTypeOptions,
   Pressable,
   type PressableStateCallbackType,
+  RefreshControl,
   ScrollView,
   type StyleProp,
   StyleSheet,
@@ -87,6 +88,17 @@ export interface ScreenProps {
    * top-aligned column would leave the content stranded under the notch.
    */
   readonly centered?: boolean;
+  /**
+   * What a pull down the screen asks for. A screen made of wall-clock facts is
+   * one a user will reach for this gesture on, and a button under a divider at
+   * the bottom of a scrolling page is not where they will look for it.
+   *
+   * Absent on a `centered` screen, which does not scroll and so has nothing to
+   * pull; those screens carry an explicit button instead.
+   */
+  readonly onRefresh?: () => void;
+  /** Whether that request is still in flight, which is what holds the spinner. */
+  readonly refreshing?: boolean;
   readonly style?: StyleProp<ViewStyle>;
   readonly children: ReactNode;
 }
@@ -96,7 +108,14 @@ export interface ScreenProps {
  * Scrolls by default, because any screen can overflow once the device is set
  * to a large text size even if it fits at the default one.
  */
-export function Screen({ testID, centered = false, style, children }: ScreenProps) {
+export function Screen({
+  testID,
+  centered = false,
+  onRefresh,
+  refreshing = false,
+  style,
+  children,
+}: ScreenProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const padding = {
@@ -138,6 +157,20 @@ export function Screen({ testID, centered = false, style, children }: ScreenProp
       // iOS number pad has no return key at all, so a dragged-down keyboard is
       // the only dismissal a user has besides tapping a gap in the layout.
       keyboardDismissMode="interactive"
+      refreshControl={
+        onRefresh === undefined ? undefined : (
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            // Both platforms' spinners default to a colour chosen against a
+            // white page, so the accent is named for each rather than left to
+            // vanish on a dark background.
+            tintColor={theme.colors.accent}
+            colors={[theme.colors.accent]}
+            progressBackgroundColor={theme.colors.surface}
+          />
+        )
+      }
     >
       {children}
     </ScrollView>

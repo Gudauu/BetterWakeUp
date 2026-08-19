@@ -5,7 +5,7 @@
  * presses.
  */
 
-import { render, screen, userEvent } from "@testing-library/react-native";
+import { act, render, screen, userEvent } from "@testing-library/react-native";
 import { StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
@@ -97,6 +97,48 @@ describe("the screen frame", () => {
     );
 
     expect(screen.getByTestId("frame").props.keyboardDismissMode).toBe("interactive");
+  });
+
+  it("carries no pull-to-refresh for a screen that did not ask for one", async () => {
+    await draw(
+      <Screen testID="frame">
+        <AppText>Hello</AppText>
+      </Screen>,
+    );
+
+    expect(screen.getByTestId("frame").props.refreshControl).toBeUndefined();
+  });
+
+  it("answers a pull down with the refresh its caller asked for", async () => {
+    const asked = jest.fn();
+    await draw(
+      <Screen testID="frame" onRefresh={asked}>
+        <AppText>Hello</AppText>
+      </Screen>,
+    );
+
+    const control = screen.getByTestId("frame").props.refreshControl;
+    expect(control.props.refreshing).toBe(false);
+    await act(async () => {
+      control.props.onRefresh();
+    });
+
+    expect(asked).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds the spinner while the refresh is in flight, in a colour that shows on either theme", async () => {
+    // Both platforms' defaults are picked against a white page, so an unnamed
+    // spinner is invisible on the dark theme's background.
+    await draw(
+      <Screen testID="frame" onRefresh={() => {}} refreshing>
+        <AppText>Hello</AppText>
+      </Screen>,
+    );
+
+    const control = screen.getByTestId("frame").props.refreshControl;
+    expect(control.props.refreshing).toBe(true);
+    expect(control.props.tintColor).toBe(lightTheme.colors.accent);
+    expect(control.props.colors).toEqual([lightTheme.colors.accent]);
   });
 });
 

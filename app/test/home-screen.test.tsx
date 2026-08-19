@@ -1209,6 +1209,38 @@ describe("home's own actions", () => {
     expect(screen.getByTestId("home-refresh")).toHaveTextContent("Checking for updates");
   });
 
+  it("asks the server again when the screen is pulled down", async () => {
+    // The gesture every phone user reaches for on a screen of this morning's
+    // facts. The button that did this sits under a divider at the bottom of a
+    // page that scrolls, which is not where anyone looks for it.
+    const api = fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } });
+
+    await renderHome(api);
+    await screen.findByTestId("home-no-challenge");
+    const before = api.names().filter((name) => name === "getCurrentChallenge").length;
+
+    await act(async () => {
+      screen.getByTestId("home").props.refreshControl.props.onRefresh();
+    });
+
+    await waitFor(() =>
+      expect(api.names().filter((name) => name === "getCurrentChallenge").length).toBe(before + 1),
+    );
+  });
+
+  it("keeps the challenge on screen while a pulled refresh spins", async () => {
+    const api = fakeApi({ getCurrentChallenge: answers(runningChallenge(), pending()) });
+
+    await renderHome(api);
+    await screen.findByTestId("home-challenge");
+    await act(async () => {
+      screen.getByTestId("home").props.refreshControl.props.onRefresh();
+    });
+
+    expect(screen.getByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.getByTestId("home").props.refreshControl.props.refreshing).toBe(true);
+  });
+
   it("offers sign out only when the caller owns it", async () => {
     await renderHome(fakeApi());
     expect(await screen.findByTestId("home")).toBeOnTheScreen();
