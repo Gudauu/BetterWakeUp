@@ -11,16 +11,34 @@
  * The two outcomes are drawn as a pair of cards - what spending it does, what
  * keeping it does - so the choice is a comparison rather than a wall of
  * warnings with one button under it.
+ *
+ * Spending it is the one irreversible press in the app, so both ends of it are
+ * spelled out: the trade before, including the replacement morning appended at
+ * the end that the screen used to leave out, and what the server actually did
+ * after, read from its own answer rather than left to a screen change.
  */
 
-import type { ChallengeView } from "@betterwakeup/contract";
+import type { AcceptRecoveryResponse, ChallengeView } from "@betterwakeup/contract";
 import { useCallback, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import type { ApiClient } from "../api/client.ts";
 import { acceptRecovery } from "../challenges/lifecycle-commands.ts";
+import {
+  RECOVERY_REPLACEMENT,
+  recoveryResult,
+  recoveryTrade,
+} from "../challenges/recovery-outcome.ts";
 import { recoveryWindow } from "../challenges/recovery-window.ts";
 import { useClock } from "../ui/clock.ts";
-import { AppText, Banner, Card, Screen, StatusPill, TextButton } from "../ui/components.tsx";
+import {
+  AppText,
+  Banner,
+  Button,
+  Card,
+  Screen,
+  StatusPill,
+  TextButton,
+} from "../ui/components.tsx";
 import { formatDeadline } from "../ui/format.ts";
 import { BackLink } from "./back-link.tsx";
 import { ConfirmAction } from "./confirm-action.tsx";
@@ -46,6 +64,11 @@ export function RecoveryScreen(props: RecoveryScreenProps) {
   const clock = useClock(props.now);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  // Held rather than handed straight back to the caller: the answer names the
+  // day that was forgiven and the morning that replaced it, and returning home
+  // on the press would acknowledge the one irreversible act in the app with a
+  // screen change.
+  const [accepted, setAccepted] = useState<AcceptRecoveryResponse | null>(null);
 
   const offer = challenge.recoveryOffer;
 
@@ -60,14 +83,60 @@ export function RecoveryScreen(props: RecoveryScreenProps) {
         now: clock,
       });
       if (outcome.status === "done") {
-        props.onAccepted?.(outcome.value.challenge);
+        setAccepted(outcome.value);
         return;
       }
       setProblem(outcome.status === "blocked" ? outcome.reasons.join(" ") : outcome.message);
     } finally {
       setBusy(false);
     }
-  }, [api, challenge, clock, props.onAccepted]);
+  }, [api, challenge, clock]);
+
+  // What the server did, before anything else this screen would draw: the
+  // offer is gone from the challenge it was given, so every branch below would
+  // otherwise render "No recovery offer" over the press that just worked.
+  if (accepted !== null) {
+    const result = recoveryResult({
+      challenge: accepted.challenge,
+      forgivenTask: accepted.forgivenTask,
+      appendedTask: accepted.appendedTask,
+    });
+    return (
+      <Screen testID="recovery-screen">
+        <View style={styles.header}>
+          <StatusPill label="Recovery spent" tone="success" />
+          <AppText variant="display" accessibilityRole="header">
+            Your challenge is back
+          </AppText>
+        </View>
+
+        <Card>
+          <AppText variant="headline">What changed</AppText>
+          <AppText variant="small" testID="recovery-forgiven">
+            {result.forgiven}
+          </AppText>
+          <AppText variant="small" testID="recovery-appended">
+            {result.appended}
+          </AppText>
+          <AppText variant="small" testID="recovery-ends">
+            {result.ends}
+          </AppText>
+        </Card>
+
+        <Banner tone="warning" testID="recovery-spent">
+          <AppText variant="small" tone="warning" accessibilityRole="alert">
+            {result.spent}
+          </AppText>
+        </Banner>
+
+        <Button
+          testID="recovery-done"
+          label="Back to home"
+          onPress={() => props.onAccepted?.(accepted.challenge)}
+        />
+      </Screen>
+    );
+  }
 
   if (offer === null) {
     return (
@@ -160,8 +229,14 @@ export function RecoveryScreen(props: RecoveryScreenProps) {
 
       <Card>
         <AppText variant="headline">If you spend it</AppText>
-        <AppText variant="small">
-          The missed day is forgiven and the challenge continues from your next task.
+        <AppText variant="small" testID="recovery-trade">
+          {recoveryTrade(challenge)}
+        </AppText>
+        {/* The half of the trade the screen used to leave out: recovery buys
+            the missed morning back by adding another one at the end, so the
+            user is agreeing to walk an extra day, not to skip one. */}
+        <AppText variant="small" testID="recovery-replacement">
+          {RECOVERY_REPLACEMENT}
         </AppText>
         <AppText variant="small" tone="danger" testID="recovery-permanence">
           {RECOVERY_PERMANENCE}
@@ -179,7 +254,7 @@ export function RecoveryScreen(props: RecoveryScreenProps) {
       <ConfirmAction
         testID="accept-recovery"
         label="Spend the recovery"
-        consequence={RECOVERY_PERMANENCE}
+        consequence={`${RECOVERY_PERMANENCE} ${RECOVERY_REPLACEMENT}`}
         confirmLabel="Spend it permanently"
         variant="danger"
         busy={busy}

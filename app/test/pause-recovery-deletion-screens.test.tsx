@@ -15,7 +15,13 @@ import { DeleteAccountScreen } from "../src/screens/delete-account-screen.tsx";
 import { PauseScreen } from "../src/screens/pause-screen.tsx";
 import { RecoveryScreen } from "../src/screens/recovery-screen.tsx";
 import { CLOCK_INTERVAL_MS } from "../src/ui/clock.ts";
-import { challengeView, type FakeApi, fakeApi, taskView } from "./support/fake-api.ts";
+import {
+  challengeDays,
+  challengeView,
+  type FakeApi,
+  fakeApi,
+  taskView,
+} from "./support/fake-api.ts";
 
 const METRICS = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -253,6 +259,79 @@ describe("RecoveryScreen", () => {
     await user.press(screen.getByTestId("recovery-back"));
     expect(back).toHaveBeenCalledTimes(1);
     expect(api.names()).toEqual([]);
+  });
+
+  it("states the replacement morning, so the trade is not read as a free pardon", async () => {
+    const api = fakeApi();
+    await draw(<RecoveryScreen api={api} challenge={offered} now={now} />);
+
+    expect(screen.getByTestId("recovery-replacement")).toHaveTextContent(
+      /added after your last day/,
+    );
+    expect(screen.getByTestId("recovery-replacement")).toHaveTextContent(/end date moves later/);
+  });
+
+  it("names the morning being bought back when the row of days shows one", async () => {
+    const api = fakeApi();
+    const withMiss = challengeView({
+      status: "recovery_pending",
+      recoveryOffer: offered.recoveryOffer,
+      days: challengeDays(30, "completed").map((day, index) =>
+        index === 2 ? { ...day, status: "missed" as const } : day,
+      ),
+    });
+    await draw(<RecoveryScreen api={api} challenge={withMiss} now={now} />);
+
+    expect(screen.getByTestId("recovery-trade")).toHaveTextContent(/Thursday, September 3/);
+  });
+
+  it("carries the replacement into the confirmation, not only into the card above it", async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    await draw(<RecoveryScreen api={api} challenge={offered} now={now} />);
+
+    await user.press(screen.getByTestId("accept-recovery"));
+
+    expect(screen.getByTestId("accept-recovery-consequence")).toHaveTextContent(
+      /end date moves later/,
+    );
+  });
+
+  // Before this, the whole acknowledgment of the one irreversible act in the
+  // app was the screen closing: the server names the day it forgave and the
+  // morning it appended, and both were thrown away.
+  it("reports what the server did instead of returning home on the press", async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    const accepted = jest.fn();
+    await draw(<RecoveryScreen api={api} challenge={offered} now={now} onAccepted={accepted} />);
+
+    await user.press(screen.getByTestId("accept-recovery"));
+    await user.press(screen.getByTestId("accept-recovery-confirm"));
+
+    expect(api.names()).toEqual(["acceptRecovery"]);
+    expect(accepted).not.toHaveBeenCalled();
+    expect(screen.getByTestId("recovery-forgiven")).toHaveTextContent(/is forgiven/);
+    expect(screen.getByTestId("recovery-appended")).toHaveTextContent(/Tuesday, October 13/);
+    expect(screen.getByTestId("recovery-ends")).toHaveTextContent(/now ends on/);
+    expect(screen.getByTestId("recovery-spent")).toHaveTextContent(/no second one/);
+    // The choice is gone: the offer was spent, and re-offering it would be a
+    // press whose only outcome is a refusal.
+    expect(screen.queryByTestId("accept-recovery")).toBeNull();
+  });
+
+  it("hands the recovered challenge back only when the user leaves the outcome", async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    const accepted = jest.fn();
+    await draw(<RecoveryScreen api={api} challenge={offered} now={now} onAccepted={accepted} />);
+
+    await user.press(screen.getByTestId("accept-recovery"));
+    await user.press(screen.getByTestId("accept-recovery-confirm"));
+    await user.press(screen.getByTestId("recovery-done"));
+
+    expect(accepted).toHaveBeenCalledTimes(1);
+    expect(accepted.mock.calls[0]?.[0]).toMatchObject({ status: "active" });
   });
 
   it("withdraws the decision as the window closes under an untouched screen", async () => {

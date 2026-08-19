@@ -691,6 +691,25 @@ Neither of them says what became of the money: a zero-deposit challenge settles 
 
 The duration wording itself lives in `app/src/ui/format.ts` as `formatDuration`, because two countdowns now use it and "2 hours 30 minutes" must not be said two ways.
 
+### What the recovery trades, and what it did
+
+`app/src/challenges/recovery-outcome.ts` says what spending the allowance actually does, at both ends of the press.
+
+Before it, the screen described recovery as a pardon: the missed day is forgiven and the challenge continues.
+That is true and it is not the whole of the deal.
+`acceptRecovery` runs five things in one transaction, and one of them is `appendReplacementTask`, which adds a `scheduled` morning past the challenge's last day and moves the stored `projectedEndDate` onto it.
+So the user is not buying a morning back, they are trading it for another one at the end, and they were never told that before pressing a button whose entire subject is permanence.
+`RECOVERY_REPLACEMENT` states it, in the card above the action and in the consequence the confirmation opens, and it names no date: the replacement lands on the next date the challenge's own weekly schedule allows, and the app would be guessing at the server's schedule engine to name it.
+
+Which morning the offer is about comes from the row of days rather than from the offer, which carries only a task ID.
+The last `missed` day is the one, because a challenge only reaches `recovery_pending` on a miss and an earlier day that was already forgiven reads as `forgiven` rather than `missed`.
+When the row shows none, the sentence says "the missed morning" rather than inventing a date.
+
+After the press, the screen reports what came back.
+`acceptRecoveryResponse` names the forgiven task and the appended one, and the app had been discarding both and returning the user to home - so the acknowledgment of the one irreversible act in the product was a screen change.
+The outcome names the day that no longer counts, the morning that was added and the time it is due, where the challenge now ends, and that the allowance is gone.
+The caller is told only when the user presses "Back to home", so the answer is read before the challenge is re-read; a later `GET /challenges/current` shows a running challenge again and says nothing about which day was traded for which.
+
 ### A countdown that counts
 
 Both of those clocks were read once, at the instant their screen was drawn.

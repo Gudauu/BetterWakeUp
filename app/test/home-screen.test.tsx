@@ -1091,6 +1091,9 @@ describe("home is the door to the recovery offer", () => {
 
     await userEvent.press(screen.getByTestId("accept-recovery"));
     await userEvent.press(await screen.findByTestId("accept-recovery-confirm"));
+    // The screen reports what the server did first; home is not re-read until
+    // the user has read the day it forgave and the morning it added.
+    await userEvent.press(await screen.findByTestId("recovery-done"));
 
     expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
     expect(api.names()).toContain("acceptRecovery");
