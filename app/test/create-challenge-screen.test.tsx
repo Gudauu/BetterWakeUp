@@ -319,6 +319,12 @@ describe("what the screen shows about the plan", () => {
     expect(projection).not.toHaveTextContent(new RegExp(PROJECTION.projectedEndDate));
   });
 
+  it("reads the mornings back as the arrangement they add up to", async () => {
+    await renderScreen(readyDraft());
+
+    expect(screen.getByTestId("projection-schedule")).toHaveTextContent(/Mon-Fri at 7:00 AM/);
+  });
+
   it("asks again when the configuration changes", async () => {
     const api = await renderScreen(readyDraft());
     const before = api.names().filter((name) => name === "createChallengeProjection").length;

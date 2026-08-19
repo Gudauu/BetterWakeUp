@@ -51,6 +51,7 @@ import {
   awaitFundedChallenge,
   type FundedChallengeOutcome,
 } from "../challenges/funded-challenge.ts";
+import { scheduleSentence } from "../challenges/schedule.ts";
 import { readWakeTime } from "../challenges/wake-time.ts";
 import {
   createConfiguredSettingsLauncher,
@@ -637,6 +638,14 @@ export function CreateChallengeScreen({
           </AppText>
         ) : (
           <View testID="projection" style={styles.group}>
+            {/* The days and times are set two cards above, one control each;
+                this is where they are read back as the arrangement they add up
+                to, which is the thing being agreed to. */}
+            <DetailRow
+              label="Mornings"
+              value={scheduleSentence(draft.schedule)}
+              testID="projection-schedule"
+            />
             <DetailRow label="First morning" value={formatDay(projection.firstTaskDate)} />
             <DetailRow label="Projected end" value={formatDay(projection.projectedEndDate)} />
             <DetailRow

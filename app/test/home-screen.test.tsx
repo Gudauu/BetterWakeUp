@@ -538,6 +538,59 @@ describe("home is the door to today's task", () => {
     expect(screen.queryByTestId("home-open-task")).toBeNull();
   });
 
+  it("names the next morning rather than leaving it to be worked out", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: challengeView({
+            configuration: {
+              ...challengeView().configuration,
+              schedule: [
+                { weekday: "wednesday", deadline: "07:00" },
+                { weekday: "saturday", deadline: "07:00" },
+              ],
+            },
+          }),
+          lastEnded: null,
+        },
+      }),
+    );
+
+    // The clock reads Tuesday where the challenge is, so Wednesday is next.
+    expect(await screen.findByTestId("home-no-task")).toHaveTextContent(
+      /Your next morning is Wednesday\./,
+    );
+  });
+
+  it("states the mornings the challenge asks for and where they are read", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: challengeView({
+            configuration: {
+              ...challengeView().configuration,
+              schedule: [
+                { weekday: "monday", deadline: "06:30" },
+                { weekday: "tuesday", deadline: "06:30" },
+                { weekday: "wednesday", deadline: "06:30" },
+                { weekday: "saturday", deadline: "09:00" },
+              ],
+            },
+          }),
+          lastEnded: null,
+        },
+      }),
+    );
+
+    const schedule = await screen.findByTestId("home-schedule");
+
+    expect(schedule).toHaveTextContent(/Mon-Wed/);
+    expect(schedule).toHaveTextContent(/6:30 AM/);
+    expect(schedule).toHaveTextContent(/Sat/);
+    expect(schedule).toHaveTextContent(/9:00 AM/);
+    expect(screen.getByTestId("home-schedule-zone")).toHaveTextContent(/Los Angeles/);
+  });
+
   it("comes back to home and re-reads the challenge", async () => {
     const api = fakeApi({
       getCurrentChallenge: {

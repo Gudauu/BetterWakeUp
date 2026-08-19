@@ -485,6 +485,23 @@ The same read is what lets home say a morning was kept.
 Until now the only mark of a kept day on home was a square in the row of days: the card that had asked for the walk simply started asking for the next one, on the one screen a user opens after doing the thing the whole product is about.
 A run of two or more is named in the same sentence, and a single kept day is stated as itself rather than counted, for the reason `streakSentence` already gives.
 
+#### The mornings the challenge asks for
+
+`app/src/challenges/schedule.ts` reads a configuration's weekly schedule back as text.
+
+The schedule is the whole of what a challenge asks of its owner, it is decided once, and it can never be edited afterwards - the contract carries no endpoint for it, because a deadline that could move is not a commitment.
+That makes stating it the only thing left the app can do about it, and nothing past the setup form did: home listed the projected end date, the deposit and the step target, so the days and the times a user is on the hook for were readable only on a day that already had a task open.
+
+The days are grouped by the deadline they share rather than listed one per row.
+A challenge is up to seven `ScheduledWeekday` entries with a wall-clock time each, and seven rows is a table to be decoded; "Mon-Fri at 7:00 AM" is the same fact as its owner thinks of it.
+Within a group, three or more consecutive days collapse to a range and two stay a list, because "Sat-Sun" saves nothing and reads as a span rather than as two mornings.
+Grouping by deadline before contiguity is what keeps a weekend that starts an hour later reading as two arrangements instead of as a run broken in the middle.
+
+The same module answers what home says when no task is open.
+"The next task appears on your next active day" is true and asks the reader to hold the schedule in their head; the weekday itself is derivable from the configuration and the calendar date in the challenge's own zone, which is the reading `localDate` already provides.
+It is searched strictly forward from today, because this state means today's morning is either not scheduled or already behind the user, and naming today would read as an invitation to walk for a day that is closed.
+A runtime that cannot read the zone falls back to the sentence home always said, for the same reason the walk window does.
+
 ### The clock on the recovery offer
 
 `app/src/challenges/recovery-window.ts` does for the Emergency Recovery offer what `time-left.ts` does for the morning: it reads the offer's `expiresAt` against the clock and answers how long is left, how urgent that is, and whether there is still a decision to make.

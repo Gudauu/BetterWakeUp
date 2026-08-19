@@ -34,6 +34,7 @@ import {
   recoveryOfferSummary,
   recoveryWindow,
 } from "../challenges/recovery-window.ts";
+import { nextActiveMorning, nextMorningText, scheduleGroups } from "../challenges/schedule.ts";
 import { type TimeZoneMove, timeZoneLabel, timeZoneMoveFor } from "../challenges/time-zone.ts";
 import { walkedTodayText, walkOpensText, walkWindow } from "../challenges/walk-window.ts";
 import {
@@ -846,9 +847,31 @@ function ChallengeCard({
           <AppText variant="caption" tone="muted" testID="home-no-task">
             {paused
               ? "Nothing is due while this challenge is paused."
-              : "Nothing is due right now. The next task appears on your next active day."}
+              : nextMorningText(
+                  nextActiveMorning(configuration.schedule, now, configuration.timeZone),
+                )}
           </AppText>
         ) : null}
+
+        <Divider />
+
+        {/* The schedule cannot be edited once the challenge exists, so the only
+            thing left to do about it is say it. Nothing past the setup form
+            showed the days or the times, which left "which mornings am I on the
+            hook for?" unanswerable between tasks. */}
+        <AppText variant="caption" tone="muted">
+          YOUR MORNINGS
+        </AppText>
+        <View testID="home-schedule">
+          {scheduleGroups(configuration.schedule).map((group) => (
+            <DetailRow key={group.days} label={group.days} value={group.time} />
+          ))}
+        </View>
+        <DetailRow
+          label="Read in"
+          value={timeZoneLabel(configuration.timeZone)}
+          testID="home-schedule-zone"
+        />
 
         <Divider />
 
