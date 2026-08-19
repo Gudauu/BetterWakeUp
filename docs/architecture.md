@@ -738,6 +738,15 @@ Neither of them says what became of the money: a zero-deposit challenge settles 
 
 The duration wording itself lives in `app/src/ui/format.ts` as `formatDuration`, because two countdowns now use it and "2 hours 30 minutes" must not be said two ways.
 
+#### When it came up
+
+`recoveryOpening` reads the other instant on the offer, `offeredAt`, which is when the sweep recorded the miss.
+A countdown says how much of the window is left and nothing about how much of it is gone, so an offer that has just opened and one most of the way through read alike, and the screen's own words for the miss were "A task was missed" with no time on them at all.
+The sentence names the instant in the challenge's own zone and how long ago it was, and it goes on both the live screen and the closed one, where it is the only account of how long there had been to decide.
+
+The window's length is measured from the offer's two instants rather than restated from the server's `RECOVERY_WINDOW_HOURS`, so the app cannot claim a window the server has since changed.
+Nothing is said when either instant is unreadable: a closing time can still be shown as text, but it cannot be counted from.
+
 ### What the recovery trades, and what it did
 
 `app/src/challenges/recovery-outcome.ts` says what spending the allowance actually does, at both ends of the press.

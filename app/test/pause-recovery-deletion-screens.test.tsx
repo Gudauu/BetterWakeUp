@@ -332,6 +332,28 @@ describe("RecoveryScreen", () => {
     expect(api.names()).toEqual([]);
   });
 
+  // The countdown says how much is left and nothing about how much is gone: a
+  // user who slept through the miss cannot tell an offer that has just opened
+  // from one most of the way through its window.
+  it("says when the miss was recorded and how long the window runs", async () => {
+    const api = fakeApi();
+    await draw(<RecoveryScreen api={api} challenge={offered} now={now} />);
+
+    expect(screen.getByTestId("recovery-opened")).toHaveTextContent(/This came up 13 hours ago/);
+    expect(screen.getByTestId("recovery-opened")).toHaveTextContent(/Mon, Aug 31, 5:00 PM/);
+    expect(screen.getByTestId("recovery-opened")).toHaveTextContent(/window runs 24 hours/);
+  });
+
+  it("keeps saying when it came up once the window has closed", async () => {
+    const api = fakeApi();
+    const closed = () => new Date("2026-09-02T01:00:00.000Z");
+    await draw(<RecoveryScreen api={api} challenge={offered} now={closed} />);
+
+    expect(screen.getByTestId("recovery-opened")).toHaveTextContent(
+      /There were 24 hours to decide/,
+    );
+  });
+
   it("states the replacement morning, so the trade is not read as a free pardon", async () => {
     const api = fakeApi();
     await draw(<RecoveryScreen api={api} challenge={offered} now={now} />);

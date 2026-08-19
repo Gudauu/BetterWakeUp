@@ -22,7 +22,7 @@
 
 import type { ChallengeView } from "@betterwakeup/contract";
 import { RECOVERY_LEAD_MINUTES } from "../reminders/reminders.ts";
-import { formatDuration } from "../ui/format.ts";
+import { formatDeadline, formatDuration } from "../ui/format.ts";
 
 /**
  * How urgently the window reads.
@@ -72,6 +72,63 @@ export function recoveryWindow(challenge: ChallengeView, now: Date): RecoveryWin
     minutes,
     decidable: true,
     sentence: `${formatDuration(minutes)} left to decide.`,
+  };
+}
+
+/** When the window opened, and how much of it the user has already spent. */
+export interface RecoveryOpening {
+  /** The instant the miss was recorded, read in the challenge's own zone. */
+  readonly openedAt: string;
+  /** How long ago that was, as a person would say it. */
+  readonly ago: string;
+  /** The whole window from opening to expiry, measured rather than restated. */
+  readonly total: string;
+  /** The two facts as one sentence, in the tense the clock puts them in. */
+  readonly sentence: string;
+}
+
+/**
+ * When the offer opened.
+ *
+ * `recoveryOffer.offeredAt` is the instant the sweep recorded the miss, which is
+ * both the start of the window and the app's only word for when the challenge
+ * stopped running. The screens named neither: "A task was missed" with a
+ * closing time beside it leaves a user who has just opened the app unable to
+ * tell whether this happened an hour ago or most of a day ago, and the time left
+ * alone does not say it - a countdown reads the same on a short window barely
+ * begun as on a long one nearly gone.
+ *
+ * The window's length is measured from the offer's own two instants rather than
+ * restated from the server's `RECOVERY_WINDOW_HOURS`, so a server that changes
+ * it does not make this sentence a lie.
+ *
+ * Null when no offer is open, and when either instant cannot be read as a time -
+ * an unreadable pair can still be shown as a closing time by the caller, but it
+ * cannot be counted from.
+ */
+export function recoveryOpening(challenge: ChallengeView, now: Date): RecoveryOpening | null {
+  const offer = challenge.recoveryOffer;
+  if (offer === null) {
+    return null;
+  }
+  const opened = Date.parse(offer.offeredAt);
+  const expires = Date.parse(offer.expiresAt);
+  if (Number.isNaN(opened) || Number.isNaN(expires)) {
+    return null;
+  }
+  const openedAt = formatDeadline(offer.offeredAt, challenge.configuration.timeZone);
+  // Floored at zero: a device clock standing behind the server's would
+  // otherwise report the miss as something still to come.
+  const ago = `${formatDuration(Math.max(0, Math.floor((now.getTime() - opened) / 60_000)))} ago`;
+  const total = formatDuration(Math.max(0, Math.floor((expires - opened) / 60_000)));
+  const closed = now.getTime() >= expires;
+  return {
+    openedAt,
+    ago,
+    total,
+    sentence: closed
+      ? `This came up ${ago}, when your missed morning was recorded at ${openedAt}. There were ${total} to decide.`
+      : `This came up ${ago}, when your missed morning was recorded at ${openedAt}. The window runs ${total} from then.`,
   };
 }
 

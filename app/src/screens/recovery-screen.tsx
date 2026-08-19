@@ -28,7 +28,7 @@ import {
   recoveryResult,
   recoveryTrade,
 } from "../challenges/recovery-outcome.ts";
-import { recoveryWindow } from "../challenges/recovery-window.ts";
+import { recoveryOpening, recoveryWindow } from "../challenges/recovery-window.ts";
 import { useClock } from "../ui/clock.ts";
 import {
   AppText,
@@ -154,6 +154,7 @@ export function RecoveryScreen(props: RecoveryScreenProps) {
 
   const closing = formatDeadline(offer.expiresAt, challenge.configuration.timeZone);
   const window = recoveryWindow(challenge, clock);
+  const opening = recoveryOpening(challenge, clock);
 
   // The window went by while the offer was on screen, or before the user ever
   // reached it. There is nothing to decide: the command refuses an expired
@@ -176,6 +177,12 @@ export function RecoveryScreen(props: RecoveryScreenProps) {
             The offer closed at {closing}. {window.sentence}
           </AppText>
         </Banner>
+
+        {opening === null ? null : (
+          <AppText variant="small" tone="muted" testID="recovery-opened">
+            {opening.sentence}
+          </AppText>
+        )}
 
         <Card>
           <AppText variant="headline">Your recovery is still yours</AppText>
@@ -226,6 +233,15 @@ export function RecoveryScreen(props: RecoveryScreenProps) {
           This offer closes at {closing}. After that the decision is made for you.
         </AppText>
       </Banner>
+
+      {/* Where the clock started. A countdown alone cannot say whether the miss
+          happened an hour ago or most of a day ago, and that is what tells a
+          user how much of the window they have already slept through. */}
+      {opening === null ? null : (
+        <AppText variant="small" tone="muted" testID="recovery-opened">
+          {opening.sentence}
+        </AppText>
+      )}
 
       <Card>
         <AppText variant="headline">If you spend it</AppText>
