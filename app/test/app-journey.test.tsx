@@ -105,6 +105,14 @@ describe("one account's life through the app's own screens", () => {
 
     await user.press(screen.getByTestId("start-challenge"));
 
+    // What the press committed to, before home takes the screen: the first
+    // morning is named with the time it is due rather than left to be found.
+    expect(await screen.findByTestId("created-first")).toHaveTextContent(/first morning is/);
+    expect(screen.getByTestId("created-length")).toHaveTextContent(
+      new RegExp(`${REQUIRED_TASK_COUNT} mornings`),
+    );
+    await user.press(screen.getByTestId("created-done"));
+
     // Home read the new challenge back from the server rather than trusting
     // what the form held.
     expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
@@ -215,7 +223,9 @@ describe("one account's life through the app's own screens", () => {
     // The provider's webhook lands. Nothing on screen was pressed.
     server.confirmFunding();
 
-    expect(await screen.findByTestId("home-challenge", {}, { timeout: 10_000 })).toBeOnTheScreen();
+    // The hold cleared, and the screen says what it bought before home does.
+    await user.press(await screen.findByTestId("created-done", {}, { timeout: 10_000 }));
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
     expect(screen.getByTestId("home-deposit")).toHaveTextContent(/\$20\.00/);
     expect(screen.getByTestId("home-current-task")).toBeOnTheScreen();
     // With money now on the line, home says what one missed morning would cost
@@ -248,7 +258,9 @@ describe("one account's life through the app's own screens", () => {
     await waitFor(() => expect(paymentSheet.presented).toHaveLength(1));
     server.confirmFunding();
 
-    expect(await screen.findByTestId("home-challenge", {}, { timeout: 10_000 })).toBeOnTheScreen();
+    // The hold cleared, and the screen says what it bought before home does.
+    await user.press(await screen.findByTestId("created-done", {}, { timeout: 10_000 }));
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
 
     // Weeks later the renewal fails behind the user's back.
     server.lapsePaymentMethod();
@@ -291,6 +303,9 @@ describe("one account's life through the app's own screens", () => {
     }
     await user.press(screen.getByTestId("start-challenge"));
 
+    // What was created is read before home takes over: the press hands the
+    // challenge back, not the creation itself.
+    await user.press(await screen.findByTestId("created-done"));
     expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
 
     await user.press(screen.getByTestId("home-open-task"));
@@ -336,6 +351,9 @@ describe("one account's life through the app's own screens", () => {
     }
     await user.press(screen.getByTestId("start-challenge"));
 
+    // What was created is read before home takes over: the press hands the
+    // challenge back, not the creation itself.
+    await user.press(await screen.findByTestId("created-done"));
     expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
 
     // The morning goes by unwalked, and the sweep decides it. The user never
@@ -378,6 +396,9 @@ describe("one account's life through the app's own screens", () => {
     }
     await user.press(screen.getByTestId("start-challenge"));
 
+    // What was created is read before home takes over: the press hands the
+    // challenge back, not the creation itself.
+    await user.press(await screen.findByTestId("created-done"));
     expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
 
     await user.press(screen.getByTestId("home-open-pause"));
@@ -426,6 +447,7 @@ describe("one account's life through the app's own screens", () => {
       await fireEvent(screen.getByTestId(`disclosure-${disclosure.id}`), "valueChange", true);
     }
     await user.press(screen.getByTestId("start-challenge"));
+    await user.press(await screen.findByTestId("created-done"));
     expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
 
     // The walk happens where there is no signal.

@@ -6,7 +6,7 @@
  * zero deposit challenge is created without a payment step.
  */
 
-import { disclosuresFor, type SessionView } from "@betterwakeup/contract";
+import { type ChallengeView, disclosuresFor, type SessionView } from "@betterwakeup/contract";
 import { fireEvent, render, screen, userEvent, waitFor } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ApiError } from "../src/api/errors.ts";
@@ -23,6 +23,7 @@ import {
   FUNDING_INTENT,
   fakeApi,
   PROJECTION,
+  taskView,
 } from "./support/fake-api.ts";
 import { fakePaymentSheet } from "./support/fake-payment-sheet.ts";
 import { createFakePedometer, type FakePedometer } from "./support/fake-pedometer.ts";
@@ -67,6 +68,9 @@ async function renderScreen(
   // Every test but the ones about a projection that never arrives asserts on a
   // screen whose end date has landed.
   awaitProjection = true,
+  // Only the tests about what a created challenge is reported as: the clock the
+  // first morning is counted against, and who is told it exists.
+  outcome: { now?: () => Date; onCreated?: (challenge: ChallengeView) => void } = {},
 ) {
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
@@ -80,6 +84,8 @@ async function renderScreen(
           paymentSheet={paymentSheet}
           movementDevice={movementDevice}
           settings={settings}
+          {...(outcome.now === undefined ? {} : { now: outcome.now })}
+          {...(outcome.onCreated === undefined ? {} : { onCreated: outcome.onCreated })}
         />
       </SessionProvider>
     </SafeAreaProvider>,
@@ -300,6 +306,12 @@ describe("a funded challenge", () => {
     await userEvent.press(screen.getByTestId("deposit-and-start"));
 
     expect(await screen.findByTestId("challenge-created")).toBeOnTheScreen();
+    // The challenge is handed back on the way out, not on arrival: a caller
+    // told at once would swap this screen away before it could be read.
+    expect(created).not.toHaveBeenCalled();
+
+    await userEvent.press(screen.getByTestId("created-done"));
+
     expect(created).toHaveBeenCalledWith(funded);
   });
 
@@ -491,6 +503,64 @@ describe("what the screen shows about the plan", () => {
     expect(screen.getByTestId("challenge-created")).toHaveTextContent(
       new RegExp(formatDay("2027-03-04")),
     );
+  });
+
+  it("names the first morning and counts its deadline down", async () => {
+    await renderScreen(
+      readyDraft(),
+      fakeApi({ createChallenge: { challenge: challengeView({ currentTask: taskView() }) } }),
+      fakePaymentSheet(),
+      createFakePedometer(),
+      fakeSettings(),
+      true,
+      // Ten hours before the fixture task's 14:00Z deadline.
+      { now: () => new Date("2026-09-01T04:00:00.000Z") },
+    );
+
+    await userEvent.press(screen.getByTestId("start-challenge"));
+
+    expect(screen.getByTestId("created-first")).toHaveTextContent(/Tuesday, September 1/);
+    expect(screen.getByTestId("created-countdown")).toHaveTextContent(/10 hours/);
+    expect(screen.getByTestId("created-stake")).toHaveTextContent(/Nothing is staked/);
+  });
+
+  it("warns when the challenge just made is already due within the hour", async () => {
+    await renderScreen(
+      readyDraft(),
+      fakeApi({ createChallenge: { challenge: challengeView({ currentTask: taskView() }) } }),
+      fakePaymentSheet(),
+      createFakePedometer(),
+      fakeSettings(),
+      true,
+      // Set up at bedtime: the first deadline lands inside the alarm's own lead.
+      { now: () => new Date("2026-09-01T13:30:00.000Z") },
+    );
+
+    await userEvent.press(screen.getByTestId("start-challenge"));
+
+    expect(screen.getByTestId("created-countdown-closing")).toHaveTextContent(/30 minutes/);
+    expect(screen.queryByTestId("created-countdown")).toBeNull();
+  });
+
+  it("hands the challenge back on the way out rather than on the press that made it", async () => {
+    const created = jest.fn();
+    await renderScreen(
+      readyDraft(),
+      fakeApi(),
+      fakePaymentSheet(),
+      createFakePedometer(),
+      fakeSettings(),
+      true,
+      { onCreated: created },
+    );
+
+    await userEvent.press(screen.getByTestId("start-challenge"));
+
+    expect(created).not.toHaveBeenCalled();
+
+    await userEvent.press(screen.getByTestId("created-done"));
+
+    expect(created).toHaveBeenCalledTimes(1);
   });
 });
 

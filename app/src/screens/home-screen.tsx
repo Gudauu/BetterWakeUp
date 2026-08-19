@@ -470,6 +470,7 @@ export function HomeScreen({
         // The server is the record of what exists, so the new challenge is read
         // back rather than trusted from the response the form held.
         onCreated={() => goHome(true)}
+        {...(now === undefined ? {} : { now })}
         {...(paymentSheet === undefined ? {} : { paymentSheet })}
         movementDevice={device}
         settings={settingsLauncher}

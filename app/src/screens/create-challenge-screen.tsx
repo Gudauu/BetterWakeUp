@@ -37,6 +37,7 @@ import {
   type StartChallengeOutcome,
   startChallenge,
 } from "../challenges/create-challenge.ts";
+import { creationResult } from "../challenges/creation-outcome.ts";
 import { readDeposit } from "../challenges/deposit.ts";
 import {
   type ChallengeDraft,
@@ -77,6 +78,7 @@ import {
   type PaymentSheetResult,
 } from "../payments/payment-sheet.ts";
 import { useSession } from "../session/session-context.tsx";
+import { useClock } from "../ui/clock.ts";
 import {
   AppText,
   Banner,
@@ -150,11 +152,14 @@ export interface CreateChallengeScreenProps {
   readonly initialDraft?: ChallengeDraft;
   readonly onSignOut?: () => void;
   /**
-   * Called once the server has created the challenge, so a caller that owns a
-   * view of the account can read it back. Absent when this screen is the whole
-   * app, in which case it reports the outcome itself.
+   * Called when the user leaves the screen that reports what was created, so a
+   * caller that owns a view of the account can read it back. It is deliberately
+   * not called on creation itself: a caller that swapped this screen out then
+   * would be answering the press with a screen change.
    */
   readonly onCreated?: (challenge: ChallengeView) => void;
+  /** Injected in tests, so the first morning's countdown is not the machine's clock. */
+  readonly now?: () => Date;
   /**
    * Called when the user leaves without a challenge on screen. `accountChanged`
    * says whether the server may hold something new anyway: leaving the form is
@@ -189,8 +194,12 @@ export function CreateChallengeScreen({
   paymentSheet,
   movementDevice,
   settings,
+  now,
 }: CreateChallengeScreenProps) {
   const { api } = useSession();
+  // Read on a timer rather than once, because how long is left on the first
+  // morning is a sentence that stops being true while the screen is open.
+  const clock = useClock(now);
   const [draft, dispatch] = useReducer(draftReducer, initialDraft ?? null, (given) =>
     given === null ? createDraft() : given,
   );
@@ -358,8 +367,10 @@ export function CreateChallengeScreen({
       }
       setFunding(result);
       if (result.status === "created") {
+        // Held rather than handed back: the created screen is what tells the
+        // user their hold cleared and what it bought, and calling back here
+        // would let the caller replace it before it was read.
         setOutcome({ status: "created", challenge: result.challenge });
-        created.current?.(result.challenge);
       }
     });
   }, [api]);
@@ -378,34 +389,74 @@ export function CreateChallengeScreen({
     setBusy(true);
     setNotice(null);
     try {
-      const result = await startChallenge({ api, draft, projection });
-      setOutcome(result);
-      if (result.status === "created") {
-        onCreated?.(result.challenge);
-      }
+      setOutcome(await startChallenge({ api, draft, projection }));
     } finally {
       setBusy(false);
     }
-  }, [api, draft, projection, onCreated]);
+  }, [api, draft, projection]);
 
   if (outcome?.status === "created") {
+    const result = creationResult({ challenge: outcome.challenge, now: clock });
+    // Anything but a morning comfortably ahead. A challenge set up at bedtime
+    // is due before the user next opens the app, and that is the one fact this
+    // screen exists to hand over.
+    const urgent = result.countdown !== null && result.countdown.urgency !== "ample";
     return (
-      <Screen centered testID="challenge-created">
-        <AppText variant="caption" tone="success">
-          YOU'RE IN
-        </AppText>
-        <AppText variant="display" center accessibilityRole="header">
-          Your challenge is running
-        </AppText>
-        <AppText variant="body" tone="muted" center>
-          {outcome.challenge.progress.requiredTaskCount} days, ending{" "}
-          {formatDay(outcome.challenge.projectedEndDate)} if you never pause.
-        </AppText>
-        <Banner tone="info">
-          <AppText variant="small">
-            Open the app on every active day and keep it open until both checks appear.
+      <Screen testID="challenge-created">
+        <View style={styles.header}>
+          <AppText variant="caption" tone="success">
+            YOU'RE IN
           </AppText>
+          <AppText variant="display" accessibilityRole="header">
+            Your challenge is running
+          </AppText>
+        </View>
+
+        {/* The clock the press just started, first and loudest. */}
+        <Banner tone={urgent ? "warning" : "info"} testID="created-first">
+          <AppText variant="small" tone={urgent ? "warning" : "default"}>
+            {result.first}
+          </AppText>
+          {result.countdown === null ? null : (
+            <AppText
+              variant="headline"
+              tone={urgent ? "warning" : "default"}
+              // Named by urgency as well as by role: a tone is not readable off
+              // a rendered text node, so the state it stands for has to be.
+              testID={urgent ? "created-countdown-closing" : "created-countdown"}
+              accessibilityRole="alert"
+            >
+              {result.countdown.sentence}
+            </AppText>
+          )}
         </Banner>
+
+        <Card>
+          <AppText variant="headline">What you have taken on</AppText>
+          <AppText variant="small" testID="created-proof">
+            {result.proof}
+          </AppText>
+          <AppText variant="small" testID="created-length">
+            {result.length}
+          </AppText>
+          <Divider />
+          <AppText variant="small" testID="created-stake">
+            {result.stake}
+          </AppText>
+        </Card>
+
+        <AppText variant="small" tone="muted" testID="created-reminders">
+          {result.reminders}
+        </AppText>
+
+        {/* The challenge is handed back on this press rather than on arrival,
+            so the caller's re-read cannot take the answer off the screen
+            before it has been read. */}
+        <Button
+          testID="created-done"
+          label="Back to home"
+          onPress={() => created.current?.(outcome.challenge)}
+        />
       </Screen>
     );
   }

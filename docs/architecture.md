@@ -728,6 +728,24 @@ So the morning, the time it is due, and how long is left are said on the screen 
 
 Both outcomes hand the challenge back only on "Back to home", for the same reason the recovery outcome does: the answer has to be read before the challenge is re-read, and the challenge this screen was given still says paused after a resume, so the outcome branch is checked before any branch that draws from it.
 
+### What starting a challenge came to
+
+`app/src/challenges/creation-outcome.ts` is the same shape of answer for the press that begins everything.
+
+Creating a challenge commits the user to a month of mornings and, on the funded path, to a hold on their card.
+The screen answered it with two lines and called `onCreated` in the same breath, so home swapped the screen away before it could be read - and on the funded path the same thing happened the moment the provider's webhook landed, which is the one moment a user who has staked money wants told what their money bought.
+
+`creationResult` says back what the server made: the first morning and the time it is due, how long is left on that deadline, what a morning asks for and that nothing counts once it has passed, how many mornings in all and where the challenge ends, and what is at stake.
+
+The first morning is the point of it.
+A challenge set up at bedtime can be due before the user next opens the app, and one set up on a Saturday afternoon may not be due for two days; which of those it is decides what the user does next, and the app knew it and said nothing.
+The countdown comes from `timeLeftUntil` and turns warning-toned at `ALARM_LEAD_MINUTES`, the same boundary the rest of the app reads a closing morning by.
+
+A null `currentTask` is not "nothing was scheduled" - every day is materialized at activation, and the first one is simply still ahead - so it gets its own sentence.
+The reminders are stated as a condition rather than as a promise, because the alarms only exist on a phone that has allowed notifications and home is where that is asked for.
+
+The challenge is handed back only on "Back to home", for the same reason the pause and recovery outcomes are: home re-reads the account on that callback, and a caller told at creation time replaces the answer with the screen the user pressed from.
+
 ### A countdown that counts
 
 Both of those clocks were read once, at the instant their screen was drawn.

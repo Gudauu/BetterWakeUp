@@ -570,6 +570,8 @@ describe("home is the door to creating a challenge", () => {
     await waitFor(() => expect(screen.getByTestId("start-challenge")).toBeOnTheScreen());
     await userEvent.press(screen.getByTestId("start-challenge"));
 
+    // The form reports what was created; home reads it back once that is left.
+    await userEvent.press(await screen.findByTestId("created-done"));
     expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
     expect(api.names()).toContain("createChallenge");
   });
