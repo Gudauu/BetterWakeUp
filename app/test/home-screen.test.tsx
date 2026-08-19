@@ -38,6 +38,7 @@ import {
 } from "./support/fake-completion-runtime.ts";
 import { type FakeNotifier, fakeNotifier } from "./support/fake-notifier.ts";
 import { type FakePaymentSheet, fakePaymentSheet } from "./support/fake-payment-sheet.ts";
+import { createFakePedometer, type FakePedometer } from "./support/fake-pedometer.ts";
 import { fakeProviders } from "./support/fake-providers.ts";
 import { fakeReminderTaps } from "./support/fake-reminder-taps.ts";
 import { type FakeScreenReader, fakeScreenReader } from "./support/fake-screen-reader.ts";
@@ -118,6 +119,13 @@ async function renderHome(
      * nobody is touching.
      */
     now?: Date | (() => Date);
+    /**
+     * This phone's step counter. Stated so that no test reaches for a sensor,
+     * and so that the phone that can count a walk - which is what every test
+     * not about this is assuming - is the default rather than an accident of
+     * whether a native module happened to load.
+     */
+    movementDevice?: FakePedometer;
   } = {},
 ) {
   const stated = options.now;
@@ -139,6 +147,7 @@ async function renderHome(
           createRuntime={createRuntime}
           notifier={options.notifier ?? fakeNotifier()}
           deviceTimeZone={options.deviceTimeZone ?? "America/Los_Angeles"}
+          movementDevice={options.movementDevice ?? createFakePedometer()}
           now={readClock}
           {...(options.paymentSheet === undefined ? {} : { paymentSheet: options.paymentSheet })}
           {...(options.settings === undefined ? {} : { settings: options.settings })}
@@ -1593,6 +1602,121 @@ describe("home and the device's reminders", () => {
     expect(await screen.findByTestId("home-no-challenge")).toBeOnTheScreen();
     await waitFor(() => expect(notifier.scheduled).toHaveLength(1));
     expect(notifier.scheduled.at(-1)).toEqual([]);
+  });
+});
+
+/**
+ * Whether this phone can still count a walk. The setup screen asks before the
+ * money is staked; nothing asked again afterwards, so motion access turned off
+ * in the middle of a challenge was discovered at the press of "Start the walk",
+ * on a morning already running.
+ */
+describe("home and this phone's step counter", () => {
+  const running = (overrides = {}) =>
+    fakeApi({
+      getCurrentChallenge: {
+        lastEnded: null,
+        challenge: challengeView({ currentTask: taskView(), ...overrides }),
+      },
+    });
+
+  it("says nothing about a phone that can count one", async () => {
+    await renderHome(running());
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-movement")).toBeNull();
+  });
+
+  it("says a walk would count nothing once motion access is off", async () => {
+    const movementDevice = createFakePedometer({ permission: "denied" });
+
+    await renderHome(running(), { movementDevice });
+
+    expect(await screen.findByTestId("home-movement-text")).toHaveTextContent(
+      /cannot count a walk/,
+    );
+    // Only the settings page answers a refused permission, so a button that
+    // asked again would do nothing at all.
+    expect(screen.getByTestId("home-movement-settings")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-allow-movement")).toBeNull();
+  });
+
+  it("opens the settings page rather than only naming it", async () => {
+    const settings = fakeSettings();
+
+    await renderHome(running(), {
+      movementDevice: createFakePedometer({ permission: "denied" }),
+      settings,
+    });
+
+    await userEvent.setup().press(await screen.findByTestId("home-movement-settings"));
+    expect(settings.opened).toBe(1);
+  });
+
+  it("asks for motion access itself when the device has never been asked", async () => {
+    const movementDevice = createFakePedometer({
+      permission: "undetermined",
+      onRequest: "granted",
+    });
+
+    await renderHome(running(), { movementDevice });
+
+    await userEvent.press(await screen.findByTestId("home-allow-movement"));
+
+    await waitFor(() => expect(screen.queryByTestId("home-movement")).toBeNull());
+    expect(movementDevice.requests).toBe(1);
+  });
+
+  it("tells a phone with no step counter which phone to open instead", async () => {
+    const movementDevice = createFakePedometer({ available: false });
+
+    await renderHome(running(), { movementDevice });
+
+    expect(await screen.findByTestId("home-movement-text")).toHaveTextContent(
+      /phone you set the challenge up with/,
+    );
+    // There is no press on this device that grows a sensor.
+    expect(screen.queryByTestId("home-allow-movement")).toBeNull();
+    expect(screen.queryByTestId("home-movement-settings")).toBeNull();
+  });
+
+  it("keeps saying it while the challenge is paused", async () => {
+    // A pause ends when its owner ends it, and the first morning back must not
+    // be the first they hear that the phone cannot settle one.
+    await renderHome(running({ pause: { pausedAt: PAUSED_AT, expiresAt: PAUSE_EXPIRES_AT } }), {
+      movementDevice: createFakePedometer({ permission: "denied" }),
+    });
+
+    expect(await screen.findByTestId("home-movement")).toBeOnTheScreen();
+  });
+
+  it("says nothing when the device would not answer at all", async () => {
+    // A read that threw is what a build with no sensor module answers, and the
+    // deposit is already staked - a warning nobody could ever clear.
+    const movementDevice = createFakePedometer({
+      isAvailable: () => Promise.reject(new Error("no module")),
+    });
+
+    await renderHome(running(), { movementDevice });
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-movement")).toBeNull();
+  });
+
+  it("asks the phone again when the app comes back from those settings", async () => {
+    // Motion access is turned on in a page the app is not in front of, so the
+    // return is the only moment the answer can have changed.
+    const appReturn = fakeAppReturn();
+    const movementDevice = createFakePedometer({ permission: "denied" });
+
+    await renderHome(running(), { appReturn: appReturn.trigger, movementDevice });
+
+    expect(await screen.findByTestId("home-movement")).toBeOnTheScreen();
+
+    movementDevice.permission = "granted";
+    await appReturn.fire();
+
+    await waitFor(() => expect(screen.queryByTestId("home-movement")).toBeNull());
   });
 });
 

@@ -58,7 +58,14 @@ import {
   type SettingsLauncher,
   useOpenSettings,
 } from "../device/settings.ts";
-import type { MovementDevice } from "../movement/device-readiness.ts";
+import {
+  ALLOW_MOVEMENT_LABEL,
+  createConfiguredMovementDevice,
+  type MovementDevice,
+  type MovementReadinessState,
+  runningMovementNotice,
+  useMovementReadiness,
+} from "../movement/device-readiness.ts";
 import { createConfiguredPaymentSheet, type PaymentSheet } from "../payments/payment-sheet.ts";
 import { needsPaymentMethod } from "../payments/replace-payment-method.ts";
 import {
@@ -347,6 +354,17 @@ export function HomeScreen({
     () => settings ?? createConfiguredSettingsLauncher(),
   );
   const openSettings = useOpenSettings(settingsLauncher);
+  // The step counter the whole challenge is settled by. Built once here and
+  // handed on to the form as well, so home and the screen that stakes the money
+  // ask the same device the same question.
+  const [device] = useState<MovementDevice>(
+    () => movementDevice ?? createConfiguredMovementDevice(),
+  );
+  // Whether this phone can still count a walk. Read on home rather than only at
+  // setup, because motion access can be taken away long after the deposit was
+  // authorized and the next place the app would have noticed is the press of
+  // "Start the walk", with the morning already running.
+  const movement = useMovementReadiness(device);
   // Built once for the life of the screen, so the announcement effect is not
   // re-run by a new object arriving on every render.
   const [reader] = useState<ScreenReader>(() => screenReader ?? createConfiguredScreenReader());
@@ -373,10 +391,20 @@ export function HomeScreen({
   // asks again on every return, and only while it is the screen in front of the
   // user - a re-read landing under the task screen or the form would take it
   // away mid-use.
-  useAppReturn(refresh, {
-    enabled: route === "home",
-    ...(appReturn === undefined ? {} : { trigger: appReturn }),
-  });
+  useAppReturn(
+    () => {
+      refresh();
+      // Motion access is turned on in a settings page the app is not in front
+      // of, so coming back is the one moment the answer is worth asking for
+      // again - and the moment the user expects the warning they just acted on
+      // to be gone.
+      movement.recheck();
+    },
+    {
+      enabled: route === "home",
+      ...(appReturn === undefined ? {} : { trigger: appReturn }),
+    },
+  );
   // Android's back gesture, answered with whatever that screen's own "Back to
   // home" control does. Home itself is the top of the app and keeps the
   // operating system's own answer, which is to close it.
@@ -443,7 +471,7 @@ export function HomeScreen({
         // back rather than trusted from the response the form held.
         onCreated={() => goHome(true)}
         {...(paymentSheet === undefined ? {} : { paymentSheet })}
-        {...(movementDevice === undefined ? {} : { movementDevice })}
+        movementDevice={device}
         settings={settingsLauncher}
       />
     );
@@ -642,6 +670,7 @@ export function HomeScreen({
         <ChallengeCard
           challenge={state.challenge}
           reminders={reminders}
+          movement={movement}
           settings={openSettings}
           unsent={unsent}
           recovery={recoveryWindow(state.challenge, clock)}
@@ -689,6 +718,7 @@ export function HomeScreen({
 function ChallengeCard({
   challenge,
   reminders,
+  movement,
   settings,
   unsent,
   recovery,
@@ -702,6 +732,7 @@ function ChallengeCard({
 }: {
   challenge: ChallengeView;
   reminders: RemindersState;
+  movement: MovementReadinessState;
   settings: OpenSettingsState;
   unsent: UnsentWork;
   recovery: RecoveryWindow | null;
@@ -748,6 +779,12 @@ function ChallengeCard({
 
   return (
     <View style={styles.stack}>
+      {/* Whether the phone can still settle a morning. Above the walk itself,
+          because a walk this phone cannot count is not a smaller version of a
+          walk - it is nothing at all, and the fix lives in a settings page that
+          takes a moment to reach. */}
+      <StepCounter challenge={challenge} movement={movement} settings={settings} />
+
       {/* Today's task is the reason the screen exists, so it is its own card
           above the challenge's numbers rather than a row buried inside them. */}
       {/* A morning that has already been kept. The row of days marks it with a
@@ -1097,6 +1134,65 @@ function taskButtonLabel(held: UnsentWork["currentTask"], morningGone: boolean):
     return "See today's walk";
   }
   return morningGone ? "See what happened" : "Open today's task";
+}
+
+/**
+ * Whether this phone can still count the walk the challenge is settled by.
+ *
+ * The setup screen asks the same question before any money is staked. What it
+ * cannot cover is everything after: motion access is revoked in a settings page
+ * the app never sees, an operating system update can reset it, and the account
+ * can be signed into on a second phone with no step counter at all. Every one
+ * of those left the app saying nothing until the press of "Start the walk", on
+ * a morning that was already running with a deposit behind it.
+ *
+ * A terminal challenge is left alone - there is no morning left to settle - but
+ * a paused one is not, because a pause ends when its owner ends it and the
+ * first morning back should not be the first they hear of this.
+ */
+function StepCounter({
+  challenge,
+  movement,
+  settings,
+}: {
+  challenge: ChallengeView;
+  movement: MovementReadinessState;
+  settings: OpenSettingsState;
+}) {
+  const notice = runningMovementNotice(movement.readiness);
+  if (
+    notice === null ||
+    (challenge.status !== "active" && challenge.status !== "recovery_pending")
+  ) {
+    return null;
+  }
+
+  return (
+    <Banner tone={notice.tone} testID="home-movement">
+      <AppText
+        variant="small"
+        tone={notice.tone === "info" ? "muted" : notice.tone}
+        accessibilityRole="alert"
+        testID="home-movement-text"
+      >
+        {notice.text}
+      </AppText>
+      {/* The app can ask for motion access itself exactly once. After that only
+          the settings page answers, which is why a refused phone gets a link
+          out rather than a button that would do nothing. */}
+      {movement.readiness === "askable" ? (
+        <Button
+          testID="home-allow-movement"
+          label={ALLOW_MOVEMENT_LABEL}
+          busy={movement.asking}
+          onPress={movement.ask}
+        />
+      ) : null}
+      {movement.readiness === "refused" ? (
+        <OpenSettingsAction testID="home-movement-settings" settings={settings} tone="muted" />
+      ) : null}
+    </Banner>
+  );
 }
 
 /**

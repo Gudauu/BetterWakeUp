@@ -106,6 +106,51 @@ export const MOVEMENT_READINESS_NOTICE: Readonly<
   },
 } as const;
 
+/**
+ * The same question asked of a challenge that is already running.
+ *
+ * The setup screen's wording is written for someone deciding whether to stake
+ * money. That decision is behind the user here: the deposit is held, the days
+ * are counting, and motion access can be taken away long after the form was
+ * filled in - by a settings page, by an operating system update, or by the
+ * challenge being opened on a second phone. Until now the app said nothing
+ * about any of that until the morning it mattered, at the press of "Start the
+ * walk", with a deadline already running.
+ *
+ * Silence on `ready` and `checking` is the point of the block: a phone that can
+ * count steps has nothing to report, and there is no reason to draw a state
+ * that resolves in a moment.
+ *
+ * `unknown` is silent too, which is where this rule parts from the setup
+ * screen's. There it is a reason to look again before paying; here the paying
+ * has happened, nothing about a failed read is actionable, and it is also the
+ * answer a build with no sensor module gives - so saying it on every open of
+ * the app would be a warning nobody could ever clear.
+ */
+export const RUNNING_MOVEMENT_NOTICE: Readonly<
+  Partial<Record<MovementReadiness, MovementReadinessNotice>>
+> = {
+  askable: {
+    tone: "warning",
+    text: "This phone has not been given motion access, so a walk taken now would count nothing. Turn it on before your next morning.",
+  },
+  refused: {
+    tone: "danger",
+    text: "Motion access is off, so this phone cannot count a walk and no morning can be completed while it stays off. Turn it on in your device settings before your next deadline.",
+  },
+  unsupported: {
+    tone: "danger",
+    text: "This phone has no step counter, so a walk taken here cannot be verified. Open BetterWakeUp on the phone you set the challenge up with before your next deadline.",
+  },
+} as const;
+
+/** What a running challenge's owner should hear about this phone, if anything. */
+export function runningMovementNotice(
+  readiness: MovementReadiness,
+): MovementReadinessNotice | null {
+  return RUNNING_MOVEMENT_NOTICE[readiness] ?? null;
+}
+
 /** The label on the press that asks the operating system for motion access. */
 export const ALLOW_MOVEMENT_LABEL = "Allow motion access";
 

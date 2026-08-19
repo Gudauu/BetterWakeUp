@@ -585,6 +585,22 @@ The read is repeated on request rather than polled, because motion access is cha
 The good answer is drawn too, rather than left as silence.
 The user is about to put money behind a sensor, and being told the sensor is there is part of what the screen owes them.
 
+#### Asking it again while the money is on the line
+
+Asking once at setup covers the decision and nothing after it.
+Motion access is revoked on a settings page the app never sees, an operating system update can reset it, and the account can be signed into on a second phone with no pedometer at all - and every one of those left the app silent until the press of "Start the walk", on a morning already running with a deposit behind it.
+
+So home reads the same device on every launch and draws `runningMovementNotice` over the challenge card.
+The wording is a second set rather than the setup screen's, for the reason the payment sheet needs one message per caller: the setup notices are written for someone deciding whether to stake money, and that decision is behind the user here.
+The same answers are also louder - a refused permission is a warning before the deposit and a danger once it is held.
+
+Two answers are deliberately silent.
+`ready` has nothing to report, and `unknown` is not worth reporting once the money is staked: nothing about a failed read is actionable at that point, and it is also the answer a build with no sensor module gives, which would make it a warning nobody could ever clear.
+A terminal challenge is silent too, having no morning left to settle, but a paused one is not - a pause ends when its owner ends it, and the first morning back should not be the first they hear of this.
+
+The read is repeated when the app comes back to the front, alongside the challenge re-read that already happens there.
+That is the moment the user has just come back from the settings page the notice sent them to, so it is the moment they expect the warning to be gone.
+
 #### The clock on the morning
 
 `app/src/completions/time-left.ts` reads the minutes to the deadline that `dailyCompletionState` already carries and answers how much of the morning is left, how urgent that is, and the sentence for each.
