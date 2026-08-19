@@ -112,6 +112,19 @@ export function endedChallenge(
   };
 }
 
+/**
+ * A challenge with real money on it. The unsecured-deposit warning is only ever
+ * true of one of these: the server keeps `depositSecured` true for a challenge
+ * that staked nothing, because such a challenge has nothing to secure.
+ */
+export function fundedChallengeView(overrides: Partial<ChallengeView> = {}): ChallengeView {
+  const base = challengeView(overrides);
+  return {
+    ...base,
+    configuration: { ...base.configuration, deposit: { amount: 2000, currency: "USD" } },
+  };
+}
+
 export function taskView(overrides: Partial<TaskView> = {}): TaskView {
   return {
     id: "44444444-4444-4444-8444-444444444444",

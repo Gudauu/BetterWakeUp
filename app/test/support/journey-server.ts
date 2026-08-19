@@ -59,6 +59,12 @@ export interface JourneyServer extends ApiClient {
    * the next read.
    */
   missDeadline(): void;
+  /**
+   * The renewal that failed, as a test can press it: the card behind the hold
+   * expired or was declined, so the deposit stops being secured while the
+   * challenge runs on. Nothing the app does causes this either.
+   */
+  lapsePaymentMethod(): void;
 }
 
 export interface JourneyServerOptions {
@@ -293,6 +299,21 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
       return { challenge, nextLiveTask: liveTask };
     },
 
+    // The replacement hold is taken off-session with the instrument the app
+    // sends, so the deposit is secured again by the time the call returns.
+    replacePaymentMethod: (input) => {
+      const current = live();
+      const { params } = input as { params: { challengeId: string } };
+      if (params.challengeId !== current.id) {
+        throw new ApiError("not_found", "No challenge with this identifier.");
+      }
+      if (current.configuration.deposit.amount === 0) {
+        throw new ApiError("deposit_required_for_funding", "This challenge has no deposit.");
+      }
+      challenge = { ...current, depositSecured: true };
+      return { challenge };
+    },
+
     deleteAccount: () => {
       accountExists = false;
       challenge = null;
@@ -318,6 +339,14 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
     missDeadline() {
       const current = live();
       endChallenge(current, "failed", current.progress.completedTaskCount);
+    },
+
+    lapsePaymentMethod() {
+      const current = live();
+      if (current.configuration.deposit.amount === 0) {
+        throw new Error("A challenge with no deposit has no payment method to lose.");
+      }
+      challenge = { ...current, depositSecured: false };
     },
 
     async request<Name extends ClientEndpointName>(name: Name, input: ApiRequest<Name>) {

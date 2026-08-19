@@ -43,8 +43,35 @@ export type PaymentSheetResult =
   /** The card was declined, or the sheet could not be completed. Retryable. */
   | { readonly status: "failed"; readonly message: string };
 
+/**
+ * What collecting a card came back with.
+ *
+ * Separate from `PaymentSheetResult` because it answers a different question.
+ * Presenting authorizes one particular hold and reports only that the user
+ * finished; collecting saves an instrument the provider will keep, and the
+ * identifier it hands back is the whole point - the server takes the
+ * replacement hold off-session with it, so a decline is the server's answer
+ * rather than the sheet's.
+ */
+export type PaymentMethodResult =
+  /** The user gave a card. The provider holds it under this identifier. */
+  | { readonly status: "collected"; readonly providerPaymentMethodId: string }
+  /** The user backed out. Nothing was saved and nothing was charged. */
+  | { readonly status: "cancelled" }
+  /** This build has no payment provider wired up. Trying again changes nothing. */
+  | { readonly status: "unavailable"; readonly message: string }
+  /** The sheet could not be completed. Retryable. */
+  | { readonly status: "failed"; readonly message: string };
+
 export interface PaymentSheet {
   present(request: PaymentSheetRequest): Promise<PaymentSheetResult>;
+  /**
+   * Ask for a card without authorizing anything with it. This is what a
+   * challenge whose hold has lapsed needs: the money question was settled when
+   * the challenge was created, and what is missing is an instrument the server
+   * can take a fresh hold on.
+   */
+  collect(): Promise<PaymentMethodResult>;
 }
 
 /** How a sheet is built. Substituted in tests; a build passes nothing. */
@@ -52,6 +79,15 @@ export type PaymentSheetFactory = () => PaymentSheet;
 
 export const NO_PROVIDER_MESSAGE =
   "Deposits are not available in this build yet. You can still run a challenge with no deposit.";
+
+/**
+ * The same absence, said to someone who already has a deposit on a challenge.
+ * Offering a no-deposit challenge would be the wrong answer here: theirs is
+ * already running, and what they need to know is that it keeps running and
+ * that no card of theirs is being charged in the meantime.
+ */
+export const NO_PROVIDER_CARD_MESSAGE =
+  "Cards cannot be added in this build yet. Your challenge keeps running, and nothing can be charged while no card secures it.";
 
 /**
  * The sheet this build uses.
@@ -68,5 +104,6 @@ export const NO_PROVIDER_MESSAGE =
 export function createConfiguredPaymentSheet(): PaymentSheet {
   return {
     present: async () => ({ status: "unavailable", message: NO_PROVIDER_MESSAGE }),
+    collect: async () => ({ status: "unavailable", message: NO_PROVIDER_CARD_MESSAGE }),
   };
 }

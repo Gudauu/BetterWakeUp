@@ -195,6 +195,51 @@ describe("one account's life through the app's own screens", () => {
     expect(screen.getByTestId("home-current-task")).toBeOnTheScreen();
   }, 30_000);
 
+  it("puts a new card behind a deposit whose hold stopped being renewed", async () => {
+    // A hold does not last a month, and a card can expire under it. Home has
+    // said "your card no longer secures this deposit" since the field existed,
+    // with nothing behind the sentence to press, so a user in this state could
+    // do nothing about it from inside the app.
+    const server = journeyServer();
+    const { paymentSheet } = await launch(server);
+    const user = userEvent.setup();
+
+    await user.press(await screen.findByTestId("sign-in-apple"));
+    await user.press(await screen.findByTestId("home-create-challenge"));
+    await waitFor(() => expect(screen.queryByTestId("projection")).not.toBeNull());
+
+    await fireEvent.changeText(screen.getByTestId("field-deposit"), "20");
+    await fireEvent(screen.getByTestId("confirm-time-zone"), "valueChange", true);
+    for (const disclosure of disclosuresFor(DEPOSIT_MINOR_UNITS)) {
+      await fireEvent(screen.getByTestId(`disclosure-${disclosure.id}`), "valueChange", true);
+    }
+    await waitFor(() => expect(screen.queryByTestId("deposit-and-start")).not.toBeNull());
+    await user.press(screen.getByTestId("deposit-and-start"));
+    await waitFor(() => expect(paymentSheet.presented).toHaveLength(1));
+    server.confirmFunding();
+
+    expect(await screen.findByTestId("home-challenge", {}, { timeout: 10_000 })).toBeOnTheScreen();
+
+    // Weeks later the renewal fails behind the user's back.
+    server.lapsePaymentMethod();
+    await user.press(screen.getByTestId("home-refresh"));
+
+    expect(await screen.findByTestId("home-deposit-unsecured")).toBeOnTheScreen();
+    await user.press(screen.getByTestId("home-open-payment-method"));
+
+    expect(await screen.findByTestId("payment-method-screen")).toBeOnTheScreen();
+    await user.press(screen.getByTestId("payment-method-add"));
+
+    expect(await screen.findByTestId("payment-method-done")).toBeOnTheScreen();
+    expect(paymentSheet.collections()).toBe(1);
+    expect(server.challenge()?.depositSecured).toBe(true);
+
+    // And home reads it back rather than still warning about the old card.
+    await user.press(screen.getByTestId("payment-method-done-back"));
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-deposit-unsecured")).toBeNull();
+  }, 30_000);
+
   it("says the challenge is finished, on the task screen and back on home", async () => {
     // The end of the product. `GET /challenges/current` answers null for a
     // finished challenge, so without the app holding on to what it just

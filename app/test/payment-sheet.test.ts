@@ -9,6 +9,7 @@
 
 import {
   createConfiguredPaymentSheet,
+  NO_PROVIDER_CARD_MESSAGE,
   NO_PROVIDER_MESSAGE,
 } from "../src/payments/payment-sheet.ts";
 
@@ -23,5 +24,15 @@ describe("the configured payment sheet", () => {
 
   it("says what the user can do instead", async () => {
     expect(NO_PROVIDER_MESSAGE).toMatch(/without a deposit|no deposit/i);
+  });
+
+  it("cannot save a card either, and says so without inventing an instrument", async () => {
+    const result = await createConfiguredPaymentSheet().collect();
+
+    expect(result).toEqual({ status: "unavailable", message: NO_PROVIDER_CARD_MESSAGE });
+  });
+
+  it("reassures the user whose challenge is already running that it keeps running", async () => {
+    expect(NO_PROVIDER_CARD_MESSAGE).toMatch(/keeps running/);
   });
 });

@@ -16,6 +16,7 @@ import {
   endedChallenge,
   type FakeApi,
   fakeApi,
+  fundedChallengeView,
   PAUSE_EXPIRES_AT,
   PAUSED_AT,
   taskView,
@@ -25,6 +26,7 @@ import {
   fakeCompletionRuntimeFactory,
 } from "./support/fake-completion-runtime.ts";
 import { type FakeNotifier, fakeNotifier } from "./support/fake-notifier.ts";
+import { type FakePaymentSheet, fakePaymentSheet } from "./support/fake-payment-sheet.ts";
 import { fakeProviders } from "./support/fake-providers.ts";
 
 const SESSION = {
@@ -56,6 +58,8 @@ async function renderHome(
      * have scheduled is readable.
      */
     notifier?: FakeNotifier;
+    /** How a card is asked for, once home offers to replace one that lapsed. */
+    paymentSheet?: FakePaymentSheet;
   } = {},
 ) {
   // Home holds a completion runtime for as long as it is on screen, so every
@@ -74,6 +78,7 @@ async function renderHome(
           createRuntime={createRuntime}
           notifier={options.notifier ?? fakeNotifier()}
           deviceTimeZone={options.deviceTimeZone ?? "America/Los_Angeles"}
+          {...(options.paymentSheet === undefined ? {} : { paymentSheet: options.paymentSheet })}
           {...(options.onSignOut === undefined ? {} : { onSignOut: options.onSignOut })}
         />
       </SessionProvider>
@@ -137,7 +142,7 @@ describe("home reads the account's current challenge", () => {
       fakeApi({
         getCurrentChallenge: {
           lastEnded: null,
-          challenge: challengeView({
+          challenge: fundedChallengeView({
             status: "recovery_pending",
             depositSecured: false,
             recoveryOffer: {
@@ -152,6 +157,61 @@ describe("home reads the account's current challenge", () => {
 
     expect(await screen.findByTestId("home-recovery-offer")).toBeOnTheScreen();
     expect(screen.getByTestId("home-deposit-unsecured")).toBeOnTheScreen();
+  });
+});
+
+describe("home when a card stopped securing the deposit", () => {
+  it("offers the way to add one, and opens it", async () => {
+    const user = userEvent.setup();
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          lastEnded: null,
+          challenge: fundedChallengeView({ depositSecured: false }),
+        },
+      }),
+      { paymentSheet: fakePaymentSheet() },
+    );
+
+    await user.press(await screen.findByTestId("home-open-payment-method"));
+
+    expect(await screen.findByTestId("payment-method-screen")).toBeOnTheScreen();
+  });
+
+  it("says nothing about a card while the deposit is secured", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          lastEnded: null,
+          challenge: fundedChallengeView(),
+        },
+      }),
+    );
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-deposit-unsecured")).toBeNull();
+  });
+
+  it("re-reads the challenge once a card secures it again", async () => {
+    const user = userEvent.setup();
+    const unsecured = fundedChallengeView({ depositSecured: false });
+    let reads = 0;
+    const api = fakeApi({
+      getCurrentChallenge: () => {
+        reads += 1;
+        return { lastEnded: null, challenge: reads === 1 ? unsecured : fundedChallengeView() };
+      },
+      replacePaymentMethod: { challenge: fundedChallengeView() },
+    });
+    await renderHome(api, { paymentSheet: fakePaymentSheet() });
+
+    await user.press(await screen.findByTestId("home-open-payment-method"));
+    await user.press(await screen.findByTestId("payment-method-add"));
+    await user.press(await screen.findByTestId("payment-method-done-back"));
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-deposit-unsecured")).toBeNull();
+    expect(reads).toBe(2);
   });
 });
 

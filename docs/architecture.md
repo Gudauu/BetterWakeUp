@@ -272,6 +272,22 @@ There is no processor yet, so `createConfiguredPaymentSheet` answers `unavailabl
 It is deliberately not a stub that claims success: a sheet that lied would leave the user waiting for a bank nobody had asked anything of, while believing they had paid.
 Replacing it with a real provider's sheet is a new implementation of that one function.
 
+### The card that stopped working
+
+A hold does not last a month.
+The server renews it, and a renewal fails when a card expires, is replaced by the bank, or is declined; the sweep's answer is to set `depositSecured` to false and keep the challenge running.
+Home has always shown that field as a warning, and until now there was nothing behind the sentence to press.
+
+The same port answers it, with `collect()` beside `present()`.
+The two are different questions: presenting authorizes one particular hold and reports only that the user finished, while collecting saves an instrument and hands back the identifier the server takes a fresh hold with.
+That is why a decline on the replacement path is the server's answer - `POST /challenges/:challengeId/payment-method` authorizes off-session - rather than the sheet's.
+
+`needsPaymentMethod` decides where the offer appears: the challenge has to be running or waiting on a recovery decision, and it has to have staked something.
+A terminal challenge has no hold left to keep alive, and a zero deposit challenge is always reported as secured because it has nothing to secure.
+
+The screen opens the sheet from a press rather than on arrival, since a card modal thrown at someone the moment they tap a warning asks for a card before they have read why.
+This build has no processor, so `collect()` answers `unavailable` there too - and it says the challenge keeps running and that nothing can be charged while no card secures it, which is the true and useful thing to tell someone whose challenge is already under way.
+
 ### Movement
 
 Use the `expo-sensors` Pedometer, which wraps CMPedometer on iOS and the step counter on Android.

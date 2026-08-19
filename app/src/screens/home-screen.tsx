@@ -23,7 +23,8 @@ import {
   createConfiguredCompletionRuntime,
   useCompletionRuntime,
 } from "../completions/runtime.ts";
-import type { PaymentSheet } from "../payments/payment-sheet.ts";
+import { createConfiguredPaymentSheet, type PaymentSheet } from "../payments/payment-sheet.ts";
+import { needsPaymentMethod } from "../payments/replace-payment-method.ts";
 import {
   createConfiguredNotifier,
   type Notifier,
@@ -50,6 +51,7 @@ import { CreateChallengeScreen } from "./create-challenge-screen.tsx";
 import { DailyCompletionScreen } from "./daily-completion-screen.tsx";
 import { DeleteAccountScreen } from "./delete-account-screen.tsx";
 import { PauseScreen } from "./pause-screen.tsx";
+import { PaymentMethodScreen } from "./payment-method-screen.tsx";
 import { RecoveryScreen } from "./recovery-screen.tsx";
 import { TimeZoneScreen } from "./time-zone-screen.tsx";
 
@@ -85,7 +87,15 @@ export interface HomeScreenProps {
  * returns here, and nothing opens anything else, so one name is the whole of
  * the navigation state. A router arrives when a screen needs to open a third.
  */
-type Route = "home" | "create" | "task" | "pause" | "recovery" | "delete" | "timeZone";
+type Route =
+  | "home"
+  | "create"
+  | "task"
+  | "pause"
+  | "recovery"
+  | "delete"
+  | "timeZone"
+  | "paymentMethod";
 
 /**
  * The headline states, worded as the user's situation rather than as the
@@ -154,6 +164,9 @@ export function HomeScreen({
   // Built once for as long as home lives, so the effect that follows the
   // challenge is not re-run by a new object on every render.
   const [reminderNotifier] = useState<Notifier>(() => notifier ?? createConfiguredNotifier());
+  // The same sheet the form uses, kept here as well: a lapsed hold is asked
+  // about from home, and the card that answers it is the same kind of card.
+  const [cardSheet] = useState<PaymentSheet>(() => paymentSheet ?? createConfiguredPaymentSheet());
   // Only a loaded read says anything about what is due. A read in flight or a
   // read that failed leaves the device's reminders where they are.
   const reminders = useReminders(
@@ -273,6 +286,17 @@ export function HomeScreen({
         );
       }
     }
+    if (route === "paymentMethod" && needsPaymentMethod(open)) {
+      return (
+        <PaymentMethodScreen
+          api={api}
+          challenge={open}
+          sheet={cardSheet}
+          onSecured={() => goHome(true)}
+          onBack={() => goHome(false)}
+        />
+      );
+    }
     if (route === "recovery") {
       return (
         <RecoveryScreen
@@ -344,6 +368,7 @@ export function HomeScreen({
           onOpenPause={() => setRoute("pause")}
           onOpenRecovery={() => setRoute("recovery")}
           onOpenTimeZone={() => setRoute("timeZone")}
+          onOpenPaymentMethod={() => setRoute("paymentMethod")}
         />
       )}
 
@@ -374,6 +399,7 @@ function ChallengeCard({
   onOpenPause,
   onOpenRecovery,
   onOpenTimeZone,
+  onOpenPaymentMethod,
 }: {
   challenge: ChallengeView;
   reminders: RemindersState;
@@ -382,6 +408,7 @@ function ChallengeCard({
   onOpenPause: () => void;
   onOpenRecovery: () => void;
   onOpenTimeZone: () => void;
+  onOpenPaymentMethod: () => void;
 }) {
   const paused = challenge.pause.pausedAt !== null;
   const { progress, configuration, currentTask } = challenge;
@@ -451,8 +478,8 @@ function ChallengeCard({
         </Banner>
       )}
 
-      {challenge.depositSecured ? null : (
-        <Banner tone="danger">
+      {needsPaymentMethod(challenge) ? (
+        <Banner tone="danger" testID="home-deposit-unsecured-banner">
           <AppText
             variant="small"
             tone="danger"
@@ -461,8 +488,13 @@ function ChallengeCard({
           >
             Your card no longer secures this deposit. Add a new one to keep the challenge honest.
           </AppText>
+          <Button
+            testID="home-open-payment-method"
+            label="Add a card"
+            onPress={onOpenPaymentMethod}
+          />
         </Banner>
-      )}
+      ) : null}
 
       <Card testID="home-challenge">
         <View style={styles.statusRow}>
