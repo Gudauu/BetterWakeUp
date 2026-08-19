@@ -369,6 +369,20 @@ The screen now names what ended the walk and how many steps it cost, and the sta
 
 The first is the other half of the same rule: while a window is open the screen says how many steps are left and that leaving the app ends the walk, and the moment the target is met it says so and turns the button into "Save my walk", because the walk is earned at that step and every second after it is a second the window can still be lost.
 
+#### The clock on the morning
+
+`app/src/completions/time-left.ts` reads the minutes to the deadline that `dailyCompletionState` already carries and answers how much of the morning is left, how urgent that is, and the sentence for each.
+
+The deadline used to be stated only as a wall-clock time - "250 steps by 7:00 AM" - and then not mentioned again until a walk was already saved and waiting to be sent.
+That left the two moments the day turns on unspoken.
+Someone opening the app at 6:52 was not told they had eight minutes, and someone opening it at 7:20 was told "Not done yet" and offered a button that starts a walk `POST /tasks/:id/completions` has already stopped being able to accept: the command must arrive within the deadline's receipt grace, and the reported completion instant must itself be at or before the deadline, so a walk begun after it cannot count however far it goes.
+
+The boundary between a countdown worth reading quietly and one worth raising is `ALARM_LEAD_MINUTES`, imported rather than restated.
+The app has already decided that is the moment a user should be up and walking, and the reminder that fires then and the line that turns amber then are the same judgement.
+
+Past the deadline the screen withdraws the invitation rather than colouring it: the start button is gone, the advice says the window has closed, and a banner names the time that passed and points at the Emergency Recovery, which lives on home because the offer only exists once the server has recorded the missed day.
+While a walk is racing the clock the card adds the half of the rule a walker cannot guess - it is the instant the walk is saved that is judged, so a window opened in time and finished late is refused.
+
 ### Pending completion store
 
 The app writes a pending completion to SQLite before displaying the local check.

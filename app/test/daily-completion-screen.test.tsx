@@ -94,6 +94,7 @@ function tree(
   view: ChallengeView,
   onAcknowledged?: () => void,
   onFinished?: () => void,
+  now: Date = NOW,
 ) {
   return (
     <SafeAreaProvider initialMetrics={METRICS}>
@@ -103,7 +104,7 @@ function tree(
         sync={given.sync}
         store={given.store}
         appVersion="1.0.0"
-        now={() => NOW}
+        now={() => now}
         {...(onAcknowledged === undefined ? {} : { onAcknowledged })}
         {...(onFinished === undefined ? {} : { onFinished })}
       />
@@ -123,6 +124,12 @@ async function renderScreen(
       screen.queryByTestId("daily-completion") ?? screen.queryByTestId("no-task-today"),
     ).not.toBeNull(),
   );
+}
+
+/** The same screen, read at a stated moment of the morning. */
+async function renderAt(now: Date, given: Harness, view = challenge()) {
+  await render(tree(given, view, undefined, undefined, now));
+  await waitFor(() => expect(screen.queryByTestId("daily-completion")).not.toBeNull());
 }
 
 /** Run a full capture window that reaches the target and record it. */
@@ -458,5 +465,74 @@ describe("no open task", () => {
 
     expect(screen.queryByTestId("daily-completion")).toBeNull();
     expect(screen.getByTestId("no-task-today")).toBeTruthy();
+  });
+});
+
+describe("the clock on the morning", () => {
+  /** Ten minutes to go, and the deadline half an hour behind. */
+  const CLOSING = new Date("2026-09-01T13:50:00.000Z");
+  const AFTER = new Date("2026-09-01T14:30:00.000Z");
+
+  it("counts the deadline down rather than only naming the time it falls at", async () => {
+    await renderAt(NOW, await harness());
+
+    expect(screen.getByTestId("time-left")).toHaveTextContent("1 hour left to walk.");
+  });
+
+  it("counts in minutes once the deadline is inside the alarm's own lead", async () => {
+    await renderAt(CLOSING, await harness());
+
+    expect(screen.getByTestId("time-left")).toHaveTextContent("10 minutes left to walk.");
+  });
+
+  it("tells a walker racing the clock that it is the finish that is judged", async () => {
+    const given = await harness();
+    await renderAt(CLOSING, given);
+    const user = userEvent.setup();
+
+    expect(screen.queryByTestId("capture-deadline")).toBeNull();
+    await user.press(screen.getByTestId("start-capture"));
+
+    expect(screen.getByTestId("capture-deadline")).toHaveTextContent(
+      /Save it before 7:00 AM - a walk finished after the deadline does not count\./,
+    );
+  });
+
+  it("leaves a walk with the morning ahead of it saying nothing about the clock", async () => {
+    const given = await harness();
+    await renderAt(NOW, given);
+    const user = userEvent.setup();
+
+    await user.press(screen.getByTestId("start-capture"));
+
+    expect(screen.queryByTestId("capture-deadline")).toBeNull();
+  });
+
+  it("stops offering a walk once the deadline has passed, and says what that means", async () => {
+    await renderAt(AFTER, await harness());
+
+    expect(screen.getByTestId("deadline-missed")).toHaveTextContent(
+      /The 7:00 AM deadline has passed, so a walk now cannot count for today\./,
+    );
+    expect(screen.getByTestId("deadline-missed")).toHaveTextContent(/Emergency Recovery/);
+    expect(screen.getByTestId("daily-status")).toHaveTextContent(
+      /This morning's window has closed\./,
+    );
+    // The invitation is gone: the server judges the instant the walk was
+    // saved, so anything started now ends in a refusal.
+    expect(screen.queryByTestId("start-capture")).toBeNull();
+    expect(screen.queryByTestId("time-left")).toBeNull();
+  });
+
+  it("says nothing about a countdown once the day is acknowledged", async () => {
+    const given = await harness();
+    await renderAt(NOW, given);
+
+    await completeLocally(given);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("progression")).toHaveTextContent("Done. Both checks passed"),
+    );
+    expect(screen.queryByTestId("time-left")).toBeNull();
   });
 });

@@ -1,0 +1,99 @@
+/**
+ * How much of the morning is left.
+ *
+ * The task screen states the deadline as a wall-clock time - "250 steps by 7:00
+ * AM" - and then says nothing more about it until a walk is already saved and
+ * waiting to be sent. That leaves the two moments that decide the day unspoken.
+ * Someone who opens the app at 6:52 is not told they have eight minutes, and
+ * someone who opens it at 7:20 is told "Not done yet" and offered a button that
+ * starts a walk the server will refuse: a completion has to reach the server by
+ * the deadline, and its own reported instant has to be at or before it, so a
+ * walk begun after the deadline cannot count no matter how far it goes.
+ *
+ * This module turns the minutes the state already carries into the reading the
+ * screen needs: how long is left, whether that is worth raising the user's
+ * pulse over, and the sentence for each. The wording lives here beside the rule
+ * that produced it, the way the interruption wording lives beside the walk.
+ */
+
+import { ALARM_LEAD_MINUTES } from "../reminders/reminders.ts";
+
+/**
+ * How urgently the remaining time reads.
+ *
+ * The boundary is the alarm's own lead time: the app has already decided that
+ * `ALARM_LEAD_MINUTES` before the deadline is the moment a user should be up
+ * and walking, so it is the same moment the countdown stops being background
+ * information.
+ */
+export type TimeLeftUrgency = "ample" | "closing" | "expired";
+
+export const CLOSING_MINUTES = ALARM_LEAD_MINUTES;
+
+export interface TimeLeft {
+  readonly urgency: TimeLeftUrgency;
+  /** Whole minutes still to run, never below zero. */
+  readonly minutes: number;
+  readonly sentence: string;
+}
+
+/**
+ * The countdown, from the whole minutes to the deadline that
+ * `dailyCompletionState` derives. Null when there is no deadline to count to,
+ * so a screen with no open task draws nothing rather than counting to zero.
+ */
+export function timeLeft(minutesToDeadline: number | null): TimeLeft | null {
+  if (minutesToDeadline === null) {
+    return null;
+  }
+  if (minutesToDeadline < 0) {
+    return { urgency: "expired", minutes: 0, sentence: "The deadline has passed." };
+  }
+  return {
+    urgency: minutesToDeadline <= CLOSING_MINUTES ? "closing" : "ample",
+    minutes: minutesToDeadline,
+    sentence: `${durationText(minutesToDeadline)} left to walk.`,
+  };
+}
+
+/**
+ * A duration a person would say out loud. Minutes alone past an hour - "127
+ * minutes" - is a number to be converted rather than read, and the last minute
+ * is named as what it is rather than as "0 minutes", which reads as expired.
+ */
+function durationText(minutes: number): string {
+  if (minutes === 0) {
+    return "Less than a minute";
+  }
+  if (minutes < 60) {
+    return minutes === 1 ? "1 minute" : `${minutes} minutes`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  const hoursText = hours === 1 ? "1 hour" : `${hours} hours`;
+  if (rest === 0) {
+    return hoursText;
+  }
+  return `${hoursText} ${rest === 1 ? "1 minute" : `${rest} minutes`}`;
+}
+
+/**
+ * What a user is told when the deadline went by with no walk saved.
+ *
+ * It names the time that passed, says plainly that nothing done now counts -
+ * the screen would otherwise offer a walk that ends in a refusal - and points
+ * at the one thing that can still change the day, which lives on home rather
+ * than here because the offer only exists once the server has recorded the miss.
+ */
+export function deadlineMissedText(deadlineTime: string): string {
+  return `The ${deadlineTime} deadline has passed, so a walk now cannot count for today. If you still have your Emergency Recovery, home will offer it once BetterWakeUp has recorded the missed day.`;
+}
+
+/**
+ * The one thing a walker racing the clock cannot guess: it is the moment the
+ * walk is saved that is judged, not the moment it started, so a window opened
+ * in time and finished late is refused.
+ */
+export function finishByText(deadlineTime: string): string {
+  return `Save it before ${deadlineTime} - a walk finished after the deadline does not count.`;
+}

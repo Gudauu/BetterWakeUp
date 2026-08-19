@@ -28,6 +28,7 @@ import {
 import { VERIFICATION_POLICY_VERSION } from "../completions/policy.ts";
 import type { PendingCompletionRecord, PendingCompletionStore } from "../completions/store.ts";
 import type { CompletionSync } from "../completions/sync.ts";
+import { deadlineMissedText, finishByText, timeLeft } from "../completions/time-left.ts";
 import type { CaptureState, MovementCapture } from "../movement/capture.ts";
 import type { MovementSimulation } from "../movement/simulated-pedometer.ts";
 import { interruptionText, walkProgress } from "../movement/walk-progress.ts";
@@ -201,6 +202,12 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
   const walk = walkProgress(captureState, target);
   const recording = walk.recording;
   const steps = walk.steps;
+  const deadlineTime = formatTimeOfDay(task.deadline, challenge.configuration.timeZone);
+  const left = timeLeft(state.minutesToDeadline);
+  // A deadline that went by with nothing saved. Nothing started now can be
+  // acknowledged - the server judges the instant the walk was finished - so the
+  // screen says so rather than offering a walk that ends in a refusal.
+  const missed = state.status === "incomplete" && state.deadlinePassed;
 
   return (
     <Screen testID="daily-completion">
@@ -214,8 +221,22 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
           {formatDay(task.date)}
         </AppText>
         <AppText variant="small" tone="muted" testID="deadline">
-          {target} steps by {formatTimeOfDay(task.deadline, challenge.configuration.timeZone)}
+          {target} steps by {deadlineTime}
         </AppText>
+        {/* The deadline as a countdown rather than as a time. Someone who has
+            just woken up knows what 7:00 AM is and not what it is now, and the
+            whole day turns on the difference. It goes quiet once the day is
+            done, and once the deadline has passed the banner below says it
+            with the consequence attached. */}
+        {left === null || left.urgency === "expired" || state.status === "acknowledged" ? null : (
+          <AppText
+            variant="small"
+            tone={left.urgency === "closing" ? "warning" : "muted"}
+            testID="time-left"
+          >
+            {left.sentence}
+          </AppText>
+        )}
       </View>
 
       {/* The end of the whole challenge outranks the day that ended it, so it
@@ -254,7 +275,7 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
           {PROGRESSION_HEADLINE[state.status]}
         </AppText>
         <AppText variant="small" tone="muted">
-          {finished ? FINISHED_ADVICE : STATUS_ADVICE[state.status]}
+          {finished ? FINISHED_ADVICE : missed ? MISSED_ADVICE : STATUS_ADVICE[state.status]}
         </AppText>
 
         <Divider />
@@ -270,6 +291,14 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
           check={state.serverCheck}
         />
       </Card>
+
+      {missed ? (
+        <Banner tone="danger">
+          <AppText variant="small" tone="danger" testID="deadline-missed" accessibilityRole="alert">
+            {deadlineMissedText(deadlineTime)}
+          </AppText>
+        </Banner>
+      ) : null}
 
       {state.deadlineWarning ? (
         <Banner tone={state.deadlinePassed ? "danger" : "warning"}>
@@ -341,6 +370,14 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
               ? "That is the walk. Save it and the morning is yours."
               : `${walk.remaining} to go. Keep this screen open - leaving the app ends the walk.`}
           </AppText>
+          {/* The other half of the rule, once the clock is close enough for it
+              to bite: the server judges the instant the walk was saved, so a
+              window opened in time and finished late is refused. */}
+          {left !== null && left.urgency !== "ample" ? (
+            <AppText variant="small" tone="danger" testID="capture-deadline">
+              {finishByText(deadlineTime)}
+            </AppText>
+          ) : null}
           <Button
             testID="stop-capture"
             label={walk.reachedTarget ? "Save my walk" : "Stop and check"}
@@ -350,7 +387,7 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
         </Card>
       ) : null}
 
-      {state.status === "incomplete" && !recording ? (
+      {state.status === "incomplete" && !recording && !missed ? (
         <Button
           testID="start-capture"
           label={walk.interruption === null ? "Start moving" : "Start the walk again"}
@@ -425,6 +462,14 @@ const STATUS_ADVICE: Readonly<Record<DailyCompletionState["status"], string>> = 
  * false once the challenge is over, and it is the wrong note to end a month on.
  */
 const FINISHED_ADVICE = "That was the last day this challenge needed.";
+
+/**
+ * What replaces the incomplete advice once the deadline is behind the user.
+ * "Start the walk when you are up" is an invitation to spend a morning on a
+ * walk that the server has already stopped being able to accept.
+ */
+const MISSED_ADVICE =
+  "This morning's window has closed. The next task opens on your next active day.";
 
 /** What was actually done, counted. A one day challenge is not "all 1 days". */
 function finishedDaysText(days: number): string {
