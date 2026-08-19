@@ -912,6 +912,25 @@ An alarm that cannot be acted on is worse than no alarm, so `useRemindersCleared
 That is also why the welcome screen owns the notifier rather than passing one through: it is the only component mounted both while a session exists and after it is gone.
 The expiry notice says the alarms have stopped, because a user relying on tomorrow's has to hear that it will not sound.
 
+### The sign-in that is about to run out
+
+An expiry is the one way into the signed-out screen that the app can see coming.
+A session lasts thirty days, no endpoint renews one, and `sessionView.expiresAt` has been in the app's hands since the moment it signed in - read exactly once, at launch, to discard a session that was already dead.
+So the notice above was the whole of what a user got: the first word that the clock existed arrived on whichever morning the thirtieth day turned out to be, and it arrived as the challenge becoming unreachable.
+Thirty days is shorter than plenty of challenges, which makes this a scheduled failure rather than an edge case.
+
+`app/src/session/session-expiry.ts` reads that instant against the device's clock and answers null while it is more than `SESSION_WARNING_DAYS` off.
+Three days is the window: long enough to be dealt with at a convenient moment, short enough that the banner is not standing on home for a quarter of the session's life, which is how a warning becomes something a user has learned to look past.
+Anything past two days is said in days rather than in hours, because "70 hours" is a number to be converted rather than a length of time; under that it uses the same `formatDuration` the morning's countdown does.
+
+The expiry is read in the device's own zone rather than the challenge's, for the same reason an ended challenge is: it is a fact about this phone, not a deadline the challenge sets.
+Home reads it against the ticking clock every other countdown uses, so a session that runs out under an open screen turns from a countdown into "it has run out" without anyone touching the phone - which is all the notice there is until the next request is refused.
+
+What the expiry will cost is not worded here.
+An expiry is a sign-out nobody pressed, so the banner's confirmation carries `signOutConsequence` verbatim, and the two can never drift into describing the same event differently.
+The press is the awkward part and is stated rather than hidden: with no renew endpoint, signing in again begins by signing out, so a control labelled "Sign in again now" has to admit in its confirmation that it signs the user out first.
+Doing that deliberately, at a moment of the user's choosing, is the whole point - the alternative is the same sign-out arriving on a morning with a deadline and money on it.
+
 ### Signing out on purpose
 
 The third way in is a press, and it is the one the app can still do something about.

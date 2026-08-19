@@ -84,6 +84,16 @@ import {
 import { ALARM_LEAD_MINUTES, nextAlarmAt, type ReminderTarget } from "../reminders/reminders.ts";
 import { useSession } from "../session/session-context.tsx";
 import {
+  SESSION_RENEW_CANCEL_LABEL,
+  SESSION_RENEW_CONFIRM_LABEL,
+  SESSION_RENEW_LABEL,
+  SESSION_RENEWAL_TEXT,
+  type SessionExpiry,
+  sessionExpiry,
+  sessionExpiryText,
+  sessionRenewalConsequence,
+} from "../session/session-expiry.ts";
+import {
   SIGN_OUT_CANCEL_LABEL,
   SIGN_OUT_CONFIRM_LABEL,
   signOutConsequence,
@@ -306,7 +316,7 @@ export function HomeScreen({
   settings,
   screenReader,
 }: HomeScreenProps) {
-  const { api, signOut } = useSession();
+  const { api, signOut, state: session } = useSession();
   // The clock is state that ticks, not a read at render time. Everything on
   // this screen that counts down - how much of the morning is left, how long
   // is left to decide on a recovery offer, whether either window has closed -
@@ -329,6 +339,12 @@ export function HomeScreen({
   // the app is open. The device's zone is checked again on the next launch.
   const [keptTimeZone, setKeptTimeZone] = useState(false);
   const here = deviceTimeZone ?? detectTimeZone();
+  // The sign-in itself is on a clock, and the app used to read it only at
+  // launch: a session that ran out mid-challenge threw the user onto the
+  // signed-out screen with no notice, on whichever morning the thirtieth day
+  // turned out to be. Read here against the same ticking clock as the morning,
+  // so the warning arrives while there is still time to act on it.
+  const expiry = session.status === "signedIn" ? sessionExpiry(session.session, clock, here) : null;
   // The way back from everything home opens. A command that changed the
   // challenge reads it again from here rather than while its screen is still
   // up: `reload` puts home into its loading state, which would pull that screen
@@ -664,6 +680,13 @@ export function HomeScreen({
           </AppText>
         ) : null}
       </View>
+
+      <SessionExpiryNotice
+        expiry={expiry}
+        onSignOut={onSignOut}
+        challenge={state.challenge}
+        heldWalks={unsent.earlierWaiting + (unsent.currentTask === "waiting" ? 1 : 0)}
+      />
 
       {state.challenge === null ? (
         ended === null ? (
@@ -1488,6 +1511,59 @@ function TaskSpinner() {
   const theme = useTheme();
   return (
     <ActivityIndicator accessibilityLabel="Opening today's task" color={theme.colors.accent} />
+  );
+}
+
+/**
+ * The sign-in about to run out, and the press that gets ahead of it.
+ *
+ * It sits at the top of home rather than among the account controls because it
+ * is news with a date on it, not a setting. The press signs out, which is the
+ * opposite of what the label promises until the confirmation explains that
+ * signing back in is what it is for: there is no endpoint that renews a
+ * session, so the only way to a fresh one is through the sign-in screen.
+ *
+ * With no `onSignOut` there is nowhere to send the user, so the warning still
+ * appears - it is true either way - and simply carries no press.
+ */
+function SessionExpiryNotice({
+  expiry,
+  onSignOut,
+  challenge,
+  heldWalks,
+}: {
+  expiry: SessionExpiry | null;
+  onSignOut: (() => void) | undefined;
+  challenge: ChallengeView | null;
+  heldWalks: number;
+}): ReactNode {
+  if (expiry === null) {
+    return null;
+  }
+  return (
+    <Banner tone={expiry.urgency === "gone" ? "danger" : "warning"} testID="home-session-expiry">
+      <AppText
+        variant="small"
+        tone={expiry.urgency === "gone" ? "danger" : "warning"}
+        accessibilityRole="alert"
+        testID="home-session-expiry-when"
+      >
+        {sessionExpiryText(expiry)}
+      </AppText>
+      <AppText variant="small" testID="home-session-expiry-renewal">
+        {SESSION_RENEWAL_TEXT}
+      </AppText>
+      {onSignOut === undefined ? null : (
+        <ConfirmAction
+          testID="home-session-renew"
+          label={SESSION_RENEW_LABEL}
+          consequence={sessionRenewalConsequence(signOutConsequence({ challenge, heldWalks }))}
+          confirmLabel={SESSION_RENEW_CONFIRM_LABEL}
+          cancelLabel={SESSION_RENEW_CANCEL_LABEL}
+          onConfirm={onSignOut}
+        />
+      )}
+    </Banner>
   );
 }
 

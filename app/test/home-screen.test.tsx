@@ -126,6 +126,12 @@ async function renderHome(
      * whether a native module happened to load.
      */
     movementDevice?: FakePedometer;
+    /**
+     * The session this phone is signed in with. Stated only by the tests about
+     * the sign-in running out: the default expires in 2027, which is the "not
+     * worth mentioning" case every other test is about.
+     */
+    session?: { accountId: string; token: string; expiresAt: string };
   } = {},
 ) {
   const stated = options.now;
@@ -139,9 +145,14 @@ async function renderHome(
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <SessionProvider
-        store={createMemorySessionStore(SESSION)}
+        store={createMemorySessionStore(options.session ?? SESSION)}
         createClient={() => api}
         providers={fakeProviders()}
+        // The moment the app launched, which is the only thing the provider
+        // reads the expiry against. Held at the suite's own instant so a session
+        // that runs out while home is on screen is still a session the app was
+        // signed in with when it opened.
+        now={() => NOW}
       >
         <HomeScreen
           createRuntime={createRuntime}
@@ -1493,6 +1504,79 @@ describe("home asks before signing out of a running challenge", () => {
 
     expect(screen.getByTestId("home-sign-out-consequence")).toHaveTextContent(/If one is running/);
     expect(onSignOut).not.toHaveBeenCalled();
+  });
+});
+
+describe("home says when this phone's sign-in runs out", () => {
+  /** A session that ends the stated number of minutes after the suite's clock. */
+  function expiringIn(minutes: number) {
+    return { ...SESSION, expiresAt: new Date(NOW.getTime() + minutes * 60_000).toISOString() };
+  }
+
+  it("says nothing about a sign-in that is nowhere near running out", async () => {
+    await renderHome(fakeApi({ getCurrentChallenge: runningChallenge() }));
+    await screen.findByTestId("home-challenge");
+
+    expect(screen.queryByTestId("home-session-expiry")).toBeNull();
+  });
+
+  it("names when it runs out and that signing in again keeps the same challenge", async () => {
+    // Thirty days is shorter than plenty of challenges, and nothing renews a
+    // session: without this the first word of it is the signed-out screen, on
+    // whichever morning the thirtieth day turns out to be.
+    await renderHome(fakeApi({ getCurrentChallenge: runningChallenge() }), {
+      session: expiringIn(2 * 24 * 60),
+    });
+    await screen.findByTestId("home-challenge");
+
+    expect(screen.getByTestId("home-session-expiry-when")).toHaveTextContent(
+      /sign-in runs out in 2 days/,
+    );
+    expect(screen.getByTestId("home-session-expiry-when")).toHaveTextContent(
+      /you will be signed out then/,
+    );
+    expect(screen.getByTestId("home-session-expiry-renewal")).toHaveTextContent(
+      /the same challenge, the days you have already kept, and the same deposit/,
+    );
+  });
+
+  it("offers the press that gets ahead of it, and says the press itself signs out", async () => {
+    const onSignOut = jest.fn();
+
+    await renderHome(fakeApi({ getCurrentChallenge: runningChallenge() }), {
+      onSignOut,
+      session: expiringIn(6 * 60),
+    });
+    await screen.findByTestId("home-challenge");
+    await userEvent.press(screen.getByTestId("home-session-renew"));
+
+    expect(screen.getByTestId("home-session-renew-consequence")).toHaveTextContent(
+      /this signs you out now/,
+    );
+    // The same cost the footer's Sign out states, because it is the same event.
+    expect(screen.getByTestId("home-session-renew-consequence")).toHaveTextContent(
+      /wake-up reminders on this phone will be turned off/,
+    );
+    expect(onSignOut).not.toHaveBeenCalled();
+
+    await userEvent.press(screen.getByTestId("home-session-renew-confirm"));
+
+    expect(onSignOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a sign-in that ran out while the app was open as gone, not as a countdown", async () => {
+    // Home ticks, so the moment can pass under a screen nobody is touching. The
+    // next request is the one that will be refused, and until then this is the
+    // only notice there is.
+    await renderHome(fakeApi({ getCurrentChallenge: runningChallenge() }), {
+      session: expiringIn(30),
+      now: new Date(NOW.getTime() + 60 * 60_000),
+    });
+    await screen.findByTestId("home-challenge");
+
+    expect(screen.getByTestId("home-session-expiry-when")).toHaveTextContent(
+      /sign-in has run out, so BetterWakeUp can no longer reach your account/,
+    );
   });
 });
 
