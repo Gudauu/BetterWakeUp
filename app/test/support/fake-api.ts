@@ -8,6 +8,7 @@
  */
 
 import {
+  type ChallengeDay,
   type ChallengeView,
   type CreateFundingIntentResponse,
   type CreateProjectionResponse,
@@ -89,11 +90,26 @@ export function challengeView(overrides: Partial<ChallengeView> = {}): Challenge
       skippedTaskCount: 0,
       forgivenTaskCount: 0,
     },
+    days: challengeDays(30, "scheduled"),
     depositSecured: true,
     currentTask: null,
     recoveryOffer: null,
     ...overrides,
   };
+}
+
+/**
+ * A run of consecutive dates from the fixture's first task day, all in the same
+ * state. The server materializes every day of a challenge when it activates, so
+ * a view with no days is a challenge that has not started - not the default an
+ * active fixture should stand for.
+ */
+export function challengeDays(count: number, status: ChallengeDay["status"]): ChallengeDay[] {
+  const start = Date.UTC(2026, 8, 1);
+  return Array.from({ length: count }, (_unused, index) => ({
+    date: new Date(start + index * 86_400_000).toISOString().slice(0, 10),
+    status,
+  }));
 }
 
 /** The outcome the server reports for the account's last terminal challenge. */

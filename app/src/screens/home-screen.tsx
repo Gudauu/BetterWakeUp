@@ -16,6 +16,12 @@ import { type ReactNode, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useCurrentChallenge } from "../challenges/current-challenge.ts";
 import { detectTimeZone, formatMoney } from "../challenges/draft.ts";
+import {
+  challengeHistory,
+  type DayState,
+  historyLabel,
+  streakSentence,
+} from "../challenges/history.ts";
 import { type TimeZoneMove, timeZoneLabel, timeZoneMoveFor } from "../challenges/time-zone.ts";
 import {
   type CompletionRuntimeFactory,
@@ -39,6 +45,8 @@ import {
   Banner,
   Button,
   Card,
+  type DayMarkTone,
+  DayStrip,
   DetailRow,
   Divider,
   ProgressBar,
@@ -123,6 +131,20 @@ const STATUS_TONE: Readonly<Record<ChallengeStatus, "accent" | "success" | "dang
     expired: "danger",
     recovery_pending: "warning",
   };
+
+/**
+ * The colour each day in the row is read in. A skipped and a forgiven day are
+ * both warnings rather than failures: the day was not walked, and neither of
+ * them cost the user anything.
+ */
+const DAY_TONE: Readonly<Record<DayState, DayMarkTone>> = {
+  kept: "success",
+  missed: "danger",
+  forgiven: "warning",
+  skipped: "warning",
+  due: "accent",
+  ahead: "muted",
+};
 
 export function HomeScreen({
   onSignOut,
@@ -423,6 +445,8 @@ function ChallengeCard({
 }) {
   const paused = challenge.pause.pausedAt !== null;
   const { progress, configuration, currentTask } = challenge;
+  const history = challengeHistory(challenge);
+  const streak = streakSentence(history);
   const remaining = Math.max(
     0,
     progress.requiredTaskCount -
@@ -567,6 +591,27 @@ function ChallengeCard({
             {progress.completedTaskCount} of {progress.requiredTaskCount} days done, {remaining} to
             go.
           </AppText>
+
+          {/* The month as a shape: which mornings were kept, which one broke a
+              run, and how many are still ahead. A challenge that has not been
+              materialized yet holds no days and draws no row. */}
+          {history.days.length === 0 ? null : (
+            <View style={styles.historyBlock}>
+              <DayStrip
+                testID="home-day-strip"
+                accessibilityLabel={historyLabel(history)}
+                days={history.days.map((day) => ({
+                  tone: DAY_TONE[day.state],
+                  ...(day.state === "due" ? { outlined: true } : {}),
+                }))}
+              />
+              {streak === null ? null : (
+                <AppText variant="caption" tone="accent" testID="home-streak">
+                  {streak}
+                </AppText>
+              )}
+            </View>
+          )}
         </View>
 
         {currentTask === null ? (
@@ -861,4 +906,5 @@ const styles = StyleSheet.create({
   taskCard: { gap: 8 },
   statusRow: { flexDirection: "row" },
   progressBlock: { gap: 10 },
+  historyBlock: { gap: 8, paddingTop: 2 },
 });

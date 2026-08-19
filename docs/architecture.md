@@ -203,7 +203,7 @@ Add a client state library only when an observed state-sharing problem requires 
 ### Appearance
 
 `app/src/ui/theme.ts` owns every colour, spacing step, corner radius and text size in the app, as a light theme and a dark one of the same shape.
-`app/src/ui/components.tsx` owns how the recurring pieces are drawn: the screen frame, cards, buttons, banners, progress bars, labelled rows, and the status pill that names the state a challenge is in, and the form controls a screen collects a configuration with - a labelled field, a selectable chip, a statement toggle.
+`app/src/ui/components.tsx` owns how the recurring pieces are drawn: the screen frame, cards, buttons, banners, progress bars, labelled rows, the status pill that names the state a challenge is in, the row of days a month is read as, and the form controls a screen collects a configuration with - a labelled field, a selectable chip, a statement toggle.
 
 A screen names a role - `textMuted`, a `danger` banner, a `primary` button - and never a hex code or a font size.
 That is what lets the app follow the device between light and dark without a single screen asking which one is in force, and it is why a change to the look of a button is one edit rather than nine.
@@ -212,6 +212,22 @@ That is what lets the app follow the device between light and dark without a sin
 
 `app/src/ui/format.ts` owns how instants and dates are read out loud, so no screen prints an ISO string at a person.
 A deadline is only true in the challenge's own time zone, so every screen that shows one formats it there rather than in the device's zone, and falls back to the raw instant when the runtime has no zone data.
+
+### The month as a row of days
+
+`challengeView.days` is the challenge's own calendar: every day it holds, oldest first, each with the status the server gave it.
+The whole task set is materialized when a challenge activates, so this is the challenge rather than a window over it, and the app needs no second call and no history endpoint to draw a month.
+
+`app/src/challenges/history.ts` re-reads those statuses from the user's side - kept, missed, forgiven, skipped, due, ahead - and finds the day being asked for right now, which is the earliest still-scheduled one.
+That day is split out from the ones behind it because it is the only day the user can still act on, and a row that drew it like next Thursday would hide the one that matters.
+
+The streak counts walks in an unbroken run ending at the last decided day.
+Only a walk continues a run: a missed, skipped or forgiven day ends it, because the streak is a count of mornings the user actually got up.
+It is the current run rather than the best one, and it says nothing at all below two - "1 day in a row" on the morning after the first walk reads as a machine counting.
+A broken run is not mentioned either: the row already shows the day that broke it, and a sentence about it would be the app scolding someone who turned up today.
+
+`DayStrip` draws the row as one accessible element carrying a sentence its caller wrote, not as thirty unlabelled squares.
+Colour is the whole of what the row says visually, so without that sentence a screen reader would reach thirty announcements of nothing.
 
 ### The end of a challenge
 

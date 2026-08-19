@@ -407,6 +407,69 @@ export function ProgressBar({
   );
 }
 
+export type DayMarkTone = "success" | "danger" | "warning" | "accent" | "muted";
+
+export interface DayMark {
+  /** What this day is, in the same names statuses are read in elsewhere. */
+  readonly tone: DayMarkTone;
+  /** Drawn as a ring rather than a block: the day being asked for right now. */
+  readonly outlined?: boolean;
+}
+
+/**
+ * A challenge's days as a row of marks.
+ *
+ * A progress bar says how far along a month is; it cannot say which morning was
+ * missed or how many are still ahead. The row can, in the space of two lines,
+ * which is why it sits beside the bar rather than instead of it.
+ *
+ * The row is one accessible element carrying the sentence its caller wrote, not
+ * thirty unlabelled squares: a screen reader read mark by mark would be thirty
+ * announcements of nothing.
+ */
+export function DayStrip({
+  days,
+  accessibilityLabel,
+  testID,
+}: {
+  readonly days: readonly DayMark[];
+  readonly accessibilityLabel: string;
+  readonly testID?: string;
+}) {
+  const theme = useTheme();
+  const colors: Readonly<Record<DayMarkTone, string>> = {
+    success: theme.colors.success,
+    danger: theme.colors.danger,
+    warning: theme.colors.warning,
+    accent: theme.colors.accent,
+    muted: theme.colors.track,
+  };
+  return (
+    <View
+      testID={testID}
+      accessible
+      accessibilityLabel={accessibilityLabel}
+      style={styles.dayStrip}
+    >
+      {days.map((day, index) => (
+        <View
+          // The row is a calendar: position is the identity, and two days can
+          // be the same mark without being the same day.
+          // biome-ignore lint/suspicious/noArrayIndexKey: position is the day
+          key={index}
+          style={[
+            styles.dayMark,
+            { borderRadius: theme.radius.sm },
+            day.outlined === true
+              ? { borderColor: colors[day.tone], borderWidth: 2 }
+              : { backgroundColor: colors[day.tone] },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
 export interface FieldProps {
   readonly label: string;
   readonly testID: string;
@@ -650,4 +713,8 @@ const styles = StyleSheet.create({
   toggle: { minHeight: 44 },
   pill: { alignItems: "center", flexDirection: "row", gap: 8, paddingVertical: 6 },
   dot: { borderRadius: 999, height: 8, width: 8 },
+  // Wrapping rather than scrolling: a month has to be readable as a shape in
+  // one glance, and a row the user has to swipe hides the days behind the edge.
+  dayStrip: { flexDirection: "row", flexWrap: "wrap", gap: 5 },
+  dayMark: { height: 14, width: 14 },
 });

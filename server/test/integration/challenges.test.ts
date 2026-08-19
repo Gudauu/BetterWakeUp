@@ -273,6 +273,15 @@ describe("creating a zero deposit challenge", () => {
           forgivenTaskCount: 0,
         },
         currentTask: { date: "2026-01-05", status: "scheduled" },
+        // Every day of the challenge, in date order, from the moment it
+        // activates: the app draws the month from this rather than learning it
+        // one task at a time.
+        days: [
+          { date: "2026-01-05", status: "scheduled" },
+          { date: "2026-01-08", status: "scheduled" },
+          { date: "2026-01-12", status: "scheduled" },
+          { date: "2026-01-15", status: "scheduled" },
+        ],
         recoveryOffer: null,
       },
     });

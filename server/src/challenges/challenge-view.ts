@@ -113,6 +113,10 @@ export async function loadChallengeView(db: Readable, challengeId: string): Prom
       skippedTaskCount: countStatus(tasks, "skipped"),
       forgivenTaskCount: countStatus(tasks, "forgiven"),
     },
+    // Sequence order is date order, so the calendar the app draws is the task
+    // set as it stands - including a replacement task appended past the last
+    // date, which belongs at the end of the row because that is when it falls.
+    days: tasks.map((task) => ({ date: task.taskDate, status: task.status })),
     depositSecured: challenge.depositSecured,
     currentTask: currentTaskOf(tasks),
     recoveryOffer: challenge.status === "recovery_pending" ? recoveryOfferOf(tasks) : null,

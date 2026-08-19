@@ -19,7 +19,7 @@ import {
   resourceId,
   weekday,
 } from "./primitives.ts";
-import { taskView } from "./tasks.ts";
+import { taskStatus, taskView } from "./tasks.ts";
 
 export const scheduledWeekday = z.object({
   weekday,
@@ -74,6 +74,20 @@ export const challengeProgress = z.object({
   forgivenTaskCount: z.int().nonnegative(),
 });
 
+/**
+ * One day of the challenge, as the app draws it in a row of days.
+ *
+ * The counts in `challengeProgress` say how a challenge is going; they cannot
+ * say what happened on Tuesday, whether the last four days were kept in a row,
+ * or how many days are left to walk. A day carries only its date and what
+ * became of it, because that is the whole of what a row of days shows and
+ * anything more would be a second copy of `currentTask`.
+ */
+export const challengeDay = z.object({
+  date: localDate,
+  status: taskStatus,
+});
+
 export const challengeView = z.object({
   id: resourceId,
   status: challengeStatus,
@@ -91,6 +105,13 @@ export const challengeView = z.object({
   projectedEndDate: localDate,
   pause: pauseState,
   progress: challengeProgress,
+  /**
+   * Every day the challenge holds, oldest first - the days already walked, the
+   * one due now, and the ones still ahead. The whole set is materialized when a
+   * challenge activates, so this is the challenge's own calendar rather than a
+   * window over it, and the app needs no second call to draw a month.
+   */
+  days: z.array(challengeDay),
   /**
    * False when an authorization renewal failed. The challenge continues; the
    * app tells the user their deposit is unsecured and asks for a new card.
@@ -260,6 +281,7 @@ export type ChallengeStatus = z.infer<typeof challengeStatus>;
 export type PauseState = z.infer<typeof pauseState>;
 export type RecoveryOffer = z.infer<typeof recoveryOffer>;
 export type ChallengeProgress = z.infer<typeof challengeProgress>;
+export type ChallengeDay = z.infer<typeof challengeDay>;
 export type ChallengeView = z.infer<typeof challengeView>;
 export type CreateProjectionRequest = z.infer<typeof createProjectionRequest>;
 export type CreateProjectionResponse = z.infer<typeof createProjectionResponse>;

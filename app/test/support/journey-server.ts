@@ -18,6 +18,7 @@
  */
 
 import {
+  type ChallengeDay,
   type ChallengeView,
   type CreateCompletionRequest,
   ENDPOINTS,
@@ -132,9 +133,32 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
         skippedTaskCount: 0,
         forgivenTaskCount: 0,
       },
+      // The whole calendar exists from activation, the way materialization
+      // writes it, so the row of days on home has something to draw from the
+      // first read rather than filling in as the month is walked.
+      days: Array.from({ length: configuration.requiredTaskCount }, (_unused, index) => ({
+        date: new Date(created.getTime() + index * DAY_MS).toISOString().slice(0, 10),
+        status: "scheduled" as const,
+      })),
       currentTask: nextTask(),
     });
     return challenge;
+  }
+
+  /**
+   * The calendar with the day that was just decided marked. The open task is
+   * always the earliest still-scheduled day, which is what the server hands out
+   * and therefore the day any outcome belongs to.
+   */
+  function decideNextDay(
+    days: ChallengeView["days"],
+    status: ChallengeDay["status"],
+  ): ChallengeView["days"] {
+    const index = days.findIndex((day) => day.status === "scheduled");
+    if (index === -1) {
+      return days;
+    }
+    return days.map((day, at) => (at === index ? { ...day, status } : day));
   }
 
   /** How a challenge ends, whichever way it ends: it stops being current and leaves a summary. */
@@ -255,6 +279,7 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
         challenge = {
           ...current,
           progress: { ...current.progress, completedTaskCount },
+          days: decideNextDay(current.days, "completed"),
           // The next task appears on the next active day, so there is
           // nothing due until then.
           currentTask: null,
@@ -283,6 +308,7 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
         },
         // A pause consumes the task it covers, so nothing is due while it runs.
         currentTask: null,
+        days: skipped === null ? current.days : decideNextDay(current.days, "skipped"),
         progress: {
           ...current.progress,
           skippedTaskCount: current.progress.skippedTaskCount + (skipped === null ? 0 : 1),

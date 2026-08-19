@@ -4,6 +4,7 @@
  * must never do: offer to start a second challenge over a live one.
  */
 
+import type { ChallengeDay } from "@betterwakeup/contract";
 import { fireEvent, render, screen, userEvent, waitFor } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import type { ApiClient } from "../src/api/client.ts";
@@ -161,6 +162,52 @@ describe("home reads the account's current challenge", () => {
 
     expect(await screen.findByTestId("home-recovery-offer")).toBeOnTheScreen();
     expect(screen.getByTestId("home-deposit-unsecured")).toBeOnTheScreen();
+  });
+});
+
+describe("home's row of days", () => {
+  /** A challenge whose calendar is exactly these statuses, in order. */
+  const withDays = (statuses: readonly ChallengeDay["status"][]) =>
+    fakeApi({
+      getCurrentChallenge: {
+        lastEnded: null,
+        challenge: challengeView({
+          days: statuses.map((status, index) => ({
+            date: `2026-09-${String(index + 1).padStart(2, "0")}`,
+            status,
+          })),
+        }),
+      },
+    });
+
+  it("draws one mark per day and says the same thing to a screen reader", async () => {
+    await renderHome(withDays(["completed", "missed", "completed", "scheduled", "scheduled"]));
+
+    const strip = await screen.findByTestId("home-day-strip");
+    expect(strip.children).toHaveLength(5);
+    expect(strip).toHaveProp("accessibilityLabel", "Your days: 2 kept, 1 missed, 2 still to come.");
+  });
+
+  it("names a run the user is on, and stays quiet about one day", async () => {
+    await renderHome(withDays(["completed", "completed", "completed", "scheduled"]));
+
+    expect(await screen.findByTestId("home-streak")).toHaveTextContent("3 days in a row.");
+  });
+
+  it("says nothing about a run that has just been broken", async () => {
+    // The row already shows the missed day. A sentence about it would be the
+    // app scolding someone who turned up this morning.
+    await renderHome(withDays(["completed", "completed", "missed", "scheduled"]));
+
+    expect(await screen.findByTestId("home-day-strip")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-streak")).toBeNull();
+  });
+
+  it("draws no row for a challenge whose days do not exist yet", async () => {
+    await renderHome(withDays([]));
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-day-strip")).toBeNull();
   });
 });
 

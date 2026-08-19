@@ -142,6 +142,12 @@ describe("one account's life through the app's own screens", () => {
     expect(await screen.findByTestId("home-progress")).toHaveTextContent(
       new RegExp(`1 of ${REQUIRED_TASK_COUNT} days done`),
     );
+    // And the morning that was walked is a kept day on the row, which is the
+    // one place the month reads as something other than a fraction.
+    expect(screen.getByTestId("home-day-strip")).toHaveProp(
+      "accessibilityLabel",
+      `Your days: 1 kept, ${REQUIRED_TASK_COUNT - 1} still to come.`,
+    );
 
     // And the account can be deleted, from home, in two presses.
     await user.press(screen.getByTestId("home-delete-account"));

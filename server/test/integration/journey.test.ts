@@ -218,6 +218,16 @@ describe("an account's whole life through the mounted surface", () => {
       challengeStatus: "active",
     });
 
+    // The day just walked is now a kept day on the challenge's own calendar,
+    // which is what the row of days on home reads. A challenge that reported a
+    // higher completed count while every day still said "scheduled" would draw
+    // a month nobody walked.
+    const afterFirst = await call(app, "GET", "/challenges/current", { token });
+    expect((afterFirst.body as GetCurrentChallengeResponse).challenge?.days).toEqual([
+      { date: firstTask.date, status: "completed" },
+      { date: expect.any(String), status: "scheduled" },
+    ]);
+
     // Pause and resume, which is the one lifecycle command a running challenge
     // offers, and take the task the resume names rather than assuming which
     // day the pause left live.

@@ -8,7 +8,16 @@
 import { render, screen, userEvent } from "@testing-library/react-native";
 import { StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { AppText, Button, Chip, Field, Screen, TextButton, Toggle } from "../src/ui/components.tsx";
+import {
+  AppText,
+  Button,
+  Chip,
+  DayStrip,
+  Field,
+  Screen,
+  TextButton,
+  Toggle,
+} from "../src/ui/components.tsx";
 import { darkTheme, lightTheme, themeFor } from "../src/ui/theme.ts";
 
 const METRICS = {
@@ -151,3 +160,43 @@ function brightness(hex: string): number {
   const b = value & 0xff;
   return 0.299 * r + 0.587 * g + 0.114 * b;
 }
+
+describe("the row of days", () => {
+  it("is one thing to a screen reader rather than a mark at a time", async () => {
+    // Colour is the whole of what the row says visually. Thirty unlabelled
+    // squares would be thirty announcements of nothing, so the row carries the
+    // sentence and the marks carry none.
+    await draw(
+      <DayStrip
+        testID="days"
+        accessibilityLabel="Your days: 2 kept, 1 still to come."
+        days={[{ tone: "success" }, { tone: "success" }, { tone: "accent", outlined: true }]}
+      />,
+    );
+
+    expect(screen.getByLabelText("Your days: 2 kept, 1 still to come.")).toBeOnTheScreen();
+    const marks = screen.getByTestId("days").children;
+    expect(marks).toHaveLength(3);
+  });
+
+  it("draws the day being asked for as a ring, so it is not read as done", async () => {
+    await draw(
+      <DayStrip
+        testID="days"
+        accessibilityLabel="Your days: 1 kept, 1 still to come."
+        days={[{ tone: "success" }, { tone: "accent", outlined: true }]}
+      />,
+    );
+
+    const [kept, due] = screen.getByTestId("days").children as unknown as {
+      props: { style: unknown };
+    }[];
+    expect(StyleSheet.flatten(kept?.props.style)).toMatchObject({
+      backgroundColor: lightTheme.colors.success,
+    });
+    expect(StyleSheet.flatten(due?.props.style)).toMatchObject({
+      borderColor: lightTheme.colors.accent,
+      borderWidth: 2,
+    });
+  });
+});
