@@ -31,6 +31,7 @@ import {
   nextMorningAfter,
 } from "../completions/kept-morning.ts";
 import { VERIFICATION_POLICY_VERSION } from "../completions/policy.ts";
+import { receiptGoneText, receiptWindow } from "../completions/receipt-window.ts";
 import { refusalReading } from "../completions/refusal.ts";
 import type { PendingCompletionRecord, PendingCompletionStore } from "../completions/store.ts";
 import type { CompletionSync } from "../completions/sync.ts";
@@ -301,15 +302,25 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
   // send.
   const waiting = state.pendingRecord === null ? null : waitingReading(state.pendingRecord);
   const attempts = state.pendingRecord === null ? null : attemptsText(state.pendingRecord);
+  // A walk already saved here has until the deadline plus the server's receipt
+  // grace to arrive. That is a different clock from the morning's, and the
+  // countdown in the header - "12 minutes left to walk" - is the wrong sentence
+  // to put in front of someone who has already walked.
+  const receipt =
+    state.status === "syncPending"
+      ? receiptWindow(task.deadline, challenge.configuration.timeZone, clock)
+      : null;
   const advice = finished
     ? FINISHED_ADVICE
     : missed
       ? MISSED_ADVICE
       : state.status === "acknowledged"
         ? keptMorningText(nextMorningAfter(challenge, task))
-        : state.status === "syncPending" && waiting !== null
-          ? `${SAVED_HERE} ${waiting.advice}`
-          : STATUS_ADVICE[state.status];
+        : receipt?.urgency === "gone"
+          ? `${SAVED_HERE} ${receiptGoneText(receipt.closesAt)}`
+          : state.status === "syncPending" && waiting !== null
+            ? `${SAVED_HERE} ${waiting.advice}`
+            : STATUS_ADVICE[state.status];
   // The receipt on the walk, drawn only where there is one to draw.
   const acceptedAt =
     state.status === "acknowledged"
@@ -335,7 +346,25 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
             whole day turns on the difference. It goes quiet once the day is
             done, and once the deadline has passed the banner below says it
             with the consequence attached. */}
-        {left === null || left.urgency === "expired" || state.status === "acknowledged" ? null : (
+        {/* A walk already saved here counts down to its own moment instead:
+            the morning's clock is about walking, and the walker has walked. */}
+        {receipt !== null ? (
+          <AppText
+            variant="small"
+            tone={
+              receipt.urgency === "gone"
+                ? "danger"
+                : receipt.urgency === "closing"
+                  ? "warning"
+                  : "muted"
+            }
+            testID="receipt-left"
+          >
+            {receipt.sentence}
+          </AppText>
+        ) : left === null ||
+          left.urgency === "expired" ||
+          state.status === "acknowledged" ? null : (
           <AppText
             variant="small"
             tone={left.urgency === "closing" ? "warning" : "muted"}

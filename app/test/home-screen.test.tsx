@@ -988,7 +988,9 @@ describe("the clock on this morning's walk", () => {
   });
 
   it("stops asking a held walk's owner to find signal once the deadline has gone", async () => {
-    await renderHome(withTask, { seed: heldWalk, now: new Date("2026-09-01T14:30:00.000Z") });
+    // Inside the server's receipt grace: the deadline is behind but the walk
+    // can still arrive, so it is the server's call rather than the user's.
+    await renderHome(withTask, { seed: heldWalk, now: new Date("2026-09-01T14:00:30.000Z") });
 
     expect(await screen.findByTestId("home-task-waiting")).toHaveTextContent(
       /deadline passed before it reached the server/,
@@ -997,6 +999,38 @@ describe("the clock on this morning's walk", () => {
       /keep the app open where there is signal/,
     );
     expect(screen.queryByTestId("home-task-morning-gone")).toBeNull();
+  });
+
+  it("counts a saved walk down to its own moment rather than to a walk it has done", async () => {
+    await renderHome(withTask, { seed: heldWalk, now: new Date("2026-09-01T12:00:00.000Z") });
+
+    expect(await screen.findByTestId("home-task-receipt-left")).toHaveTextContent(
+      /2 hours 1 minute left for this walk to reach BetterWakeUp - it stops counting at 7:01 AM/,
+    );
+    // "left to walk" is the wrong sentence for someone who has walked.
+    expect(screen.queryByTestId("home-task-time-left")).toBeNull();
+  });
+
+  it("says a saved walk is running out of time from the last call onwards", async () => {
+    await renderHome(withTask, { seed: heldWalk, now: new Date("2026-09-01T13:55:00.000Z") });
+
+    expect(await screen.findByTestId("home-task-receipt-left")).toHaveTextContent(
+      /6 minutes left for this walk to reach BetterWakeUp/,
+    );
+  });
+
+  it("says a saved walk ran out of time once the receipt grace has gone", async () => {
+    await renderHome(withTask, { seed: heldWalk, now: new Date("2026-09-01T14:30:00.000Z") });
+
+    expect(await screen.findByTestId("home-task-receipt-left")).toHaveTextContent(
+      /ran out at 7:01 AM/,
+    );
+    expect(screen.getByTestId("home-task-waiting")).toHaveTextContent(
+      /did not reach BetterWakeUp by 7:01 AM, so it can no longer count for today/,
+    );
+    // The walk is still on the phone, so it is still being sent - the screen
+    // must not read as though the record had been thrown away.
+    expect(screen.getByTestId("home-task-waiting")).toHaveTextContent(/still being sent/);
   });
 });
 

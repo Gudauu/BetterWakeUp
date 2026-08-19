@@ -41,6 +41,7 @@ import {
 import { nextActiveMorning, nextMorningText, scheduleGroups } from "../challenges/schedule.ts";
 import { type TimeZoneMove, timeZoneLabel, timeZoneMoveFor } from "../challenges/time-zone.ts";
 import { walkedTodayText, walkOpensText, walkWindow } from "../challenges/walk-window.ts";
+import { receiptGoneText, receiptWindow } from "../completions/receipt-window.ts";
 import {
   type CompletionRuntimeFactory,
   type CompletionRuntimeState,
@@ -816,6 +817,14 @@ function ChallengeCard({
   // asked for.
   const waiting = unsent.currentPending === null ? null : waitingReading(unsent.currentPending);
   const attempts = unsent.currentPending === null ? null : attemptsText(unsent.currentPending);
+  // A walk already saved here is on a different clock from the one above: it
+  // has until the deadline plus the server's receipt grace to arrive, and the
+  // morning's "left to walk" countdown is the wrong sentence for someone who
+  // has already walked.
+  const receipt =
+    currentTask === null || unsent.currentTask !== "waiting"
+      ? null
+      : receiptWindow(currentTask.deadline, configuration.timeZone, now);
   // What one missed morning would do, which turns on the deposit and on an
   // allowance only the server can speak for.
   const miss = missCost(challenge);
@@ -869,7 +878,21 @@ function ChallengeCard({
               then is said in place of the step target below. It is silent on a
               walk whose day has not started too: counting down twenty hours to
               a morning nobody is being asked about yet is noise. */}
-          {left === null || morningGone || opensLater ? null : (
+          {receipt !== null ? (
+            <AppText
+              variant="small"
+              tone={
+                receipt.urgency === "gone"
+                  ? "danger"
+                  : receipt.urgency === "closing"
+                    ? "warning"
+                    : "muted"
+              }
+              testID="home-task-receipt-left"
+            >
+              {receipt.sentence}
+            </AppText>
+          ) : left === null || morningGone || opensLater ? null : (
             <AppText
               variant="small"
               tone={left.urgency === "closing" ? "warning" : "muted"}
@@ -884,9 +907,11 @@ function ChallengeCard({
           {unsent.currentTask === "waiting" ? (
             <>
               <AppText variant="small" tone="warning" testID="home-task-waiting">
-                {morningGone
-                  ? unsentPastDeadlineText(deadlineTime)
-                  : `Walked and saved on this phone. It still has to reach the server before the deadline. ${waiting?.advice ?? ""}`.trim()}
+                {receipt?.urgency === "gone"
+                  ? `Walked and saved on this phone. ${receiptGoneText(receipt.closesAt)}`
+                  : morningGone
+                    ? unsentPastDeadlineText(deadlineTime)
+                    : `Walked and saved on this phone. It still has to reach the server before the deadline. ${waiting?.advice ?? ""}`.trim()}
               </AppText>
               {/* Why it has not landed. Worth saying even once the deadline
                   has gone by: the walk is still being sent, and what is

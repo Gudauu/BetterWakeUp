@@ -1044,6 +1044,23 @@ Inside the eight attempts sync keeps a timer for, "keep the app open" is a true 
 Past it the record is still pending but nothing is counting down, so the advice becomes the two things that do send it: reopening the app, or the connection coming back.
 The attempt count is said only from two failures up, because one is ordinary and saying so is noise.
 
+#### How long a saved walk has left
+
+A record in the store is not merely unsent; it is on a clock of its own.
+`create-completion`'s first check is that the request arrives by the task's deadline plus `RECEIPT_GRACE_SECONDS`, and after that the walk is refused however well it was walked.
+Neither surface said so.
+Home and the task screen both drew the morning's countdown over a walk that had already been taken - "12 minutes left to walk", to a walker who had walked - which is the wrong sentence for the reader and the wrong deadline for the record, because the grace is not in it.
+
+`app/src/completions/receipt-window.ts` answers the question that state actually raises.
+It counts to the deadline plus the grace, names that moment as a wall-clock time in the challenge's own zone, and turns urgent at `LAST_CALL_LEAD_MINUTES` - the app's own already-chosen definition of a morning going wrong, with the difference that walking is no longer what fixes it.
+Both surfaces draw that countdown in place of the morning's whenever this device is holding today's walk.
+
+Once the window has closed the wording changes rather than the countdown simply disappearing.
+Inside the grace the existing sentence is still true - the deadline is behind, the walk may yet arrive, and it is the server's call - so it stands.
+Past the grace it is not, and the screens say the walk did not arrive in time and can no longer count for today.
+They stop short of calling the day lost, because the sweep decides that, and they point at the Emergency Recovery as a condition rather than a promise, the same way the missed-deadline wording does.
+The walk is still described as being sent, because a record only leaves the store when the server answers it, and the refusal that is coming is how this one will.
+
 The interface exposes these states:
 
 ```text

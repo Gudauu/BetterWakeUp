@@ -862,6 +862,70 @@ describe("no open task", () => {
   });
 });
 
+/**
+ * A walk that is walked but unsent is on a clock of its own: the server takes
+ * it until the deadline plus a sixty second receipt grace and refuses it after
+ * that. The header used to go on counting "left to walk" over it, which is the
+ * morning's clock and the wrong sentence for a walker who has walked.
+ */
+describe("the clock on a walk waiting to be sent", () => {
+  const offline = () => harness(fakeApi({ createCompletion: new TypeError("No connection") }));
+
+  /** The walk, already on the phone, as a morning of failed attempts left it. */
+  async function held(given: Harness) {
+    await given.store.record({
+      challengeId: challenge().id,
+      taskId: TASK_ID,
+      completedAt: "2026-09-01T12:40:00.000Z",
+      observation: {
+        startedAt: "2026-09-01T12:30:00.000Z",
+        endedAt: "2026-09-01T12:40:00.000Z",
+        steps: 400,
+        provenance: "live-foreground",
+        source: "expo-pedometer-ios",
+      },
+      appVersion: "1.0.0",
+      verificationPolicyVersion: "live-foreground-steps.1",
+    });
+  }
+
+  it("counts a saved walk down to the moment it stops counting", async () => {
+    const given = await offline();
+    await renderScreen(given);
+
+    await completeLocally(given);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("receipt-left")).toHaveTextContent(
+        "1 hour 1 minute left for this walk to reach BetterWakeUp - it stops counting at 7:01 AM.",
+      ),
+    );
+    // The morning's countdown is about walking, and the walk is done.
+    expect(screen.queryByTestId("time-left")).toBeNull();
+  });
+
+  it("says a saved walk ran out of time once the receipt grace has gone", async () => {
+    const given = await offline();
+    await held(given);
+    await renderAt(new Date("2026-09-01T14:30:00.000Z"), given);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("receipt-left")).toHaveTextContent(
+        "The time for this walk to reach BetterWakeUp ran out at 7:01 AM.",
+      ),
+    );
+    expect(screen.getByTestId("daily-advice")).toHaveTextContent(
+      /did not reach BetterWakeUp by 7:01 AM, so it can no longer count for today/,
+    );
+    // The record is still in the store and still being sent, so the advice
+    // must not read as though the walk had been thrown away.
+    expect(screen.getByTestId("daily-advice")).toHaveTextContent(/still being sent/);
+    // It is the walk that ran out of time, not the invitation to take one:
+    // the missed-deadline banner speaks for a morning with nothing saved.
+    expect(screen.queryByTestId("deadline-missed")).toBeNull();
+  });
+});
+
 describe("the clock on the morning", () => {
   /** Ten minutes to go, and the deadline half an hour behind. */
   const CLOSING = new Date("2026-09-01T13:50:00.000Z");
