@@ -15,6 +15,7 @@ import type { ChallengeStatus, ChallengeView, EndedChallengeSummary } from "@bet
 import { type ReactNode, useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { type AppReturnTrigger, useAppReturn } from "../challenges/app-return.ts";
+import { challengeAge } from "../challenges/challenge-age.ts";
 import { useCurrentChallenge } from "../challenges/current-challenge.ts";
 import { detectTimeZone, formatMoney } from "../challenges/draft.ts";
 import { endedReading } from "../challenges/ended-challenge.ts";
@@ -791,6 +792,9 @@ function ChallengeCard({
   const miss = missCost(challenge);
   const history = challengeHistory(challenge);
   const streak = streakSentence(history);
+  // How long this has been going, which the kept-morning count cannot say on
+  // any schedule that skips days of the week.
+  const age = challengeAge(challenge, now);
   const remaining = Math.max(
     0,
     progress.requiredTaskCount -
@@ -1094,11 +1098,23 @@ function ChallengeCard({
 
         <Divider />
 
+        {/* When it started, so the end date has something to be measured from.
+            The kept-morning count above is not a measure of time: five mornings
+            on a Monday/Wednesday/Friday challenge is a fortnight, and nothing
+            on the card let a reader tell the two apart. */}
+        {age === null ? null : (
+          <DetailRow label="Started" value={age.startedOn} testID="home-started" />
+        )}
         <DetailRow
           label="Projected end"
           value={formatDay(challenge.projectedEndDate)}
           testID="home-end-date"
         />
+        {age === null ? null : (
+          <AppText variant="caption" tone="muted" testID="home-challenge-day">
+            {age.dayText}
+          </AppText>
+        )}
         <DetailRow
           label="Deposit"
           value={

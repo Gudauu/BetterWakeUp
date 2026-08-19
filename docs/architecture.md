@@ -349,6 +349,19 @@ The legend and the row draw a mark through the same code, since a legend whose g
 
 The legend is deliberately out of the accessibility tree: the row already carries the counts as a sentence, and explaining colours to someone who is not looking at them is six announcements that help nobody.
 
+### How long it has been going
+
+The row of days says what became of each morning; it does not say how much of the month has gone by, and neither does anything else on the card.
+The progress line counts kept mornings, which is a count of the schedule rather than of time: five mornings on a Monday/Wednesday/Friday challenge is a fortnight, and "5 of 30 days done" reads exactly the same either way.
+
+`challengeView.activatedAt` is the instant the challenge went live.
+`app/src/challenges/challenge-age.ts` reads it as a calendar day in the challenge's own time zone and counts whole days from that day to today, so home names the day it started beside the day it is projected to end, and says which day of the challenge today is.
+
+Both halves are questions about the days the deadlines are read in rather than about the device's, which is why the zone comes from the configuration and not from the phone - a start named a day out is a visible error while the challenge is still young enough for the day to be the whole answer.
+
+It answers nothing at all in two cases: a funded challenge answered before its provider webhook lands has no activation instant yet, and a runtime whose `Intl` cannot read the zone would only produce a date that is off by one.
+The first day is named ("This challenge started today") rather than numbered, because "day 1" reads as a countdown the user is already behind on.
+
 ### The end of a challenge
 
 `GET /challenges/current` answers null in `challenge` for every terminal challenge: "current" is the challenge holding the account's slot, and a challenge that ended holds nothing and offers nothing to act on.

@@ -1961,6 +1961,30 @@ describe("what home says a missed morning would cost", () => {
   });
 });
 
+describe("how long the challenge has been going", () => {
+  const showing = (challenge: ReturnType<typeof challengeView>) =>
+    fakeApi({ getCurrentChallenge: { lastEnded: null, challenge } });
+
+  it("names the day it started beside the day it is projected to end", async () => {
+    // The fixture activates at midnight UTC, which is the afternoon before in
+    // the zone this challenge reads its deadlines in.
+    await renderHome(showing(challengeView({ currentTask: taskView() })));
+
+    expect(await screen.findByTestId("home-started")).toHaveTextContent(/Sunday, August 30/);
+    expect(await screen.findByTestId("home-challenge-day")).toHaveTextContent(
+      /Today is day 3 of this challenge\./,
+    );
+  });
+
+  it("says nothing about an age for a challenge that has not been activated", async () => {
+    await renderHome(showing(challengeView({ activatedAt: null, currentTask: taskView() })));
+
+    expect(await screen.findByTestId("home-end-date")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-started")).toBeNull();
+    expect(screen.queryByTestId("home-challenge-day")).toBeNull();
+  });
+});
+
 describe("the back gesture", () => {
   it("closes the app from home, which is the top of it", async () => {
     // Nothing to pop: a back press here means "I am done with the app", and
