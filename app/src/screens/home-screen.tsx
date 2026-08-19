@@ -15,7 +15,8 @@ import type { ChallengeStatus, ChallengeView, EndedChallengeSummary } from "@bet
 import { type ReactNode, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useCurrentChallenge } from "../challenges/current-challenge.ts";
-import { formatMoney } from "../challenges/draft.ts";
+import { detectTimeZone, formatMoney } from "../challenges/draft.ts";
+import { type TimeZoneMove, timeZoneLabel, timeZoneMoveFor } from "../challenges/time-zone.ts";
 import {
   type CompletionRuntimeFactory,
   type CompletionRuntimeState,
@@ -35,13 +36,14 @@ import {
   StatusPill,
   TextButton,
 } from "../ui/components.tsx";
-import { formatDay, formatDeadline } from "../ui/format.ts";
+import { formatDay, formatDeadline, formatTimeOfDay } from "../ui/format.ts";
 import { useTheme } from "../ui/theme.ts";
 import { CreateChallengeScreen } from "./create-challenge-screen.tsx";
 import { DailyCompletionScreen } from "./daily-completion-screen.tsx";
 import { DeleteAccountScreen } from "./delete-account-screen.tsx";
 import { PauseScreen } from "./pause-screen.tsx";
 import { RecoveryScreen } from "./recovery-screen.tsx";
+import { TimeZoneScreen } from "./time-zone-screen.tsx";
 
 export interface HomeScreenProps {
   readonly onSignOut?: () => void;
@@ -51,6 +53,12 @@ export interface HomeScreenProps {
    * screen does not require a device with a step counter.
    */
   readonly createRuntime?: CompletionRuntimeFactory;
+  /**
+   * The zone the device is in, which is what a running challenge's own zone is
+   * checked against. Taken from the device unless a caller states it, so a test
+   * can stand somewhere without moving the machine.
+   */
+  readonly deviceTimeZone?: string;
 }
 
 /**
@@ -58,7 +66,7 @@ export interface HomeScreenProps {
  * returns here, and nothing opens anything else, so one name is the whole of
  * the navigation state. A router arrives when a screen needs to open a third.
  */
-type Route = "home" | "create" | "task" | "pause" | "recovery" | "delete";
+type Route = "home" | "create" | "task" | "pause" | "recovery" | "delete" | "timeZone";
 
 /**
  * The headline states, worded as the user's situation rather than as the
@@ -86,7 +94,7 @@ const STATUS_TONE: Readonly<Record<ChallengeStatus, "accent" | "success" | "dang
     recovery_pending: "warning",
   };
 
-export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
+export function HomeScreen({ onSignOut, createRuntime, deviceTimeZone }: HomeScreenProps) {
   const { api, signOut } = useSession();
   const theme = useTheme();
   const { state, reload } = useCurrentChallenge(api);
@@ -99,6 +107,11 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
   // for someone opening the app to find out - and wrong for someone who has
   // read it and come back for something else.
   const [dismissed, setDismissed] = useState<string | null>(null);
+  // A user who looked at the time zone offer and chose to keep their deadlines
+  // where they are - a weekend away is a real reason - is not asked again while
+  // the app is open. The device's zone is checked again on the next launch.
+  const [keptTimeZone, setKeptTimeZone] = useState(false);
+  const here = deviceTimeZone ?? detectTimeZone();
   // The way back from everything home opens. A command that changed the
   // challenge reads it again from here rather than while its screen is still
   // up: `reload` puts home into its loading state, which would pull that screen
@@ -205,6 +218,26 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
         />
       );
     }
+    if (route === "timeZone") {
+      const move = timeZoneMoveFor(open, here);
+      // Only reachable while the disagreement stands, so a challenge that ended
+      // or a device that moved back drops the user home rather than onto a
+      // screen offering a move to the zone they are already in.
+      if (move !== null) {
+        return (
+          <TimeZoneScreen
+            api={api}
+            challenge={open}
+            move={move}
+            onChanged={() => goHome(true)}
+            onBack={() => {
+              setKeptTimeZone(true);
+              goHome(false);
+            }}
+          />
+        );
+      }
+    }
     if (route === "recovery") {
       return (
         <RecoveryScreen
@@ -270,9 +303,11 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
       ) : (
         <ChallengeCard
           challenge={state.challenge}
+          timeZoneMove={keptTimeZone ? null : timeZoneMoveFor(state.challenge, here)}
           onOpenTask={() => setRoute("task")}
           onOpenPause={() => setRoute("pause")}
           onOpenRecovery={() => setRoute("recovery")}
+          onOpenTimeZone={() => setRoute("timeZone")}
         />
       )}
 
@@ -297,14 +332,18 @@ export function HomeScreen({ onSignOut, createRuntime }: HomeScreenProps) {
 
 function ChallengeCard({
   challenge,
+  timeZoneMove,
   onOpenTask,
   onOpenPause,
   onOpenRecovery,
+  onOpenTimeZone,
 }: {
   challenge: ChallengeView;
+  timeZoneMove: TimeZoneMove | null;
   onOpenTask: () => void;
   onOpenPause: () => void;
   onOpenRecovery: () => void;
+  onOpenTimeZone: () => void;
 }) {
   const paused = challenge.pause.pausedAt !== null;
   const { progress, configuration, currentTask } = challenge;
@@ -346,6 +385,28 @@ function ChallengeCard({
             testID="home-open-recovery"
             label="Decide on your recovery"
             onPress={onOpenRecovery}
+          />
+        </Banner>
+      )}
+
+      {/* The deadline the user is judged against is the one thing on this
+          screen that can be quietly wrong, and only the device knows it is.
+          The banner names the two times rather than the two zones, because
+          "10:00 AM" is what the user would have noticed. */}
+      {timeZoneMove === null ? null : (
+        <Banner tone="warning" testID="home-time-zone-move">
+          <AppText variant="small" tone="warning">
+            You are in {timeZoneLabel(timeZoneMove.to)}, but this challenge reads its deadlines in{" "}
+            {timeZoneLabel(timeZoneMove.from)} time
+            {currentTask === null
+              ? ""
+              : `, so your ${formatTimeOfDay(currentTask.deadline, timeZoneMove.from)} walk is due at ${formatTimeOfDay(currentTask.deadline, timeZoneMove.to)} here`}
+            .
+          </AppText>
+          <Button
+            testID="home-open-time-zone"
+            label={`Switch to ${timeZoneLabel(timeZoneMove.to)} time`}
+            onPress={onOpenTimeZone}
           />
         </Banner>
       )}

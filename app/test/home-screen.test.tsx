@@ -42,6 +42,13 @@ async function renderHome(
   options: {
     onSignOut?: () => void;
     onRuntimeOpened?: (runtime: FakeCompletionRuntime) => void;
+    /**
+     * Where the device is standing. Stated rather than read from the machine,
+     * so a test suite run in another zone does not decide whether home offers
+     * to move the challenge's deadlines. It defaults to the fixture's own zone,
+     * which is the "user has not travelled" case every other test is about.
+     */
+    deviceTimeZone?: string;
   } = {},
 ) {
   // Home holds a completion runtime for as long as it is on screen, so every
@@ -58,6 +65,7 @@ async function renderHome(
       >
         <HomeScreen
           createRuntime={createRuntime}
+          deviceTimeZone={options.deviceTimeZone ?? "America/Los_Angeles"}
           {...(options.onSignOut === undefined ? {} : { onSignOut: options.onSignOut })}
         />
       </SessionProvider>
@@ -136,6 +144,62 @@ describe("home reads the account's current challenge", () => {
 
     expect(await screen.findByTestId("home-recovery-offer")).toBeOnTheScreen();
     expect(screen.getByTestId("home-deposit-unsecured")).toBeOnTheScreen();
+  });
+});
+
+describe("home when the user has travelled", () => {
+  it("says nothing while the device is where the challenge is", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          lastEnded: null,
+          challenge: challengeView({ currentTask: taskView() }),
+        },
+      }),
+    );
+
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-time-zone-move")).toBeNull();
+  });
+
+  it("names both times when the deadline is read in a zone the user has left", async () => {
+    // The fixture's 7:00 AM Los Angeles deadline is 10:00 AM in New York, and
+    // a user standing in New York would have walked three hours too late.
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          lastEnded: null,
+          challenge: challengeView({ currentTask: taskView() }),
+        },
+      }),
+      { deviceTimeZone: "America/New_York" },
+    );
+
+    const banner = await screen.findByTestId("home-time-zone-move");
+    expect(banner).toHaveTextContent(/7:00 AM walk is due at 10:00 AM here/);
+    expect(screen.getByTestId("home-open-time-zone")).toBeOnTheScreen();
+  });
+
+  it("opens the move, and stops asking once the user chooses to stay put", async () => {
+    const user = userEvent.setup();
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          lastEnded: null,
+          challenge: challengeView({ currentTask: taskView() }),
+        },
+      }),
+      { deviceTimeZone: "America/New_York" },
+    );
+
+    await user.press(await screen.findByTestId("home-open-time-zone"));
+    expect(await screen.findByTestId("time-zone-screen")).toBeOnTheScreen();
+
+    await user.press(screen.getByTestId("time-zone-back"));
+    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    // A weekend away is a reason to keep the deadlines where they are, and a
+    // banner that came straight back would be nagging rather than helping.
+    expect(screen.queryByTestId("home-time-zone-move")).toBeNull();
   });
 });
 

@@ -514,6 +514,15 @@ The boundary is deliberately stated against a stored instant rather than an info
 
 A time zone change never rewrites completed, missed, forgiven, skipped, or currently open task rows.
 
+**Who asks for the change.**
+The user never types a zone. The app compares the device's zone against the challenge's on every home read and offers the move when they disagree, because the user who has flown east is exactly the user who does not know their 7:00 AM deadline is now judged at 10:00 AM local.
+
+The offer names the two times rather than the two zone identifiers, and it is only made for an `active` challenge: the server refuses to move instants under a challenge in `recovery_pending`, whose one open decision is measured from a missed task, and a paused challenge is accepted because travelling and pausing go together.
+
+Declining is remembered for as long as the app is open, so a weekend away is not a banner on every launch, and the device is checked again on the next launch.
+
+The move is not confirmation-gated - it gives nothing up and can be made again in either direction - but travelling east pulls the next deadline earlier and can land it in the past, which the sweep will treat as missed, so the app says so before the press.
+
 ### Deadlines and the receipt grace
 
 The server clock decides whether acknowledgment and pause commands arrive in time.

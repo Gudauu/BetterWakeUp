@@ -142,6 +142,10 @@ const DEFAULTS: Partial<Record<ClientEndpointName, unknown>> = {
     nextSkippedTask: taskView(),
   },
   resumeChallenge: { challenge: challengeView(), nextLiveTask: taskView() },
+  changeChallengeTimeZone: {
+    challenge: challengeView(),
+    rematerializedTasks: [taskView()],
+  },
   acceptRecovery: {
     challenge: challengeView(),
     forgivenTask: taskView({ status: "forgiven" }),
