@@ -856,6 +856,10 @@ works from a clean checkout: the function's code defaults to the checked-in
 placeholder in `infra/lambda-bundle-placeholder`, and the deploy pipeline passes
 a built bundle through the `bwu:codeAssetPath` context key instead.
 
+Follow `docs/deployment.md` when deploying the development backend or repairing
+its Neon connection. The runbook owns the command order, secret handling,
+migration gate, bundle format, and end-to-end proof.
+
 Deployment decisions arrive as CDK context (`bwu:stage`, `bwu:region`,
 `bwu:account`, `bwu:codeAssetPath`, `bwu:alertEmail`, `bwu:monthlyBudgetUsd`)
 and are read in exactly one place,
