@@ -194,9 +194,8 @@ describe("pending completion store", () => {
   });
 });
 
-describe("a table an older version of the app created", () => {
-  /** Version 1's table, before anything recorded whether the server answered. */
-  const VERSION_ONE = `
+/** Version 1's table, before failures or records named their account. */
+const VERSION_ONE = `
 CREATE TABLE pending_completions (
   id TEXT PRIMARY KEY NOT NULL,
   challenge_id TEXT NOT NULL,
@@ -213,7 +212,8 @@ CREATE TABLE pending_completions (
 );
 `;
 
-  it("keeps the walk it was holding and takes the column it was missing", async () => {
+describe("a table an older version of the app created", () => {
+  it("keeps the walk it was holding and takes the columns it was missing", async () => {
     const database = createMemoryDatabase();
     await database.execAsync(VERSION_ONE);
     await database.runAsync(
@@ -245,7 +245,8 @@ CREATE TABLE pending_completions (
       { attempts: 3, observation: OBSERVATION, lastErrorReachedServer: null },
     ]);
 
-    // The column is really there: the next failure can be written down.
+    // Both columns are really there: a new record belongs to this account, and
+    // its next failure can record whether the server answered.
     const record = await store.record(INPUT);
     await store.noteAttemptFailed(record.id, {
       code: "internal_error",
@@ -257,6 +258,42 @@ CREATE TABLE pending_completions (
       { id: record.id, lastErrorReachedServer: false },
     ]);
     await store.close();
+  });
+
+  it("keeps the stored owner when another account opens the upgraded table first", async () => {
+    const database = createMemoryDatabase();
+    await database.execAsync(`${VERSION_ONE}
+      CREATE TABLE store_owner (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        account_id TEXT NOT NULL
+      );
+      INSERT INTO store_owner (id, account_id) VALUES (1, 'account-1');
+    `);
+    await database.runAsync(
+      `INSERT INTO pending_completions (
+         id, challenge_id, task_id, completed_at, observation, app_version,
+         verification_policy_version, status, created_at, attempts
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, 0)`,
+      [
+        "00000000-0000-4000-8000-00000000000a",
+        INPUT.challengeId,
+        INPUT.taskId,
+        INPUT.completedAt,
+        JSON.stringify(OBSERVATION),
+        INPUT.appVersion,
+        INPUT.verificationPolicyVersion,
+        INPUT.completedAt,
+      ],
+    );
+
+    const second = await openPendingCompletionStore({ owner: "account-2", database });
+    expect(await second.list()).toEqual([]);
+
+    // The row belonged to the account stored by the previous version. The
+    // account that happened to open the upgraded app first cannot adopt it.
+    const first = await openPendingCompletionStore({ owner: "account-1", database });
+    expect(await first.listPending()).toMatchObject([{ observation: OBSERVATION }]);
+    await first.close();
   });
 });
 
@@ -292,30 +329,77 @@ describe("a phone signed into a second account", () => {
     await second.close();
   });
 
-  it("still holds the walks when the same account signs back in", async () => {
+  it("keeps the first account's walks aside when that account returns", async () => {
     const database = createMemoryDatabase();
     await heldByFirstAccount(database);
 
+    const second = await openPendingCompletionStore({ owner: "account-2", database });
+    expect(await second.list()).toEqual([]);
+
     const again = await openPendingCompletionStore({ owner: "account-1", database });
 
+    // Signing into another account must isolate these records, not destroy
+    // them. The first account may return while its saved walk can still count.
     expect(await again.list()).toHaveLength(2);
     await again.close();
   });
 
-  it("adopts a database whose owner was never written down", async () => {
+  it("keeps both accounts isolated until each one returns", async () => {
     const database = createMemoryDatabase();
     await heldByFirstAccount(database);
-    // What an update finds: the table of walks, and no record of whose they
-    // are, because the version that wrote them had nowhere to say so.
-    await database.runAsync("DELETE FROM store_owner", []);
+
+    const second = await openPendingCompletionStore({
+      owner: "account-2",
+      database,
+      newRecordId: () => "00000000-0000-4000-8000-00000000000b",
+    });
+    const secondWalk = await second.record({
+      ...INPUT,
+      taskId: "44444444-4444-4444-8444-444444444444",
+    });
+    expect(await second.list()).toMatchObject([{ id: secondWalk.id }]);
+
+    const first = await openPendingCompletionStore({ owner: "account-1", database });
+    expect(await first.list()).toHaveLength(2);
+    await first.discardAll();
+    expect(await first.list()).toEqual([]);
+
+    // Deleting the first account clears only its walks. The second account's
+    // record still waits for that account's session.
+    expect(await second.list()).toMatchObject([{ id: secondWalk.id }]);
+    await second.close();
+  });
+
+  it("adopts a database whose owner was never written down", async () => {
+    const database = createMemoryDatabase();
+    await database.execAsync(VERSION_ONE);
+    await database.runAsync(
+      `INSERT INTO pending_completions (
+         id, challenge_id, task_id, completed_at, observation, app_version,
+         verification_policy_version, status, created_at, attempts
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, 0)`,
+      [
+        "00000000-0000-4000-8000-00000000000a",
+        INPUT.challengeId,
+        INPUT.taskId,
+        INPUT.completedAt,
+        JSON.stringify(OBSERVATION),
+        INPUT.appVersion,
+        INPUT.verificationPolicyVersion,
+        INPUT.completedAt,
+      ],
+    );
 
     const updated = await openPendingCompletionStore({ owner: "account-1", database });
-    expect(await updated.list()).toHaveLength(2);
+    expect(await updated.list()).toHaveLength(1);
 
-    // And having adopted them, it knows to let them go for the next account.
     const other = await openPendingCompletionStore({ owner: "account-2", database });
     expect(await other.list()).toEqual([]);
-    await other.close();
+
+    // Account changes isolate adopted records too. They do not erase them.
+    const returned = await openPendingCompletionStore({ owner: "account-1", database });
+    expect(await returned.list()).toHaveLength(1);
+    await returned.close();
   });
 });
 

@@ -114,18 +114,11 @@ export interface PendingCompletionStore {
 export interface PendingCompletionStoreOptions {
   readonly database: SqliteDatabase;
   /**
-   * The account whose walks this store holds.
+   * The account whose walks this view of the store may read and change.
    *
-   * A phone is not one person's for ever: a device handed on, a shared tablet,
-   * or a household second phone can be signed into one account and then
-   * another. Every record names a challenge and a task that belong to the
-   * account that walked it, so opening the same database under a different
-   * account has to start empty - otherwise the first sync pass sends one
-   * person's walks with another person's session, and the screens report the
-   * refusals as though the new account had walked and been turned away.
-   *
-   * Stated on open rather than stored per record, because a record that cannot
-   * be sent is not worth keeping and there is no second account to keep it for.
+   * A phone may hold walks for more than one account, but a runtime sees only
+   * its owner's rows. That keeps one person's session from sending another
+   * person's walk without deleting a walk when accounts change.
    */
   readonly owner: string;
   readonly newRecordId?: () => string;
@@ -143,6 +136,7 @@ export interface PendingCompletionStoreOptions {
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS pending_completions (
   id TEXT PRIMARY KEY NOT NULL,
+  account_id TEXT NOT NULL,
   challenge_id TEXT NOT NULL,
   task_id TEXT NOT NULL,
   completed_at TEXT NOT NULL,
@@ -166,13 +160,13 @@ CREATE TABLE IF NOT EXISTS store_owner (
 /**
  * The columns added after version 1, by name and by definition.
  *
- * Every one of them has to be nullable: the rows already on the phone get the
- * column with nothing in it, and a record whose failure was written down before
- * the column existed genuinely does not know the answer. Nothing here rewrites
- * a row, so a record already on the phone is never given a fact about itself
- * that was not observed.
+ * SQLite requires a newly added column to accept the rows already on the
+ * phone. `last_error_reached_server` stays null when an older app did not
+ * observe the answer. `account_id` is filled from `store_owner`, or from the
+ * account doing the first open when that older table has no owner yet.
  */
 const ADDED_COLUMNS: readonly { readonly name: string; readonly definition: string }[] = [
+  { name: "account_id", definition: "TEXT" },
   {
     name: "last_error_reached_server",
     definition: "INTEGER CHECK (last_error_reached_server IN (0, 1))",
@@ -263,30 +257,30 @@ async function addMissingColumns(database: SqliteDatabase): Promise<void> {
 }
 
 /**
- * Hand the database to the account that is signed in now.
+ * Assign rows written before records named their account.
  *
- * The first open on a phone - and the first after an update that added this
- * table - finds no owner and simply writes one down: the records already there
- * were written by whoever is signed in, since that is the only account the app
- * has ever had a session for on this device. A different owner is the case this
- * exists for, and everything the previous account left goes, rejected records
- * included: they are refusals about tasks the new account cannot see.
+ * The previous schema's `store_owner` is the authority when it exists. This is
+ * important during an account switch: the account opening the upgraded store
+ * may not be the account that wrote the rows. A still older store has no owner,
+ * so the first signed-in account adopts its rows, matching the old one-account
+ * behavior. No assigned row changes owner afterwards.
  */
-async function claimForOwner(database: SqliteDatabase, owner: string): Promise<void> {
+async function assignLegacyRows(database: SqliteDatabase, owner: string): Promise<void> {
   const rows = await database.getAllAsync<{ account_id: string }>(
     "SELECT account_id FROM store_owner WHERE id = 1",
     [],
   );
-  const held = rows[0];
-  if (held === undefined) {
+  const previousOwner = rows[0]?.account_id ?? owner;
+  await database.runAsync(
+    "UPDATE pending_completions SET account_id = ? WHERE account_id IS NULL",
+    [previousOwner],
+  );
+  if (rows[0] === undefined) {
     await database.runAsync("INSERT INTO store_owner (id, account_id) VALUES (1, ?)", [owner]);
-    return;
+  } else {
+    // Kept as the migration hint for any rows an older build may have written.
+    await database.runAsync("UPDATE store_owner SET account_id = ? WHERE id = 1", [owner]);
   }
-  if (held.account_id === owner) {
-    return;
-  }
-  await database.runAsync("DELETE FROM pending_completions", []);
-  await database.runAsync("UPDATE store_owner SET account_id = ? WHERE id = 1", [owner]);
 }
 
 export async function openPendingCompletionStore(
@@ -298,17 +292,18 @@ export async function openPendingCompletionStore(
 
   await database.execAsync(SCHEMA);
   await addMissingColumns(database);
-  await claimForOwner(database, options.owner);
+  await assignLegacyRows(database, options.owner);
 
   async function select(where: string, params: readonly SqliteValue[]): Promise<Row[]> {
     return database.getAllAsync<Row>(
-      `SELECT ${SELECT_COLUMNS} FROM pending_completions ${where} ORDER BY created_at, id`,
-      params,
+      `SELECT ${SELECT_COLUMNS} FROM pending_completions
+        WHERE account_id = ? ${where} ORDER BY created_at, id`,
+      [options.owner, ...params],
     );
   }
 
   async function read(id: string): Promise<PendingCompletionRecord | null> {
-    const rows = await select("WHERE id = ?", [id]);
+    const rows = await select("AND id = ?", [id]);
     const row = rows[0];
     return row === undefined ? null : toRecord(row);
   }
@@ -319,11 +314,12 @@ export async function openPendingCompletionStore(
       const createdAt = now().toISOString();
       await database.runAsync(
         `INSERT INTO pending_completions (
-           id, challenge_id, task_id, completed_at, observation, app_version,
+           id, account_id, challenge_id, task_id, completed_at, observation, app_version,
            verification_policy_version, status, created_at, attempts
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, 0)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 0)`,
         [
           id,
+          options.owner,
           input.challengeId,
           input.taskId,
           input.completedAt,
@@ -347,15 +343,18 @@ export async function openPendingCompletionStore(
     },
 
     async listPending() {
-      return (await select("WHERE status = 'pending'", [])).map(toRecord);
+      return (await select("AND status = 'pending'", [])).map(toRecord);
     },
 
     async listRejected() {
-      return (await select("WHERE status = 'rejected'", [])).map(toRecord);
+      return (await select("AND status = 'rejected'", [])).map(toRecord);
     },
 
     async markAcknowledged(id) {
-      await database.runAsync("DELETE FROM pending_completions WHERE id = ?", [id]);
+      await database.runAsync("DELETE FROM pending_completions WHERE id = ? AND account_id = ?", [
+        id,
+        options.owner,
+      ]);
     },
 
     async markRejected(id, error) {
@@ -364,8 +363,8 @@ export async function openPendingCompletionStore(
             SET status = 'rejected', attempts = attempts + 1,
                 last_error_code = ?, last_error_message = ?,
                 last_error_reached_server = ?
-          WHERE id = ?`,
-        [error.code, error.message, reachedServerValue(error), id],
+          WHERE id = ? AND account_id = ?`,
+        [error.code, error.message, reachedServerValue(error), id, options.owner],
       );
     },
 
@@ -376,15 +375,17 @@ export async function openPendingCompletionStore(
         `UPDATE pending_completions
             SET attempts = attempts + 1, last_error_code = ?, last_error_message = ?,
                 last_error_reached_server = ?
-          WHERE id = ? AND status = 'pending'`,
-        [error.code, error.message, reachedServerValue(error), id],
+          WHERE id = ? AND account_id = ? AND status = 'pending'`,
+        [error.code, error.message, reachedServerValue(error), id, options.owner],
       );
     },
 
     async discardAll() {
-      // Rejected records go too: they are refusals about tasks that no longer
-      // exist, and there is nobody left to act on them.
-      await database.runAsync("DELETE FROM pending_completions", []);
+      // Rejected records go too, but only for the deleted account. Another
+      // account's saved walks remain isolated until that account returns.
+      await database.runAsync("DELETE FROM pending_completions WHERE account_id = ?", [
+        options.owner,
+      ]);
     },
 
     close: () => database.closeAsync(),

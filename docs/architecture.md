@@ -903,7 +903,7 @@ On `expired` the welcome screen leads with what happened and drops the three how
 The notice says the one thing that changes what the user does next: being signed out is not a pause.
 The challenge keeps running, its deadlines keep counting, and only a walk taken in the app can meet one, so signing back in is urgent rather than housekeeping.
 It also says that a walk already saved on this phone is still there, because the pending completion store is never cleared by a sign-out and would otherwise look lost.
-It is cleared by a _different_ account signing in on the same phone, which is the walk's owner leaving rather than being thrown out; see "Whose walks the phone is holding".
+Another account signing in cannot see or send that walk, but does not erase it either; see "Whose walks the phone is holding".
 
 The two ways a session dies share one reason on purpose: the user experienced the same thing either way, and the difference is only in which side of the request noticed.
 
@@ -987,6 +987,7 @@ The app writes a pending completion to SQLite before displaying the local check.
 Each record contains at least:
 
 - A generated record ID used as the idempotency key.
+- The account ID that owns the record.
 - Challenge and scheduled task IDs.
 - The local completion timestamp.
 - The normalized movement observation.
@@ -1051,14 +1052,21 @@ A record is only meaningful to the account that walked it: it names a challenge 
 A phone, though, is not one person's for ever - a device handed on, a shared tablet, a household second phone - and signing out does not clear the store, deliberately, because a walk saved with no signal has to survive an expiry and a sign-in.
 Put together, those two facts left one person's unsent walks on the phone for whoever signed in next: the first sync pass under the new session would send them, the server would refuse tasks that account cannot see, and the screens would report the refusals as though the new account had walked and been turned away.
 
-So the store is opened in the name of an account.
-`store_owner` holds one row, home names the signed-in `accountId` when it builds the completion runtime, and an open under a different owner starts empty - rejected records included, since a refusal about a task the new account cannot see is not theirs to act on either.
-The alternative, keeping the previous account's records aside in case they sign back in, buys almost nothing: an unsent walk is worth something only until its deadline plus the receipt grace, which is measured in hours.
+So every stored record names its account and every opened store is filtered to one owner.
+Home passes the signed-in `accountId` when it builds the completion runtime.
+The store adds that ID to each insert and includes it in every read, update and delete, so a second account starts empty without taking anything from the first.
+Rejected records are isolated too, since a refusal about a task the new account cannot see is not theirs to act on.
 
-A database with no owner written down - a phone updating from a version before this - is adopted rather than emptied.
-The records there were written by whoever is signed in now, because that is the only account the app has ever held a session for on this device.
+Keeping the first account's records matters even though their receipt window is short.
+A user can sign in with the wrong provider while recovering an expired session, then correct it before the deadline plus receipt grace.
+Deleting the walk at the first sign-in would turn a reversible mistake into lost evidence.
 
-Account deletion still clears the store separately, through `discardAll`, because that account is not coming back at all and nobody else will ever claim the database.
+The migration keeps the old `store_owner` row as the authority for records written before each row carried `account_id`.
+This matters when a different account opens the upgraded app first: those old records still belong to the owner written by the previous version, not to whichever session happened to run the migration.
+A still older database with no owner is adopted by the first signed-in account, because that is the only ownership fact available and inventing another would be worse.
+
+Account deletion clears only that account's rows through `discardAll`.
+Other accounts' records remain isolated until those accounts return.
 
 #### How long a saved walk has left
 
