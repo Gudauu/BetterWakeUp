@@ -12,7 +12,8 @@
       "supportsTablet": false,
       "usesAppleSignIn": true,
       "infoPlist": {
-        "NSMotionUsageDescription": "BetterWakeUp counts your steps while the app is open to confirm you completed a wake-up task."
+        "NSMotionUsageDescription": "BetterWakeUp counts your steps while the app is open to confirm you completed a wake-up task.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -35,6 +36,12 @@
         "projectId": "80267c97-d7a6-46ad-95a3-cafba4bd3d55"
       }
     },
-    "owner": "taylorrubanovich"
+    "owner": "taylorrubanovich",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/80267c97-d7a6-46ad-95a3-cafba4bd3d55"
+    }
   }
 }
