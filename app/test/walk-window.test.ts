@@ -7,12 +7,7 @@
  * answers, and home had been giving the second one.
  */
 
-import {
-  localDate,
-  walkedTodayText,
-  walkOpensText,
-  walkWindow,
-} from "../src/challenges/walk-window.ts";
+import { localDate, walkedTodayText, walkWindow } from "../src/challenges/walk-window.ts";
 import { challengeDays, challengeView, taskView } from "./support/fake-api.ts";
 
 /** Early evening in Los Angeles, which is already the next day in UTC. */
@@ -73,23 +68,6 @@ describe("whether the walk on offer can be walked yet", () => {
     });
 
     expect(walkWindow(challenge, EVENING)?.walkedToday).toBe(false);
-  });
-});
-
-describe("what a walk that has not opened is told", () => {
-  const tomorrow = { opensLater: true, opensTomorrow: true, walkedToday: true };
-  const later = { opensLater: true, opensTomorrow: false, walkedToday: false };
-
-  it("names tomorrow as a word and its deadline as a time", () => {
-    expect(walkOpensText(tomorrow, "Wednesday, September 2", "7:00 AM")).toBe(
-      "This one opens tomorrow morning and has to be walked then, by 7:00 AM. Steps taken before it opens cannot count for it.",
-    );
-  });
-
-  it("names a further day by its date", () => {
-    expect(walkOpensText(later, "Monday, September 7", "7:00 AM")).toContain(
-      "opens on Monday, September 7",
-    );
   });
 });
 

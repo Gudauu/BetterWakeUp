@@ -149,6 +149,7 @@ describe("a session that ran out", () => {
   it("says nothing of the sort to a user who signed themselves out", async () => {
     await renderScreen(createMemorySessionStore(SESSION));
 
+    await userEvent.press(await screen.findByTestId("home-open-account"));
     await userEvent.press(screen.getByText("Sign out"));
 
     // Explaining a sign-out to the person who pressed it is noise.
@@ -162,7 +163,8 @@ describe("an account the user deleted", () => {
     const own = fakeApi();
     await renderScreen(createMemorySessionStore(SESSION), { api: own, ...options });
 
-    await userEvent.press(await screen.findByTestId("home-delete-account"));
+    await userEvent.press(await screen.findByTestId("home-open-account"));
+    await userEvent.press(screen.getByTestId("account-delete"));
     await userEvent.press(await screen.findByTestId("delete-account"));
     await userEvent.press(await screen.findByTestId("delete-account-confirm"));
 
@@ -218,6 +220,7 @@ describe("the alarms on a phone with nobody signed in", () => {
 
     expect(notifier.scheduled).toHaveLength(0);
 
+    await userEvent.press(await screen.findByTestId("home-open-account"));
     await userEvent.press(screen.getByText("Sign out"));
 
     // An alarm the app cannot honour is worse than no alarm: the walk it asks
@@ -358,6 +361,7 @@ describe("the sign-in buttons", () => {
     const store = createMemorySessionStore(SESSION);
     await renderScreen(store);
 
+    await userEvent.press(await screen.findByTestId("home-open-account"));
     await userEvent.press(screen.getByText("Sign out"));
 
     expect(screen.getByTestId("welcome-signed-out")).toBeOnTheScreen();

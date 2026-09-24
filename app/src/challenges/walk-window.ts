@@ -85,19 +85,6 @@ export function dayAfter(date: string): string {
 }
 
 /**
- * The one line that tells a user why there is no button under this walk.
- *
- * It names the rule rather than the refusal: someone who has just kept a day
- * and is looking at tomorrow's would otherwise read the missing button as the
- * app having lost the walk, and someone keen enough to try it early would spend
- * a walk on a completion the server throws away.
- */
-export function walkOpensText(window: WalkWindow, dayText: string, deadlineTime: string): string {
-  const when = window.opensTomorrow ? "tomorrow morning" : `on ${dayText}`;
-  return `This one opens ${when} and has to be walked then, by ${deadlineTime}. Steps taken before it opens cannot count for it.`;
-}
-
-/**
  * What home says on a morning that has already been kept.
  *
  * The day is the unit of this product, and until now the only mark of a kept

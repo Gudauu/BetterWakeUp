@@ -1,9 +1,11 @@
 /**
- * The way back to home.
+ * The way back to the screen underneath.
  *
  * Every screen home puts on top of itself needs one, and they should all look
  * and read the same, so the press lives here rather than being written out
- * once per screen. It renders nothing when no caller owns the return trip,
+ * once per screen. It says "Back" rather than naming a destination, because the
+ * same screen can be opened from home or from the challenge page and returns to
+ * whichever it came from. It renders nothing when no caller owns the return trip,
  * which is what makes these screens still usable on their own.
  *
  * It sits left rather than centred, and carries a chevron, because it is a
@@ -26,7 +28,7 @@ export function BackLink({ testID, onBack }: BackLinkProps): ReactNode {
   }
   return (
     <View style={styles.left}>
-      <TextButton testID={testID} label="‹  Back to home" onPress={onBack} />
+      <TextButton testID={testID} label="‹  Back" onPress={onBack} />
     </View>
   );
 }

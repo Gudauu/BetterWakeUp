@@ -2342,6 +2342,46 @@ version strings in real requests. They send `DISCLOSURE_POLICY_VERSION` now. The
 database fixture still writes `2026-01-01`, which no build published, because the
 audit uses it to prove a retired version stays readable.
 
+### Issue 34b: home and challenge page layout
+
+Home now answers one question: what the next walk is and how long is left.
+It holds the next walk as one card with a countdown to its deadline, the walk
+number out of the required total, the amount at stake, and only the notices that
+ask the user to act. The card and the summary both open a new challenge page,
+`app/src/screens/challenge-details-screen.tsx`, which holds the calendar, the
+schedule, the deposit and what a miss would cost, the reminder switch, pausing,
+and the account controls. With no challenge running, home offers the account
+controls behind an `Account` press on a page of their own, so deletion stays
+reachable.
+
+Home keeps a stack of screens rather than one route, so a pause or a deletion
+opened from the challenge page returns to it, and Android's back press pops one
+screen at a time. The back link says "Back" instead of naming home.
+
+`app/src/challenges/calendar.ts` lays the challenge's days out as a wall
+calendar, Monday first, with rest days drawn as empty squares so a weekend is
+not read as a pause. `DayCalendar` replaces `DayStrip`.
+
+Three defects fixed on the way:
+
+- The old "to go" count subtracted skipped and forgiven days, but the server
+  counts only completed walks toward the total. The walk number and the
+  challenge page now count completed walks only.
+- Home did not hand its clock to the task screen, so a test of the task screen
+  read the machine's date and failed once the fixture's deadline was in the
+  past.
+- `useReminders` read `new Date()` rather than the caller's clock, with the same
+  consequence for the reminder test.
+
+Removed as unused: `walkOpensText`, the calendar-day count in
+`challenge-age.ts`, and `DayStrip`.
+
+5 new calendar tests, 2 countdown format tests, and the home, journey and
+welcome suites moved to the new layout: 1043 app tests and 689 server tests
+pass. The layout was also checked by rendering the real home and challenge page
+on the web against the test fakes, in light and dark, which caught a calendar
+square drawn at the legend swatch's height.
+
 ## Handed back
 
 ### Issue 44: production readiness sign-off

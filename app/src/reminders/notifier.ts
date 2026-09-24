@@ -99,6 +99,11 @@ export interface RemindersState {
 export function useReminders(
   challenge: ChallengeView | null | undefined,
   notifier: Notifier,
+  /**
+   * Which reminders are still ahead is a question about the time, so the clock
+   * is the caller's: a test states it, and a build passes nothing.
+   */
+  now: () => Date = () => new Date(),
 ): RemindersState {
   const [permission, setPermission] = useState<ReminderPermission>("undetermined");
   const [enabling, setEnabling] = useState(false);
@@ -112,7 +117,7 @@ export function useReminders(
       if (target === undefined) {
         return;
       }
-      const reminders = remindersFor(target, new Date());
+      const reminders = remindersFor(target, now());
       // Failure here is silent on purpose: a device that refused to schedule a
       // notification has taken nothing away from the user that they had a
       // moment ago, and an error banner over today's walk would be noise.
@@ -120,7 +125,7 @@ export function useReminders(
         .then(() => notifier.replaceAll(reminders))
         .catch(() => undefined);
     },
-    [notifier],
+    [notifier, now],
   );
 
   useEffect(() => {

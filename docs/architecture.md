@@ -200,10 +200,19 @@ Nothing about the framework changes.
 Start with React hooks and context for local interface state.
 Add a client state library only when an observed state-sharing problem requires one.
 
+### Home and the challenge page
+
+Home answers one question: what the next walk is and how long is left until its deadline.
+It holds the next walk as one card with a countdown, the walk number out of the required total, the amount at stake, and only the notices that ask the user to act - a refused permission, a recovery offer, a lapsed card, a time zone the device has left.
+Everything else about the challenge is on the challenge page, opened from that card: the calendar, the schedule, the deposit and what a miss would cost, the reminder switch, pausing, and the account controls.
+With no challenge running there is no challenge page, so home offers the account controls behind an `Account` press of its own, and deletion stays reachable whatever the account holds.
+The walk number counts completed walks only, the way the server counts toward the total, because a skipped or forgiven day is not a walk.
+
 ### The way back
 
-Home is a stack one screen deep, and it is a stack the app keeps in its own state.
-Everything home opens - today's task, the setup form, the pause decision, the recovery offer, the card, the time zone, deleting the account - is drawn in place of home rather than pushed onto Expo Router, which holds a single route.
+Home keeps a stack of screens in its own state, top last.
+Everything home opens - the challenge page, the account page, today's task, the setup form, the pause decision, the recovery offer, the card, the time zone, deleting the account - is drawn in place of home rather than pushed onto Expo Router, which holds a single route.
+Each returns to the screen underneath it, so a pause opened from the challenge page lands back on the challenge page, and the `BackLink` every such screen carries says "Back" rather than naming a destination.
 
 That is a deliberate simplification, and it left Android's back gesture with nothing to pop.
 Its default with nothing to pop is to leave the app, so a user on the task screen who swiped back was put on their device's home screen mid-walk, and one who backed out of the setup form lost everything they had typed into it.
@@ -212,7 +221,7 @@ Its default with nothing to pop is to leave the app, so a user on the task scree
 The press is answered with whatever that screen's own `BackLink` does, so there is one answer to where back goes rather than one per way of asking.
 While home itself is on screen nothing is subscribed and the press is left to the operating system, because a back press at the top of an app means to close it.
 
-Two of those answers are not just `setRoute("home")`.
+Two of those answers are not just a pop.
 Backing out of the time zone offer counts as declining it, the same as the link does, or the banner that sent the user there would be waiting for them when they arrive.
 Leaving the setup form re-reads the challenge, because leaving an authorized hold might have changed the account and home cannot tell from outside the form which half of it the press came from.
 
@@ -220,7 +229,7 @@ Leaving the setup form re-reads the challenge, because leaving an authorized hol
 
 The same simplification costs a screen-reader user something the back gesture does not cover.
 Because home swaps what it renders rather than pushing a screen, no navigation ever happens as far as the platform is concerned, and no screen reader is told anything.
-The control the user just activated is unmounted by the render it caused, so the reader's focus falls off it in silence: nothing names the screen that is now up, and the `Back to home` control that gets them out is one they have to hunt for by swiping.
+The control the user just activated is unmounted by the render it caused, so the reader's focus falls off it in silence: nothing names the screen that is now up, and the `Back` control that gets them out is one they have to hunt for by swiping.
 
 `app/src/ui/screen-change.ts` says it instead, through React Native's own `announceForAccessibility` behind a `ScreenReader` port.
 The sentence names the screen, and - for anything sitting on top of home - names where the way back is, which is the control such a user most likely wants next and the one every one of these screens puts in the same place.
@@ -253,7 +262,7 @@ A retry that fails again says so and names the one thing left - closing the app 
 ### Appearance
 
 `app/src/ui/theme.ts` owns every colour, spacing step, corner radius and text size in the app, as a light theme and a dark one of the same shape.
-`app/src/ui/components.tsx` owns how the recurring pieces are drawn: the screen frame, cards, buttons, banners, progress bars, labelled rows, the status pill that names the state a challenge is in, the row of days a month is read as, and the form controls a screen collects a configuration with - a labelled field with its own complaint or read-back line, a selectable chip, a statement toggle.
+`app/src/ui/components.tsx` owns how the recurring pieces are drawn: the screen frame, cards, buttons, banners, progress bars, labelled rows, the status pill that names the state a challenge is in, the calendar a challenge is read as, and the form controls a screen collects a configuration with - a labelled field with its own complaint or read-back line, a selectable chip, a statement toggle.
 
 A screen names a role - `textMuted`, a `danger` banner, a `primary` button - and never a hex code or a font size.
 That is what lets the app follow the device between light and dark without a single screen asking which one is in force, and it is why a change to the look of a button is one edit rather than nine.
@@ -319,45 +328,48 @@ Until it existed, the only way to ask again by hand was a `Refresh` link under a
 The gesture belongs to `Screen` rather than to home, so no screen that wants it has to draw a `RefreshControl` of its own, and both platforms' spinner colours are named from the theme's accent - their defaults are chosen against a white page and disappear on the dark theme's background.
 A `centered` screen gets none: it does not scroll, so there is nothing to pull, which is why home's failed read carries an explicit `Try again` button instead.
 
-The pull runs `refresh`, the same quiet path as the footer's link and the app coming back to the front - the numbers stay on screen while it runs, and a read that does not come back leaves the last answer where it is.
-The footer's link stays: a gesture is not discoverable, and it is not a control a screen reader can find.
+The pull runs `refresh`, the same quiet path as the `Refresh` press at the foot of home and the app coming back to the front - the numbers stay on screen while it runs, and a read that does not come back leaves the last answer where it is.
+The press stays: a gesture is not discoverable, and it is not a control a screen reader can find.
 
-### The month as a row of days
+### The challenge as a calendar
 
 `challengeView.days` is the challenge's own calendar: every day it holds, oldest first, each with the status the server gave it.
 The whole task set is materialized when a challenge activates, so this is the challenge rather than a window over it, and the app needs no second call and no history endpoint to draw a month.
 
 `app/src/challenges/history.ts` re-reads those statuses from the user's side - kept, missed, forgiven, skipped, due, ahead - and finds the day being asked for right now, which is the earliest still-scheduled one.
-That day is split out from the ones behind it because it is the only day the user can still act on, and a row that drew it like next Thursday would hide the one that matters.
+That day is split out from the ones behind it because it is the only day the user can still act on, and a calendar that drew it like next Thursday would hide the one that matters.
 
 The streak counts walks in an unbroken run ending at the last decided day.
 Only a walk continues a run: a missed, skipped or forgiven day ends it, because the streak is a count of mornings the user actually got up.
 It is the current run rather than the best one, and it says nothing at all below two - "1 day in a row" on the morning after the first walk reads as a machine counting.
-A broken run is not mentioned either: the row already shows the day that broke it, and a sentence about it would be the app scolding someone who turned up today.
+A broken run is not mentioned either: the calendar already shows the day that broke it, and a sentence about it would be the app scolding someone who turned up today.
 
-`DayStrip` draws the row as one accessible element carrying a sentence its caller wrote, not as thirty unlabelled squares.
-Colour is the whole of what the row says visually, so without that sentence a screen reader would reach thirty announcements of nothing.
+`app/src/challenges/calendar.ts` lays those days out as a wall calendar: Monday-first weeks, a new row for each month, and every date between the first walk and the last in its weekday's column.
+A date inside the challenge that holds no walk, such as a weekend on a weekday schedule, is a rest day and is drawn as an empty square, so the gap after a Friday reads as a weekend rather than as a pause.
+Weeks before the first walk or after the last are left off.
+
+`DayCalendar` draws the calendar as one accessible element carrying a sentence its caller wrote, not as forty unlabelled squares.
+Colour is most of what the calendar says visually, so without that sentence a screen reader would reach forty announcements of nothing.
 
 `DayLegend` says which square is which, because that same "colour is the whole of it" is a problem for a sighted reader too.
-A kept morning is green and a missed one is red, which is the pair most commonly seen as one colour, and no screen in the app had ever said which was which - the row was a code with no key.
-It names only the states actually on the row: a taxonomy of six terms under a run of four clean days is a manual rather than a key, and it names outcomes as though they had happened.
+A kept morning is green and a missed one is red, which is the pair most commonly seen as one colour, and no screen in the app had ever said which was which - the squares were a code with no key.
+It names only the states actually on the calendar, rest days included: a taxonomy of six terms under a run of four clean days is a manual rather than a key, and it names outcomes as though they had happened.
 `skipped` is read back as "Paused", which is what the user did; "skipped" is what the sweep did to the day afterwards.
 
 A mark is filled when the day resolved into something - a walk, a miss, a spent allowance - and drawn as a ring when it did not.
 That is what separates a skipped day from a forgiven one, which share the warning colour, and it is why the day due now is a ring rather than a block.
-The legend and the row draw a mark through the same code, since a legend whose green is not the row's green explains nothing.
+The legend and the calendar draw a mark through the same code, since a legend whose green is not the calendar's green explains nothing.
 
-The legend is deliberately out of the accessibility tree: the row already carries the counts as a sentence, and explaining colours to someone who is not looking at them is six announcements that help nobody.
+The legend is deliberately out of the accessibility tree: the calendar already carries the counts as a sentence, and explaining colours to someone who is not looking at them is six announcements that help nobody.
 
 ### How long it has been going
 
-The row of days says what became of each morning; it does not say how much of the month has gone by, and neither does anything else on the card.
-The progress line counts kept mornings, which is a count of the schedule rather than of time: five mornings on a Monday/Wednesday/Friday challenge is a fortnight, and "5 of 30 days done" reads exactly the same either way.
+The progress line counts kept walks, which is a count of the schedule rather than of time: five walks on a Monday/Wednesday/Friday challenge is a fortnight, and "5 of 30 walks done" reads exactly the same either way.
 
 `challengeView.activatedAt` is the instant the challenge went live.
-`app/src/challenges/challenge-age.ts` reads it as a calendar day in the challenge's own time zone and counts whole days from that day to today, so home names the day it started beside the day it is projected to end, and says which day of the challenge today is.
+`app/src/challenges/challenge-age.ts` reads it as a calendar day in the challenge's own time zone, so the challenge page names the day it started beside the day it is projected to end.
 
-Both halves are questions about the days the deadlines are read in rather than about the device's, which is why the zone comes from the configuration and not from the phone - a start named a day out is a visible error while the challenge is still young enough for the day to be the whole answer.
+That is a question about the days the deadlines are read in rather than about the device's, which is why the zone comes from the configuration and not from the phone - a start named a day out is a visible error while the challenge is still young enough for the day to be the whole answer.
 
 It answers nothing at all in two cases: a funded challenge answered before its provider webhook lands has no activation instant yet, and a runtime whose `Intl` cannot read the zone would only produce a date that is off by one.
 The first day is named ("This challenge started today") rather than numbered, because "day 1" reads as a countdown the user is already behind on.
@@ -438,7 +450,8 @@ An answer of "this account holds no challenge" clears the device; a momentary ne
 
 Permission is requested from a press and never on launch.
 iOS gives an app one prompt for the lifetime of an install, and spending it in front of a user who has not yet seen what the app is for is how an app ends up permanently unable to remind anyone of anything.
-Home therefore offers the switch by naming the time the nudge would arrive rather than the feature, and says where to turn notifications back on for a device that has already refused.
+The challenge page therefore offers the switch by naming the time the nudge would arrive rather than the feature, and says where to turn notifications back on for a device that has already refused.
+It is never on home, which asks only for the next walk.
 
 #### The alarm being tapped
 
@@ -663,11 +676,11 @@ That is the same defect as the passed deadline at the opposite edge of the windo
 The question is answered by comparing calendar dates in the challenge's own time zone, not instants: a task's `date` is the local day it belongs to, so "has that day started" is "what day is it where the challenge reads its deadlines".
 A runtime whose `Intl` cannot read the zone answers nothing and home says what it always said, because a guess about which day it is would be worse than the sentence it replaces.
 
-Once the walk has not opened, the card asks for nothing.
-The countdown is gone - twenty hours to a morning nobody is being asked about is noise - the button is gone, and in its place is the rule the missing button would otherwise leave a user to infer: the walk opens tomorrow morning, it has to be walked then, and steps taken before it opens cannot count for it.
+Once the walk has not opened, the card asks for nothing: the button is gone, and the card's heading says the walk is tomorrow's.
+The countdown to its deadline stays, because how long is left until the next deadline is worth knowing the night before too.
 
 The same read is what lets home say a morning was kept.
-Until now the only mark of a kept day on home was a square in the row of days: the card that had asked for the walk simply started asking for the next one, on the one screen a user opens after doing the thing the whole product is about.
+Until then the only mark of a kept day on home was a square in the row of days: the card that had asked for the walk simply started asking for the next one, on the one screen a user opens after doing the thing the whole product is about.
 A run of two or more is named in the same sentence, and a single kept day is stated as itself rather than counted, for the reason `streakSentence` already gives.
 
 #### The mornings the challenge asks for
@@ -675,7 +688,8 @@ A run of two or more is named in the same sentence, and a single kept day is sta
 `app/src/challenges/schedule.ts` reads a configuration's weekly schedule back as text.
 
 The schedule is the whole of what a challenge asks of its owner, it is decided once, and it can never be edited afterwards - the contract carries no endpoint for it, because a deadline that could move is not a commitment.
-That makes stating it the only thing left the app can do about it, and nothing past the setup form did: home listed the projected end date, the deposit and the step target, so the days and the times a user is on the hook for were readable only on a day that already had a task open.
+That makes stating it the only thing left the app can do about it, and nothing past the setup form did: the days and the times a user is on the hook for were readable only on a day that already had a task open.
+The challenge page states them now.
 
 The days are grouped by the deadline they share rather than listed one per row.
 A challenge is up to seven `ScheduledWeekday` entries with a wall-clock time each, and seven rows is a table to be decoded; "Mon-Fri at 7:00 AM" is the same fact as its owner thinks of it.
@@ -757,9 +771,9 @@ That is true and it is not the whole of the deal.
 So the user is not buying a morning back, they are trading it for another one at the end, and they were never told that before pressing a button whose entire subject is permanence.
 `RECOVERY_REPLACEMENT` states it, in the card above the action and in the consequence the confirmation opens, and it names no date: the replacement lands on the next date the challenge's own weekly schedule allows, and the app would be guessing at the server's schedule engine to name it.
 
-Which morning the offer is about comes from the row of days rather than from the offer, which carries only a task ID.
+Which morning the offer is about comes from the challenge's days rather than from the offer, which carries only a task ID.
 The last `missed` day is the one, because a challenge only reaches `recovery_pending` on a miss and an earlier day that was already forgiven reads as `forgiven` rather than `missed`.
-When the row shows none, the sentence says "the missed morning" rather than inventing a date.
+When the days show none, the sentence says "the missed morning" rather than inventing a date.
 
 After the press, the screen reports what came back.
 `acceptRecoveryResponse` names the forgiven task and the appended one, and the app had been discarding both and returning the user to home - so the acknowledgment of the one irreversible act in the product was a screen change.
@@ -782,7 +796,7 @@ The year is read from the server's own `pause.expiresAt` in the challenge's zone
 Resuming is the only press in the app that hands the user a deadline they did not ask for: a pause set on a Friday and lifted on a Monday evening can put a morning hours away back in front of somebody who thought they were only ending a pause.
 So the morning, the time it is due, and how long is left are said on the screen that did it, with the countdown from `timeLeftUntil` and the urgency boundary the rest of the app already uses - `ALARM_LEAD_MINUTES` - deciding whether it is a note or a warning.
 
-Both outcomes hand the challenge back only on "Back to home", for the same reason the recovery outcome does: the answer has to be read before the challenge is re-read, and the challenge this screen was given still says paused after a resume, so the outcome branch is checked before any branch that draws from it.
+Both outcomes hand the challenge back only on "Done", for the same reason the recovery outcome does: the answer has to be read before the challenge is re-read, and the challenge this screen was given still says paused after a resume, so the outcome branch is checked before any branch that draws from it.
 
 ### What starting a challenge came to
 
@@ -935,9 +949,9 @@ Doing that deliberately, at a moment of the user's choosing, is the whole point 
 ### Signing out on purpose
 
 The third way in is a press, and it is the one the app can still do something about.
-Everything the expiry notice says after the fact is true of a deliberate sign-out as well - the challenge keeps running, its deadlines keep counting, only a walk in the app can meet one, and the alarms come off the device - so the press that causes it is the most expensive control on home while being the quietest one on it.
+Everything the expiry notice says after the fact is true of a deliberate sign-out as well - the challenge keeps running, its deadlines keep counting, only a walk in the app can meet one, and the alarms come off the device - so the press that causes it is the most expensive control in the app while being one of the quietest.
 
-`app/src/session/sign-out.ts` states that cost and home draws it as a `ConfirmAction`.
+`app/src/session/sign-out.ts` states that cost and the account section draws it as a `ConfirmAction`.
 The wording is assembled from what home already holds rather than written into the screen: whether a challenge is running, whether it is paused, how much is staked, and how many walks this phone has written and not yet sent.
 A paused challenge gets a different sentence, because a pause counts no deadlines and what matters about it is that nothing but this app ever resumes it.
 The held-walk sentence is its own, rather than the store's `heldWalksText`: that one promises the walks send themselves as soon as the app can reach the server, which stops being true the moment there is no session to send them with.

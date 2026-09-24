@@ -11,22 +11,14 @@
  * and reloads it whenever something it launched changed the answer.
  */
 
-import type { ChallengeStatus, ChallengeView, EndedChallengeSummary } from "@betterwakeup/contract";
+import type { ChallengeView, EndedChallengeSummary, TaskView } from "@betterwakeup/contract";
 import { type ReactNode, useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { type AppReturnTrigger, useAppReturn } from "../challenges/app-return.ts";
-import { challengeAge } from "../challenges/challenge-age.ts";
 import { useCurrentChallenge } from "../challenges/current-challenge.ts";
 import { detectTimeZone, formatMoney } from "../challenges/draft.ts";
 import { endedReading } from "../challenges/ended-challenge.ts";
-import {
-  challengeHistory,
-  type DayState,
-  historyLabel,
-  historyLegend,
-  streakSentence,
-} from "../challenges/history.ts";
-import { missCost } from "../challenges/miss-cost.ts";
+import { challengeHistory } from "../challenges/history.ts";
 import {
   pausedForSentence,
   pausedRestSentence,
@@ -38,9 +30,9 @@ import {
   recoveryOfferSummary,
   recoveryWindow,
 } from "../challenges/recovery-window.ts";
-import { nextActiveMorning, nextMorningText, scheduleGroups } from "../challenges/schedule.ts";
+import { nextActiveMorning, nextMorningText } from "../challenges/schedule.ts";
 import { type TimeZoneMove, timeZoneLabel, timeZoneMoveFor } from "../challenges/time-zone.ts";
-import { walkedTodayText, walkOpensText, walkWindow } from "../challenges/walk-window.ts";
+import { walkedTodayText, walkWindow } from "../challenges/walk-window.ts";
 import { receiptGoneText, receiptWindow } from "../completions/receipt-window.ts";
 import {
   type CompletionRuntimeFactory,
@@ -72,18 +64,13 @@ import {
 } from "../movement/device-readiness.ts";
 import { createConfiguredPaymentSheet, type PaymentSheet } from "../payments/payment-sheet.ts";
 import { needsPaymentMethod } from "../payments/replace-payment-method.ts";
-import {
-  createConfiguredNotifier,
-  type Notifier,
-  type RemindersState,
-  useReminders,
-} from "../reminders/notifier.ts";
+import { createConfiguredNotifier, type Notifier, useReminders } from "../reminders/notifier.ts";
 import {
   type ReminderTapTrigger,
   tapDestination,
   useReminderTaps,
 } from "../reminders/reminder-taps.ts";
-import { ALARM_LEAD_MINUTES, nextAlarmAt, type ReminderTarget } from "../reminders/reminders.ts";
+import type { ReminderTarget } from "../reminders/reminders.ts";
 import { useSession } from "../session/session-context.tsx";
 import {
   SESSION_RENEW_CANCEL_LABEL,
@@ -95,35 +82,33 @@ import {
   sessionExpiryText,
   sessionRenewalConsequence,
 } from "../session/session-expiry.ts";
-import {
-  SIGN_OUT_CANCEL_LABEL,
-  SIGN_OUT_CONFIRM_LABEL,
-  signOutConsequence,
-} from "../session/sign-out.ts";
+import { signOutConsequence } from "../session/sign-out.ts";
 import { useClock } from "../ui/clock.ts";
 import {
   AppText,
   Banner,
   Button,
   Card,
-  DayLegend,
-  type DayMark,
-  type DayMarkTone,
-  DayStrip,
-  DetailRow,
-  Divider,
   ProgressBar,
   Screen,
   StatusPill,
   TextButton,
 } from "../ui/components.tsx";
-import { formatDay, formatDeadline, formatTimeOfDay } from "../ui/format.ts";
+import {
+  formatCountdown,
+  formatDay,
+  formatDeadline,
+  formatDuration,
+  formatTimeOfDay,
+} from "../ui/format.ts";
 import {
   createConfiguredScreenReader,
   type ScreenReader,
   useScreenChangeAnnouncement,
 } from "../ui/screen-change.ts";
 import { useTheme } from "../ui/theme.ts";
+import { AccountScreen, SignOutAction } from "./account-section.tsx";
+import { ChallengeDetailsScreen } from "./challenge-details-screen.tsx";
 import { ConfirmAction } from "./confirm-action.tsx";
 import { CreateChallengeScreen } from "./create-challenge-screen.tsx";
 import { DailyCompletionScreen } from "./daily-completion-screen.tsx";
@@ -208,12 +193,14 @@ export interface HomeScreenProps {
 }
 
 /**
- * Where the user is. Home is a stack one screen deep: everything it opens
- * returns here, and nothing opens anything else, so one name is the whole of
- * the navigation state. A router arrives when a screen needs to open a third.
+ * Where the user is. Home keeps its own stack of these, top last: everything
+ * it opens returns to the screen underneath, so a pause opened from the
+ * challenge page lands back on the challenge page rather than on home.
  */
 type Route =
   | "home"
+  | "details"
+  | "account"
   | "create"
   | "task"
   | "pause"
@@ -233,6 +220,8 @@ type Route =
  */
 const ROUTE_NAMES: Readonly<Record<Route, string>> = {
   home: "Home",
+  details: "Your challenge",
+  account: "Account",
   create: "Set up a challenge",
   task: "Today's walk",
   pause: "Pause or resume",
@@ -241,68 +230,6 @@ const ROUTE_NAMES: Readonly<Record<Route, string>> = {
   timeZone: "Your time zone",
   paymentMethod: "Your card",
 };
-
-/**
- * The headline states, worded as the user's situation rather than as the
- * status enum. A paused challenge is drawn from `pause` instead, because
- * "active" is true of it and would be the wrong thing to read.
- */
-const STATUS_HEADLINE: Readonly<Record<ChallengeStatus, string>> = {
-  active: "Challenge running",
-  succeeded: "You finished it",
-  failed: "This challenge ended short",
-  expired: "This challenge expired while paused",
-  recovery_pending: "One missed day is waiting on you",
-};
-
-/**
- * The colour each status is read in. A finished challenge is good news and a
- * failed one is not, and the headline alone leaves that to the reader.
- */
-const STATUS_TONE: Readonly<Record<ChallengeStatus, "accent" | "success" | "danger" | "warning">> =
-  {
-    active: "accent",
-    succeeded: "success",
-    failed: "danger",
-    expired: "danger",
-    recovery_pending: "warning",
-  };
-
-/**
- * The colour each day in the row is read in. A skipped and a forgiven day are
- * both warnings rather than failures: the day was not walked, and neither of
- * them cost the user anything.
- */
-const DAY_TONE: Readonly<Record<DayState, DayMarkTone>> = {
-  kept: "success",
-  missed: "danger",
-  forgiven: "warning",
-  skipped: "warning",
-  due: "accent",
-  ahead: "muted",
-};
-
-/**
- * Which days are drawn as a ring rather than a block: the one being asked for
- * now, and the ones a pause meant nobody was asked about. A filled mark is a
- * day that resolved into something - a walk, a miss, a spent allowance - and a
- * ring is a day that did not, which is also what keeps a skipped day from being
- * the same mark as a forgiven one when they share a colour.
- */
-const DAY_OUTLINED: Readonly<Record<DayState, boolean>> = {
-  kept: false,
-  missed: false,
-  forgiven: false,
-  skipped: true,
-  due: true,
-  ahead: false,
-};
-
-function dayMarkFor(state: DayState): DayMark {
-  return DAY_OUTLINED[state]
-    ? { tone: DAY_TONE[state], outlined: true }
-    : { tone: DAY_TONE[state] };
-}
 
 export function HomeScreen({
   onSignOut,
@@ -325,9 +252,14 @@ export function HomeScreen({
   // would otherwise be true only for the instant home was drawn, and a phone
   // left face-up would go on offering a walk the server stopped accepting.
   const clock = useClock(now);
+  // The same clock as a function, for the reminders to read at the moment they
+  // schedule. Held once so the scheduling effect is not re-run by a new arrow.
+  const [readClock] = useState<() => Date>(() => now ?? (() => new Date()));
   const theme = useTheme();
   const { state, refreshing, refreshFailed, reload, refresh } = useCurrentChallenge(api);
-  const [route, setRoute] = useState<Route>("home");
+  const [stack, setStack] = useState<readonly Route[]>([]);
+  const route: Route = stack[stack.length - 1] ?? "home";
+  const openRoute = (next: Route) => setStack((current) => [...current, next]);
   // The challenge as it stood when its last day was acknowledged, so the finish
   // is on screen the moment it happens rather than after the next read.
   const [finished, setFinished] = useState<EndedChallengeSummary | null>(null);
@@ -347,12 +279,12 @@ export function HomeScreen({
   // turned out to be. Read here against the same ticking clock as the morning,
   // so the warning arrives while there is still time to act on it.
   const expiry = session.status === "signedIn" ? sessionExpiry(session.session, clock, here) : null;
-  // The way back from everything home opens. A command that changed the
-  // challenge reads it again from here rather than while its screen is still
-  // up: `reload` puts home into its loading state, which would pull that screen
-  // out from under the user mid-use.
-  const goHome = (changed: boolean) => {
-    setRoute("home");
+  // The way back from everything home opens, one screen at a time. A command
+  // that changed the challenge reads it again from here rather than while its
+  // screen is still up: `reload` puts home into its loading state, which would
+  // pull that screen out from under the user mid-use.
+  const goBack = (changed: boolean) => {
+    setStack((current) => current.slice(0, -1));
     if (changed) {
       reload();
     }
@@ -420,6 +352,7 @@ export function HomeScreen({
   const reminders = useReminders(
     state.status === "loaded" ? state.challenge : undefined,
     reminderNotifier,
+    readClock,
   );
   // What this device is still holding. Home is where someone who walked with no
   // signal comes back to, so it has to be able to say that the walk exists and
@@ -428,11 +361,13 @@ export function HomeScreen({
     runtime,
     state.status === "loaded" ? (state.challenge?.currentTask?.id ?? null) : null,
   );
+  // Every walk the phone is holding, which is what signing out would strand.
+  const heldWalks = unsent.earlierWaiting + (unsent.currentTask === "waiting" ? 1 : 0);
   // A phone picked up the next morning is showing last night's answer: which
   // task is open, when it is due, whether the recovery offer has expired. Home
   // asks again on every return, and only while it is the screen in front of the
-  // user - a re-read landing under the task screen or the form would take it
-  // away mid-use.
+  // user or the challenge page it opened - a re-read landing under the task
+  // screen or the form would take it away mid-use.
   useAppReturn(
     () => {
       refresh();
@@ -443,7 +378,7 @@ export function HomeScreen({
       movement.recheck();
     },
     {
-      enabled: route === "home",
+      enabled: route === "home" || route === "details" || route === "account",
       ...(appReturn === undefined ? {} : { trigger: appReturn }),
     },
   );
@@ -457,7 +392,7 @@ export function HomeScreen({
         // otherwise the banner that sent the user here would be waiting for
         // them when they arrive back on home.
         setKeptTimeZone(true);
-        goHome(false);
+        goBack(false);
         return;
       }
       // The form is left with a re-read because leaving an authorized hold
@@ -465,7 +400,7 @@ export function HomeScreen({
       // which half of the form the press came from. A spinner on the way back
       // is the cheaper mistake than a home screen offering to start a second
       // challenge the server would refuse.
-      goHome(route === "task" || route === "create");
+      goBack(route === "task" || route === "create");
     },
     {
       enabled: route !== "home",
@@ -489,7 +424,7 @@ export function HomeScreen({
     // Home is where the app already is, so a tap whose subject has gone leaves
     // the user looking at what is true instead of at an empty screen.
     if (destination !== "home") {
-      setRoute(destination === "walk" ? "task" : "recovery");
+      setStack([destination === "walk" ? "task" : "recovery"]);
     }
   }, [tapped, loaded]);
   // Opening the form retires the finish: whatever comes back from it, the last
@@ -499,7 +434,7 @@ export function HomeScreen({
     if (endedId !== undefined) {
       setDismissed(endedId);
     }
-    setRoute("create");
+    openRoute("create");
   };
 
   if (route === "create") {
@@ -508,10 +443,10 @@ export function HomeScreen({
         // Leaving the form changes nothing, but leaving an authorized hold
         // might: the challenge appears when the provider confirms it, which can
         // land after the user has stopped watching for it.
-        onCancel={(accountChanged) => goHome(accountChanged)}
+        onCancel={(accountChanged) => goBack(accountChanged)}
         // The server is the record of what exists, so the new challenge is read
         // back rather than trusted from the response the form held.
-        onCreated={() => goHome(true)}
+        onCreated={() => goBack(true)}
         {...(now === undefined ? {} : { now })}
         {...(paymentSheet === undefined ? {} : { paymentSheet })}
         movementDevice={device}
@@ -566,7 +501,8 @@ export function HomeScreen({
           </Banner>
         )}
         <Button testID="home-retry" label="Try again" onPress={reload} style={styles.wide} />
-        <SignOut
+        <SignOutAction
+          testID="home-sign-out"
           onSignOut={onSignOut}
           challenge={null}
           challengeUnknown
@@ -581,12 +517,12 @@ export function HomeScreen({
       <DeleteAccountScreen
         api={api}
         challenge={state.challenge}
-        onBack={() => goHome(false)}
+        onBack={() => goBack(false)}
         // The two screens that can settle a challenge holding up deletion, so
         // the explanation of the hold leads somewhere rather than sending the
         // user back to home to find them.
-        onOpenPause={() => setRoute("pause")}
-        onOpenRecovery={() => setRoute("recovery")}
+        onOpenPause={() => openRoute("pause")}
+        onOpenRecovery={() => openRoute("recovery")}
         // Nothing is left to read: the account this screen was reading is gone,
         // so the only honest next screen is the signed-out one - and it has to
         // say a deletion happened rather than showing the first-launch pitch.
@@ -595,15 +531,41 @@ export function HomeScreen({
     );
   }
 
+  if (route === "account") {
+    return (
+      <AccountScreen
+        onBack={() => goBack(false)}
+        onSignOut={onSignOut}
+        onDeleteAccount={() => openRoute("delete")}
+        heldWalks={heldWalks}
+      />
+    );
+  }
+
   if (state.challenge !== null) {
     const open = state.challenge;
+    if (route === "details") {
+      return (
+        <ChallengeDetailsScreen
+          challenge={open}
+          reminders={reminders}
+          settings={openSettings}
+          onBack={() => goBack(false)}
+          onOpenPause={() => openRoute("pause")}
+          onSignOut={onSignOut}
+          onDeleteAccount={() => openRoute("delete")}
+          heldWalks={heldWalks}
+        />
+      );
+    }
     if (route === "task") {
       return (
         <TodayTask
           challenge={open}
           runtime={runtime}
           settings={settingsLauncher}
-          onBack={() => goHome(true)}
+          {...(now === undefined ? {} : { now })}
+          onBack={() => goBack(true)}
           onFinished={() => setFinished(succeededSummary(open, clock))}
         />
       );
@@ -613,8 +575,8 @@ export function HomeScreen({
         <PauseScreen
           api={api}
           challenge={state.challenge}
-          onBack={() => goHome(false)}
-          onChanged={() => goHome(true)}
+          onBack={() => goBack(false)}
+          onChanged={() => goBack(true)}
         />
       );
     }
@@ -629,10 +591,10 @@ export function HomeScreen({
             api={api}
             challenge={open}
             move={move}
-            onChanged={() => goHome(true)}
+            onChanged={() => goBack(true)}
             onBack={() => {
               setKeptTimeZone(true);
-              goHome(false);
+              goBack(false);
             }}
           />
         );
@@ -644,8 +606,8 @@ export function HomeScreen({
           api={api}
           challenge={open}
           sheet={cardSheet}
-          onSecured={() => goHome(true)}
-          onBack={() => goHome(false)}
+          onSecured={() => goBack(true)}
+          onBack={() => goBack(false)}
         />
       );
     }
@@ -655,11 +617,11 @@ export function HomeScreen({
           api={api}
           challenge={state.challenge}
           {...(now === undefined ? {} : { now })}
-          onBack={() => goHome(false)}
-          onAccepted={() => goHome(true)}
+          onBack={() => goBack(false)}
+          onAccepted={() => goBack(true)}
           // Declining spends nothing and changes nothing at the server, so
           // there is nothing to read back.
-          onDeclined={() => goHome(false)}
+          onDeclined={() => goBack(false)}
         />
       );
     }
@@ -676,20 +638,25 @@ export function HomeScreen({
 
   return (
     // Pulling down is what a user does to a screen of this morning's facts, and
-    // it goes down the same quiet path as the footer's button and the app
-    // coming back to the front: the numbers stay on screen while it runs.
+    // it goes down the same quiet path as the Refresh press and the app coming
+    // back to the front: the numbers stay on screen while it runs.
     <Screen testID="home" onRefresh={refresh} refreshing={refreshing}>
       <View style={styles.header}>
-        <AppText variant="caption" tone="accent">
-          {state.challenge !== null
-            ? "TODAY"
-            : ended === null
-              ? "READY WHEN YOU ARE"
-              : ENDED_CAPTION[ended.status]}
-        </AppText>
-        <AppText variant="display" accessibilityRole="header">
-          BetterWakeUp
-        </AppText>
+        <View style={styles.titleRow}>
+          <AppText variant="display" accessibilityRole="header">
+            BetterWakeUp
+          </AppText>
+          {/* With a challenge running the account controls close the challenge
+              page. With none there is no challenge page, so home offers them
+              here - deletion has to stay reachable whatever the account holds. */}
+          {state.challenge === null ? (
+            <TextButton
+              testID="home-open-account"
+              label="Account"
+              onPress={() => openRoute("account")}
+            />
+          ) : null}
+        </View>
         {/* A re-read that did not come back. Said quietly, under the title,
             because nothing here is broken - it is the last answer, and the
             user needs to know it is the last one rather than this morning's. */}
@@ -704,15 +671,18 @@ export function HomeScreen({
         expiry={expiry}
         onSignOut={onSignOut}
         challenge={state.challenge}
-        heldWalks={unsent.earlierWaiting + (unsent.currentTask === "waiting" ? 1 : 0)}
+        heldWalks={heldWalks}
       />
 
       {state.challenge === null ? (
         ended === null ? (
           <Card testID="home-no-challenge">
+            <AppText variant="caption" tone="accent">
+              READY WHEN YOU ARE
+            </AppText>
             <AppText variant="headline">No challenge running</AppText>
             <AppText variant="small" tone="muted">
-              Set a wake-up time, walk when the alarm goes, and keep your deposit.
+              Set a wake-up time, walk before the deadline, and keep your deposit.
             </AppText>
             <Button
               testID="home-create-challenge"
@@ -732,63 +702,51 @@ export function HomeScreen({
           />
         )
       ) : (
-        <ChallengeCard
+        <HomeChallenge
           challenge={state.challenge}
-          reminders={reminders}
           movement={movement}
           settings={openSettings}
           unsent={unsent}
           recovery={recoveryWindow(state.challenge, clock)}
           now={clock}
           timeZoneMove={keptTimeZone ? null : timeZoneMoveFor(state.challenge, here)}
-          onOpenTask={() => setRoute("task")}
-          onOpenPause={() => setRoute("pause")}
-          onOpenRecovery={() => setRoute("recovery")}
-          onOpenTimeZone={() => setRoute("timeZone")}
-          onOpenPaymentMethod={() => setRoute("paymentMethod")}
+          onOpenDetails={() => openRoute("details")}
+          onOpenTask={() => openRoute("task")}
+          onOpenPause={() => openRoute("pause")}
+          onOpenRecovery={() => openRoute("recovery")}
+          onOpenTimeZone={() => openRoute("timeZone")}
+          onOpenPaymentMethod={() => openRoute("paymentMethod")}
         />
       )}
 
-      {/* The account-level controls sit under a divider, away from the card:
-          they are always available and never the thing to do next. Deletion is
-          account-level rather than challenge-level, so it stays reachable for
-          an account holding none. */}
-      <View style={styles.footer}>
-        <Divider />
-        {/* Asking by hand goes down the same quiet path as a return: pressing
-            Refresh used to replace everything on screen with a spinner, which
-            hid the very numbers the press was checking. */}
-        <TextButton
-          testID="home-refresh"
-          label={refreshing ? "Checking for updates" : "Refresh"}
-          disabled={refreshing}
-          onPress={refresh}
-        />
-        <SignOut
-          onSignOut={onSignOut}
-          challenge={state.challenge}
-          heldWalks={unsent.earlierWaiting + (unsent.currentTask === "waiting" ? 1 : 0)}
-        />
-        <TextButton
-          testID="home-delete-account"
-          label="Delete account"
-          tone="danger"
-          onPress={() => setRoute("delete")}
-        />
-      </View>
+      {/* Asking by hand, for anyone who will not find the pull: a gesture is
+          not discoverable, and it is not a control a screen reader can find.
+          It goes down the same quiet path as the pull, so the numbers it is
+          checking stay on screen while it runs. */}
+      <TextButton
+        testID="home-refresh"
+        label={refreshing ? "Checking for updates" : "Refresh"}
+        disabled={refreshing}
+        onPress={refresh}
+      />
     </Screen>
   );
 }
 
-function ChallengeCard({
+/**
+ * Home with a challenge running: the next walk, the two numbers that say where
+ * the challenge stands, and only the notices that ask the user to act. The rest
+ * of the challenge is one tap away on its own page.
+ */
+function HomeChallenge({
   challenge,
-  reminders,
   movement,
   settings,
   unsent,
   recovery,
   now,
   timeZoneMove,
+  onOpenDetails,
   onOpenTask,
   onOpenPause,
   onOpenRecovery,
@@ -796,13 +754,13 @@ function ChallengeCard({
   onOpenPaymentMethod,
 }: {
   challenge: ChallengeView;
-  reminders: RemindersState;
   movement: MovementReadinessState;
   settings: OpenSettingsState;
   unsent: UnsentWork;
   recovery: RecoveryWindow | null;
   now: Date;
   timeZoneMove: TimeZoneMove | null;
+  onOpenDetails: () => void;
   onOpenTask: () => void;
   onOpenPause: () => void;
   onOpenRecovery: () => void;
@@ -812,51 +770,13 @@ function ChallengeCard({
   const paused = challenge.pause.pausedAt !== null;
   // How long the pause has stood and how close it is to the year that closes
   // the challenge. Read here as well as on the pause screen, because a pause
-  // ends only when its owner ends it and home is the only screen they open.
+  // ends only when its owner ends it and home is the screen they open.
   const pause = pausePresentation({ challenge, now });
-  const { progress, configuration, currentTask } = challenge;
-  // How much of this morning is left. Home is the screen most people open
-  // first, and a deadline stated as "7:00 AM" alone leaves the reader to work
-  // out whether that is hours away or eight minutes.
-  const left = currentTask === null ? null : timeLeftUntil(currentTask.deadline, now);
-  const deadlineTime =
-    currentTask === null ? "" : formatTimeOfDay(currentTask.deadline, configuration.timeZone);
+  const { configuration, currentTask } = challenge;
   // Where the open task stands against the day it is now. The moment a morning
-  // is kept the server's open task is the next morning's, and a walk taken for
-  // it tonight is refused, so the card asks for nothing until its day starts.
+  // is kept the server's open task is the next morning's.
   const walk = walkWindow(challenge, now);
-  const opensLater = walk?.opensLater === true;
-  // Past the deadline nothing walked now can count, so the card stops asking
-  // for a walk and says what happened instead.
-  const morningGone = left !== null && left.urgency === "expired";
-  // Why a walk this phone is holding has not landed. Without it the card
-  // blames the signal for every delay, including the two the server itself
-  // asked for.
-  const waiting = unsent.currentPending === null ? null : waitingReading(unsent.currentPending);
-  const attempts = unsent.currentPending === null ? null : attemptsText(unsent.currentPending);
-  // A walk already saved here is on a different clock from the one above: it
-  // has until the deadline plus the server's receipt grace to arrive, and the
-  // morning's "left to walk" countdown is the wrong sentence for someone who
-  // has already walked.
-  const receipt =
-    currentTask === null || unsent.currentTask !== "waiting"
-      ? null
-      : receiptWindow(currentTask.deadline, configuration.timeZone, now);
-  // What one missed morning would do, which turns on the deposit and on an
-  // allowance only the server can speak for.
-  const miss = missCost(challenge);
   const history = challengeHistory(challenge);
-  const streak = streakSentence(history);
-  // How long this has been going, which the kept-morning count cannot say on
-  // any schedule that skips days of the week.
-  const age = challengeAge(challenge, now);
-  const remaining = Math.max(
-    0,
-    progress.requiredTaskCount -
-      progress.completedTaskCount -
-      progress.skippedTaskCount -
-      progress.forgivenTaskCount,
-  );
 
   return (
     <View style={styles.stack}>
@@ -866,13 +786,9 @@ function ChallengeCard({
           takes a moment to reach. */}
       <StepCounter challenge={challenge} movement={movement} settings={settings} />
 
-      {/* Today's task is the reason the screen exists, so it is its own card
-          above the challenge's numbers rather than a row buried inside them. */}
-      {/* A morning that has already been kept. The row of days marks it with a
-          square, and until now that square was the whole of what home said
-          about the thing the user got out of bed for - the card above simply
-          moved on to asking for the next one. */}
-      {walk?.walkedToday === true && opensLater ? (
+      {/* A morning that has already been kept, said before the card moves on
+          to asking for the next one. */}
+      {walk?.walkedToday === true && walk.opensLater ? (
         <Banner tone="success" testID="home-walked-today">
           <AppText variant="headline" tone="success" testID="home-walked-today-text">
             {walkedTodayText(history.streak)}
@@ -881,113 +797,21 @@ function ChallengeCard({
       ) : null}
 
       {currentTask === null ? null : (
-        <Card testID="home-current-task" style={styles.taskCard}>
-          <AppText variant="caption" tone="accent">
-            {opensLater ? "YOUR NEXT WALK" : "TODAY'S WALK"}
-          </AppText>
-          <AppText variant="title">{formatDay(currentTask.date)}</AppText>
-          <AppText variant="small" tone="muted" testID="home-task-deadline">
-            Deadline {formatDeadline(currentTask.deadline, configuration.timeZone)}
-          </AppText>
-          {/* The clock, under the deadline it counts to: quiet while the
-              morning is long, amber from the moment the alarm would have gone
-              off, and silent once the deadline is behind - what is left to say
-              then is said in place of the step target below. It is silent on a
-              walk whose day has not started too: counting down twenty hours to
-              a morning nobody is being asked about yet is noise. */}
-          {receipt !== null ? (
-            <AppText
-              variant="small"
-              tone={
-                receipt.urgency === "gone"
-                  ? "danger"
-                  : receipt.urgency === "closing"
-                    ? "warning"
-                    : "muted"
-              }
-              testID="home-task-receipt-left"
-            >
-              {receipt.sentence}
-            </AppText>
-          ) : left === null || morningGone || opensLater ? null : (
-            <AppText
-              variant="small"
-              tone={left.urgency === "closing" ? "warning" : "muted"}
-              testID="home-task-time-left"
-            >
-              {left.sentence}
-            </AppText>
-          )}
-          {/* What this device is holding for today, in place of the step
-              target: someone who has already walked is asking a different
-              question, and the target is no longer the answer to it. */}
-          {unsent.currentTask === "waiting" ? (
-            <>
-              <AppText variant="small" tone="warning" testID="home-task-waiting">
-                {receipt?.urgency === "gone"
-                  ? `Walked and saved on this phone. ${receiptGoneText(receipt.closesAt)}`
-                  : morningGone
-                    ? unsentPastDeadlineText(deadlineTime)
-                    : `Walked and saved on this phone. It still has to reach the server before the deadline. ${waiting?.advice ?? ""}`.trim()}
-              </AppText>
-              {/* Why it has not landed. Worth saying even once the deadline
-                  has gone by: the walk is still being sent, and what is
-                  holding it up is the difference between a phone to move and
-                  a server to wait for. */}
-              {waiting?.reason == null ? null : (
-                <AppText variant="small" tone="muted" testID="home-task-waiting-reason">
-                  {waiting.reason}
-                  {attempts === null ? "" : ` ${attempts}`}
-                </AppText>
-              )}
-            </>
-          ) : unsent.currentTask === "refused" ? (
-            <AppText
-              variant="small"
-              tone="danger"
-              testID="home-task-refused"
-              accessibilityRole="alert"
-            >
-              The server would not take today's walk. Open it to see why.
-            </AppText>
-          ) : morningGone ? (
-            <AppText
-              variant="small"
-              tone="danger"
-              testID="home-task-morning-gone"
-              accessibilityRole="alert"
-            >
-              {morningGoneText(deadlineTime)}
-            </AppText>
-          ) : walk !== null && opensLater ? (
-            <AppText variant="small" tone="muted" testID="home-task-opens">
-              {walkOpensText(walk, formatDay(currentTask.date), deadlineTime)}
-            </AppText>
-          ) : (
-            <AppText variant="small" tone="muted">
-              {configuration.stepTarget} steps to keep the day.
-            </AppText>
-          )}
-          {/* No way in until the day it belongs to starts. The task screen
-              would offer a walk whose completion the server refuses for being
-              outside the task's own window, which is the same reason the
-              invitation is withdrawn once the deadline has gone by. */}
-          {opensLater ? null : (
-            <Button
-              testID="home-open-task"
-              label={taskButtonLabel(unsent.currentTask, morningGone)}
-              onPress={onOpenTask}
-            />
-          )}
-        </Card>
+        <NextWalkCard
+          challenge={challenge}
+          task={currentTask}
+          opensLater={walk?.opensLater === true}
+          opensTomorrow={walk?.opensTomorrow === true}
+          unsent={unsent}
+          now={now}
+          onOpenTask={onOpenTask}
+          onOpenDetails={onOpenDetails}
+        />
       )}
 
-      {/* A pause standing still. The status pill in the card below says the
-          word, and the word alone is easy to read as a state the app is
-          managing - it is not. Nothing is due, nothing will ring, and no day
+      {/* A pause standing still. Nothing is due, nothing will ring, and no day
           passes until the user comes back here and resumes, so the way to do
-          that is the button in this banner rather than a quiet link under the
-          challenge's numbers. */}
+          that is the button in this banner. */}
       {paused && challenge.status === "active" ? (
         <Banner tone={pause.expiryWarning ? "danger" : "warning"} testID="home-paused">
           <AppText variant="headline" testID="home-paused-days">
@@ -1020,8 +844,6 @@ function ChallengeCard({
             : `${unsent.earlierWaiting} earlier walks are still waiting to reach the server. They send themselves as soon as you are online.`}
         </AppText>
       )}
-
-      <Reminders challenge={challenge} reminders={reminders} settings={settings} />
 
       {/* The offer that decides whether the deposit is charged. It leads with
           how long is left rather than with when it closes, turns red inside the
@@ -1093,21 +915,201 @@ function ChallengeCard({
         </Banner>
       ) : null}
 
-      <Card testID="home-challenge">
-        <View style={styles.statusRow}>
-          <StatusPill
-            testID="home-challenge-status"
-            label={paused ? "Paused" : STATUS_HEADLINE[challenge.status]}
-            tone={paused ? "warning" : STATUS_TONE[challenge.status]}
-          />
-        </View>
+      <ChallengeSummary challenge={challenge} now={now} onOpenDetails={onOpenDetails} />
+    </View>
+  );
+}
 
-        <View style={styles.progressBlock}>
-          <AppText variant="display" testID="home-progress-count">
-            {progress.completedTaskCount}
+/**
+ * The next walk: which morning, how long until its deadline, and the way in.
+ *
+ * The countdown is the largest thing on home because it is the one number that
+ * changes what the user does next. It is drawn even for tomorrow's walk, since
+ * how long is left until the deadline is worth knowing the night before too.
+ */
+function NextWalkCard({
+  challenge,
+  task,
+  opensLater,
+  opensTomorrow,
+  unsent,
+  now,
+  onOpenTask,
+  onOpenDetails,
+}: {
+  challenge: ChallengeView;
+  task: TaskView;
+  opensLater: boolean;
+  opensTomorrow: boolean;
+  unsent: UnsentWork;
+  now: Date;
+  onOpenTask: () => void;
+  onOpenDetails: () => void;
+}) {
+  const theme = useTheme();
+  const { configuration } = challenge;
+  const left = timeLeftUntil(task.deadline, now);
+  const deadlineTime = formatTimeOfDay(task.deadline, configuration.timeZone);
+  // Past the deadline nothing walked now can count, so the card stops asking
+  // for a walk and says what happened instead.
+  const morningGone = left !== null && left.urgency === "expired";
+  const closing = left !== null && left.urgency === "closing" && !opensLater;
+  // Why a walk this phone is holding has not landed. Without it the card
+  // blames the signal for every delay, including the two the server itself
+  // asked for.
+  const waiting = unsent.currentPending === null ? null : waitingReading(unsent.currentPending);
+  const attempts = unsent.currentPending === null ? null : attemptsText(unsent.currentPending);
+  // A walk already saved here is on a different clock: it has until the
+  // deadline plus the server's receipt grace to arrive, and the morning's
+  // countdown is the wrong number for someone who has already walked.
+  const receipt =
+    unsent.currentTask !== "waiting"
+      ? null
+      : receiptWindow(task.deadline, configuration.timeZone, now);
+
+  return (
+    <Card
+      testID="home-current-task"
+      onPress={onOpenDetails}
+      style={[
+        styles.taskCard,
+        closing ? { borderColor: theme.colors.warning, borderWidth: 2 } : null,
+      ]}
+    >
+      <View style={styles.cardHead}>
+        <AppText variant="caption" tone="accent">
+          {opensLater ? (opensTomorrow ? "NEXT WALK · TOMORROW" : "NEXT WALK") : "TODAY'S WALK"}
+        </AppText>
+        <AppText variant="caption" tone="muted">
+          {configuration.stepTarget} STEPS
+        </AppText>
+      </View>
+      <AppText variant="title">{formatDay(task.date)}</AppText>
+
+      {/* The clock, as big as the screen has: quiet while the morning is
+          long, amber from the moment the alarm would have gone off, and gone
+          once the deadline is behind - what is left to say then is said below.
+          A screen reader hears the words rather than "2h 5m". */}
+      {left === null || morningGone || receipt !== null ? null : (
+        <View
+          accessible
+          accessibilityLabel={`${formatDuration(left.minutes)} until the deadline.`}
+          testID="home-task-time-left"
+        >
+          <AppText variant="caption" tone="muted">
+            UNTIL THE DEADLINE
+          </AppText>
+          <AppText variant="display" tone={closing ? "warning" : "default"}>
+            {formatCountdown(left.minutes)}
+          </AppText>
+        </View>
+      )}
+      {/* The time alone: the day is the card's title just above. */}
+      <AppText variant="small" tone="muted" testID="home-task-deadline">
+        Deadline {deadlineTime}
+      </AppText>
+
+      {receipt === null ? null : (
+        <AppText
+          variant="small"
+          tone={
+            receipt.urgency === "gone"
+              ? "danger"
+              : receipt.urgency === "closing"
+                ? "warning"
+                : "muted"
+          }
+          testID="home-task-receipt-left"
+        >
+          {receipt.sentence}
+        </AppText>
+      )}
+      {/* What this device is holding for this walk: someone who has already
+          walked is asking a different question from someone who has not. */}
+      {unsent.currentTask === "waiting" ? (
+        <>
+          <AppText variant="small" tone="warning" testID="home-task-waiting">
+            {receipt?.urgency === "gone"
+              ? `Walked and saved on this phone. ${receiptGoneText(receipt.closesAt)}`
+              : morningGone
+                ? unsentPastDeadlineText(deadlineTime)
+                : `Walked and saved on this phone. It still has to reach the server before the deadline. ${waiting?.advice ?? ""}`.trim()}
+          </AppText>
+          {/* Why it has not landed. Worth saying even once the deadline has
+              gone by: the walk is still being sent, and what is holding it up
+              is the difference between a phone to move and a server to wait
+              for. */}
+          {waiting?.reason == null ? null : (
+            <AppText variant="small" tone="muted" testID="home-task-waiting-reason">
+              {waiting.reason}
+              {attempts === null ? "" : ` ${attempts}`}
+            </AppText>
+          )}
+        </>
+      ) : unsent.currentTask === "refused" ? (
+        <AppText variant="small" tone="danger" testID="home-task-refused" accessibilityRole="alert">
+          The server would not take today's walk. Open it to see why.
+        </AppText>
+      ) : morningGone ? (
+        <AppText
+          variant="small"
+          tone="danger"
+          testID="home-task-morning-gone"
+          accessibilityRole="alert"
+        >
+          {morningGoneText(deadlineTime)}
+        </AppText>
+      ) : null}
+
+      {/* No way in until the day the walk belongs to starts. The task screen
+          would offer a walk whose completion the server refuses for being
+          outside the task's own window. */}
+      {opensLater ? null : (
+        <Button
+          testID="home-open-task"
+          label={taskButtonLabel(unsent.currentTask, morningGone)}
+          onPress={onOpenTask}
+        />
+      )}
+    </Card>
+  );
+}
+
+/**
+ * Where the challenge stands, in two numbers: which walk is next out of the
+ * total, and what is at stake. Everything else about it is behind the link.
+ */
+function ChallengeSummary({
+  challenge,
+  now,
+  onOpenDetails,
+}: {
+  challenge: ChallengeView;
+  now: Date;
+  onOpenDetails: () => void;
+}) {
+  const theme = useTheme();
+  const { progress, configuration, currentTask } = challenge;
+  const paused = challenge.pause.pausedAt !== null;
+  // The walk being asked for, counted the way the server counts toward the
+  // total: completed walks only, since a skipped or forgiven day is not one.
+  const day = Math.min(progress.completedTaskCount + 1, progress.requiredTaskCount);
+  const tile = [styles.tile, { backgroundColor: theme.colors.surfaceMuted }];
+
+  return (
+    <Card testID="home-summary" onPress={onOpenDetails}>
+      <View style={styles.tiles}>
+        <View
+          style={tile}
+          accessible
+          accessibilityLabel={`Day ${day} of ${progress.requiredTaskCount}.`}
+          testID="home-day-count"
+        >
+          <AppText variant="title">
+            Day {day}
             <AppText variant="headline" tone="muted">
               {" "}
-              / {progress.requiredTaskCount} days
+              / {progress.requiredTaskCount}
             </AppText>
           </AppText>
           <ProgressBar
@@ -1115,131 +1117,32 @@ function ChallengeCard({
             total={progress.requiredTaskCount}
             testID="home-progress-bar"
           />
-          <AppText variant="small" tone="muted" testID="home-progress">
-            {progress.completedTaskCount} of {progress.requiredTaskCount} days done, {remaining} to
-            go.
-          </AppText>
-
-          {/* The month as a shape: which mornings were kept, which one broke a
-              run, and how many are still ahead. A challenge that has not been
-              materialized yet holds no days and draws no row. */}
-          {history.days.length === 0 ? null : (
-            <View style={styles.historyBlock}>
-              <DayStrip
-                testID="home-day-strip"
-                accessibilityLabel={historyLabel(history)}
-                days={history.days.map((day) => dayMarkFor(day.state))}
-              />
-              {/* Which square is which. The row is otherwise colour alone, and
-                  the two colours it leans on hardest - a kept morning and a
-                  missed one - are the pair most commonly seen as one. */}
-              <DayLegend
-                testID="home-day-legend"
-                items={historyLegend(history).map((entry) => ({
-                  mark: dayMarkFor(entry.state),
-                  label: entry.label,
-                }))}
-              />
-              {streak === null ? null : (
-                <AppText variant="caption" tone="accent" testID="home-streak">
-                  {streak}
-                </AppText>
-              )}
-            </View>
-          )}
         </View>
-
-        {currentTask === null ? (
-          <AppText variant="caption" tone="muted" testID="home-no-task">
-            {paused
-              ? "Nothing is due while this challenge is paused."
-              : nextMorningText(
-                  nextActiveMorning(configuration.schedule, now, configuration.timeZone),
-                )}
+        <View style={tile} accessible testID="home-stake">
+          <AppText variant="title" tone="accent">
+            {configuration.deposit.amount === 0
+              ? "None"
+              : formatMoney(configuration.deposit.amount)}
           </AppText>
-        ) : null}
-
-        <Divider />
-
-        {/* The schedule cannot be edited once the challenge exists, so the only
-            thing left to do about it is say it. Nothing past the setup form
-            showed the days or the times, which left "which mornings am I on the
-            hook for?" unanswerable between tasks. */}
-        <AppText variant="caption" tone="muted">
-          YOUR MORNINGS
+          <AppText variant="caption" tone="muted">
+            AT STAKE
+          </AppText>
+        </View>
+      </View>
+      {/* With no walk open, when the next one comes. A paused challenge's
+          banner already says nothing is due, so it is not said twice. */}
+      {currentTask === null && !paused ? (
+        <AppText variant="caption" tone="muted" testID="home-no-task">
+          {nextMorningText(nextActiveMorning(configuration.schedule, now, configuration.timeZone))}
         </AppText>
-        <View testID="home-schedule">
-          {scheduleGroups(configuration.schedule).map((group) => (
-            <DetailRow key={group.days} label={group.days} value={group.time} />
-          ))}
-        </View>
-        <DetailRow
-          label="Read in"
-          value={timeZoneLabel(configuration.timeZone)}
-          testID="home-schedule-zone"
-        />
-
-        <Divider />
-
-        {/* When it started, so the end date has something to be measured from.
-            The kept-morning count above is not a measure of time: five mornings
-            on a Monday/Wednesday/Friday challenge is a fortnight, and nothing
-            on the card let a reader tell the two apart. */}
-        {age === null ? null : (
-          <DetailRow label="Started" value={age.startedOn} testID="home-started" />
-        )}
-        <DetailRow
-          label="Projected end"
-          value={formatDay(challenge.projectedEndDate)}
-          testID="home-end-date"
-        />
-        {age === null ? null : (
-          <AppText variant="caption" tone="muted" testID="home-challenge-day">
-            {age.dayText}
-          </AppText>
-        )}
-        <DetailRow
-          label="Deposit"
-          value={
-            configuration.deposit.amount === 0 ? "None" : formatMoney(configuration.deposit.amount)
-          }
-          testID="home-deposit"
-        />
-        <DetailRow
-          label="Steps per day"
-          value={String(configuration.stepTarget)}
-          testID="home-steps"
-        />
-
-        {/* What a miss would cost, said before one happens. The terms state it
-            once at setup and never again, so whether the safety net is still
-            there - the fact that decides whether tomorrow is recoverable - was
-            unreadable for the whole month it matters in. */}
-        {miss === null ? null : (
-          <View style={styles.missCost}>
-            <AppText variant="caption" tone="muted">
-              IF YOU MISS A MORNING
-            </AppText>
-            <AppText variant="small" tone={miss.tone} testID="home-miss-cost">
-              {miss.text}
-            </AppText>
-          </View>
-        )}
-
-        {/* Pausing belongs to a challenge that can still run. A finished one has
-            nothing to pause, and offering it would be a press the server refuses.
-            A paused one is resumed from the banner above instead, where the
-            reason to press it is on screen beside the button. */}
-        {challenge.status === "active" && !paused ? (
-          <TextButton
-            testID="home-open-pause"
-            tone="accent"
-            label="Pause the challenge"
-            onPress={onOpenPause}
-          />
-        ) : null}
-      </Card>
-    </View>
+      ) : null}
+      <TextButton
+        testID="home-open-details"
+        tone="accent"
+        label="Challenge details  ›"
+        onPress={onOpenDetails}
+      />
+    </Card>
   );
 }
 
@@ -1315,78 +1218,6 @@ function StepCounter({
     </Banner>
   );
 }
-
-/**
- * Whether the device will wake the user for this challenge.
- *
- * The whole product rests on the user being at their phone before a wall-clock
- * time with money on it, so a challenge running on a device that will never
- * make a sound is the quietest way to lose a deposit. The offer names the time
- * the nudge would arrive rather than the feature, because "6:15 AM" is the
- * thing worth agreeing to.
- *
- * A challenge that is over or paused has nothing to be woken for, so it says
- * nothing at all rather than offering a switch that would schedule nothing.
- */
-function Reminders({
-  challenge,
-  reminders,
-  settings,
-}: {
-  challenge: ChallengeView;
-  reminders: RemindersState;
-  settings: OpenSettingsState;
-}) {
-  const alarm = nextAlarmAt(challenge);
-  if (challenge.status !== "active" || challenge.pause.pausedAt !== null) {
-    return null;
-  }
-
-  if (reminders.permission === "granted") {
-    return (
-      <AppText variant="small" tone="muted" testID="home-reminders-on">
-        {alarm === null
-          ? "Reminders are on. You will be nudged before your next walk."
-          : `Reminders are on. You will be nudged at ${formatTimeOfDay(alarm, challenge.configuration.timeZone)}, ${ALARM_LEAD_MINUTES} minutes before the deadline.`}
-      </AppText>
-    );
-  }
-
-  if (reminders.permission === "denied") {
-    return (
-      <Banner tone="info" testID="home-reminders-denied-banner">
-        <AppText variant="small" tone="muted" testID="home-reminders-denied">
-          Reminders are off. Turn on notifications for BetterWakeUp in your device settings and you
-          will be nudged before each walk.
-        </AppText>
-        <OpenSettingsAction testID="home-reminders-settings" settings={settings} tone="muted" />
-      </Banner>
-    );
-  }
-
-  return (
-    <Banner tone="info" testID="home-reminders-offer">
-      <AppText variant="small">
-        {alarm === null
-          ? `Let us wake you ${ALARM_LEAD_MINUTES} minutes before each deadline, so a walk is never missed by forgetting it.`
-          : `Let us wake you at ${formatTimeOfDay(alarm, challenge.configuration.timeZone)}, ${ALARM_LEAD_MINUTES} minutes before your deadline, so a walk is never missed by forgetting it.`}
-      </AppText>
-      <Button
-        testID="home-enable-reminders"
-        label="Turn on reminders"
-        busy={reminders.enabling}
-        onPress={reminders.enable}
-      />
-    </Banner>
-  );
-}
-
-/** The caption over an account holding no challenge, once one has ended. */
-const ENDED_CAPTION: Readonly<Record<EndedChallengeSummary["status"], string>> = {
-  succeeded: "WELL DONE",
-  failed: "THAT ONE'S OVER",
-  expired: "THAT ONE'S OVER",
-};
 
 const ENDED_PILL: Readonly<
   Record<EndedChallengeSummary["status"], { label: string; tone: "success" | "danger" }>
@@ -1521,12 +1352,15 @@ function TodayTask({
   challenge,
   runtime,
   settings,
+  now,
   onBack,
   onFinished,
 }: {
   challenge: ChallengeView;
   runtime: CompletionRuntimeState;
   settings: SettingsLauncher;
+  /** The same clock home reads, so the task screen and home agree on the time. */
+  now?: () => Date;
   onBack: () => void;
   onFinished: () => void;
 }) {
@@ -1561,6 +1395,7 @@ function TodayTask({
       appVersion={runtime.runtime.appVersion}
       simulation={runtime.runtime.simulation}
       settings={settings}
+      {...(now === undefined ? {} : { now })}
       onBack={onBack}
       onFinished={onFinished}
     />
@@ -1627,58 +1462,13 @@ function SessionExpiryNotice({
   );
 }
 
-/**
- * The sign-out press, guarded by what it would cost.
- *
- * Signing out is the one control on home that can lose a deposit - the
- * challenge carries on without the phone and the alarms stop - so it asks
- * before it acts, and only where there is something to ask about: with nothing
- * running and nothing held on the phone the press is what it looks like, and a
- * confirmation over it would be ceremony.
- */
-function SignOut({
-  onSignOut,
-  challenge,
-  heldWalks,
-  challengeUnknown = false,
-}: {
-  onSignOut: (() => void) | undefined;
-  challenge?: ChallengeView | null;
-  heldWalks?: number;
-  challengeUnknown?: boolean;
-}): ReactNode {
-  if (onSignOut === undefined) {
-    return null;
-  }
-  const consequence = signOutConsequence({
-    challenge: challenge ?? null,
-    heldWalks: heldWalks ?? 0,
-    challengeUnknown,
-  });
-  if (consequence === null) {
-    return <TextButton testID="home-sign-out" label="Sign out" onPress={onSignOut} />;
-  }
-  return (
-    <ConfirmAction
-      testID="home-sign-out"
-      quiet
-      label="Sign out"
-      consequence={consequence}
-      confirmLabel={SIGN_OUT_CONFIRM_LABEL}
-      cancelLabel={SIGN_OUT_CANCEL_LABEL}
-      onConfirm={onSignOut}
-    />
-  );
-}
-
 const styles = StyleSheet.create({
   header: { gap: 4 },
+  titleRow: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" },
   stack: { gap: 16 },
-  footer: { gap: 4, paddingTop: 8 },
   wide: { alignSelf: "stretch" },
   taskCard: { gap: 8 },
-  statusRow: { flexDirection: "row" },
-  progressBlock: { gap: 10 },
-  historyBlock: { gap: 8, paddingTop: 2 },
-  missCost: { gap: 4, paddingTop: 4 },
+  cardHead: { flexDirection: "row", gap: 8, justifyContent: "space-between" },
+  tiles: { flexDirection: "row", gap: 8 },
+  tile: { borderRadius: 12, flex: 1, gap: 8, padding: 12 },
 });

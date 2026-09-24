@@ -298,7 +298,7 @@ function AppliedScreen(props: {
           </AppText>
         )}
 
-        <Button testID="pause-done" label="Back to home" onPress={props.onDone} />
+        <Button testID="pause-done" label="Done" onPress={props.onDone} />
       </Screen>
     );
   }
@@ -351,7 +351,7 @@ function AppliedScreen(props: {
         </AppText>
       </Card>
 
-      <Button testID="resume-done" label="Back to home" onPress={props.onDone} />
+      <Button testID="resume-done" label="Done" onPress={props.onDone} />
     </Screen>
   );
 }

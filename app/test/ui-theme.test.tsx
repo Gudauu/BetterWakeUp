@@ -12,8 +12,8 @@ import {
   AppText,
   Button,
   Chip,
+  DayCalendar,
   DayLegend,
-  DayStrip,
   Field,
   Screen,
   TextButton,
@@ -288,49 +288,66 @@ function brightness(hex: string): number {
   return 0.299 * r + 0.587 * g + 0.114 * b;
 }
 
-describe("the row of days", () => {
-  it("is one thing to a screen reader rather than a mark at a time", async () => {
-    // Colour is the whole of what the row says visually. Thirty unlabelled
-    // squares would be thirty announcements of nothing, so the row carries the
-    // sentence and the marks carry none.
+describe("the calendar of days", () => {
+  const month = {
+    title: "September",
+    weeks: [
+      [
+        { label: "", mark: null },
+        { label: "", mark: null },
+        { label: "", mark: null },
+        { label: "", mark: null },
+        { label: "4", mark: { tone: "success" as const } },
+        { label: "5", mark: { tone: "rest" as const } },
+        { label: "6", mark: { tone: "rest" as const } },
+      ],
+    ],
+  };
+
+  it("is one thing to a screen reader rather than a date at a time", async () => {
+    // Colour is most of what the calendar says visually. Forty dates read one
+    // by one would be forty announcements of nothing, so the calendar carries
+    // the sentence and the squares carry none.
     await draw(
-      <DayStrip
+      <DayCalendar
         testID="days"
-        accessibilityLabel="Your days: 2 kept, 1 still to come."
-        days={[{ tone: "success" }, { tone: "success" }, { tone: "accent", outlined: true }]}
+        accessibilityLabel="Your days: 1 kept, 0 still to come."
+        months={[month]}
       />,
     );
 
-    expect(screen.getByLabelText("Your days: 2 kept, 1 still to come.")).toBeOnTheScreen();
-    const marks = screen.getByTestId("days").children;
-    expect(marks).toHaveLength(3);
+    expect(screen.getByLabelText("Your days: 1 kept, 0 still to come.")).toBeOnTheScreen();
+    expect(screen.getByTestId("days")).toHaveProp("accessible", true);
   });
 
-  it("draws the day being asked for as a ring, so it is not read as done", async () => {
-    await draw(
-      <DayStrip
-        testID="days"
-        accessibilityLabel="Your days: 1 kept, 1 still to come."
-        days={[{ tone: "success" }, { tone: "accent", outlined: true }]}
-      />,
-    );
+  it("draws a walked day filled and a rest day as an empty square", async () => {
+    await draw(<DayCalendar testID="days" accessibilityLabel="Your days." months={[month]} />);
 
-    const [kept, due] = screen.getByTestId("days").children as unknown as {
-      props: { style: unknown };
-    }[];
-    expect(StyleSheet.flatten(kept?.props.style)).toMatchObject({
+    const walked = screen.getByText("4").parent;
+    const rest = screen.getByText("5").parent;
+    expect(StyleSheet.flatten(walked?.props.style)).toMatchObject({
       backgroundColor: lightTheme.colors.success,
     });
-    expect(StyleSheet.flatten(due?.props.style)).toMatchObject({
-      borderColor: lightTheme.colors.accent,
-      borderWidth: 2,
+    expect(StyleSheet.flatten(rest?.props.style)).toMatchObject({
+      borderColor: lightTheme.colors.border,
+      borderWidth: 1,
     });
+    expect(StyleSheet.flatten(rest?.props.style)).not.toHaveProperty("backgroundColor");
+  });
+
+  it("keeps a padding square in its column without drawing it", async () => {
+    await draw(<DayCalendar testID="days" accessibilityLabel="Your days." months={[month]} />);
+
+    // Seven weekday initials, then a week of seven cells.
+    expect(screen.getByText("September")).toBeOnTheScreen();
+    expect(screen.queryByText("1")).toBeNull();
+    expect(screen.getByText("4")).toBeOnTheScreen();
   });
 });
 
-describe("the key to the row of days", () => {
-  it("draws each swatch exactly as the row draws that day", async () => {
-    // A legend whose green is not the row's green explains nothing.
+describe("the key to the calendar", () => {
+  it("draws each swatch exactly as the calendar draws that day", async () => {
+    // A legend whose green is not the calendar's green explains nothing.
     await draw(
       <DayLegend
         testID="legend"
@@ -357,7 +374,7 @@ describe("the key to the row of days", () => {
     });
   });
 
-  it("is not read out, because the row already says the counts in words", async () => {
+  it("is not read out, because the calendar already says the counts in words", async () => {
     await draw(
       <DayLegend testID="legend" items={[{ mark: { tone: "success" }, label: "Walked" }]} />,
     );

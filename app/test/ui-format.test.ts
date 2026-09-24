@@ -7,7 +7,13 @@
  * wrong one would have them walking after the deadline.
  */
 
-import { formatDay, formatDeadline, formatTimeOfDay, formatWallClock } from "../src/ui/format.ts";
+import {
+  formatCountdown,
+  formatDay,
+  formatDeadline,
+  formatTimeOfDay,
+  formatWallClock,
+} from "../src/ui/format.ts";
 
 describe("a deadline", () => {
   it("is read in the challenge's own time zone, not the device's", () => {
@@ -55,5 +61,17 @@ describe("a wall-clock time being configured", () => {
 
   it("hands back anything that is not a time rather than inventing one", () => {
     expect(formatWallClock("7am")).toBe("7am");
+  });
+});
+
+describe("a countdown", () => {
+  it("is short enough to be a headline number", () => {
+    expect(formatCountdown(562)).toBe("9h 22m");
+    expect(formatCountdown(120)).toBe("2h");
+    expect(formatCountdown(8)).toBe("8m");
+  });
+
+  it("never reads as zero while the deadline is still ahead", () => {
+    expect(formatCountdown(0)).toBe("<1m");
   });
 });

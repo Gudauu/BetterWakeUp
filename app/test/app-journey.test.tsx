@@ -15,7 +15,7 @@
  */
 
 import { disclosuresFor } from "@betterwakeup/contract";
-import { fireEvent, render, screen, userEvent, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, userEvent, waitFor } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { WelcomeScreen } from "../src/screens/welcome-screen.tsx";
 import { SessionProvider } from "../src/session/session-context.tsx";
@@ -115,17 +115,20 @@ describe("one account's life through the app's own screens", () => {
 
     // Home read the new challenge back from the server rather than trusting
     // what the form held.
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
-    expect(screen.getByTestId("home-progress")).toHaveTextContent(
-      new RegExp(`0 of ${REQUIRED_TASK_COUNT} days done`),
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
+    expect(screen.getByTestId("home-day-count")).toHaveProp(
+      "accessibilityLabel",
+      `Day 1 of ${REQUIRED_TASK_COUNT}.`,
     );
     // A zero deposit challenge is created without any payment step.
     expect(server.names()).not.toContain("createFundingIntent");
 
-    // The device is offered the alarm and scheduled it: everything after this
-    // depends on the user being at their phone before a wall-clock deadline,
-    // and until they say yes nothing on the device would tell them.
-    await user.press(screen.getByTestId("home-enable-reminders"));
+    // The device is offered the alarm on the challenge page and scheduled it:
+    // everything after this depends on the user being at their phone before a
+    // wall-clock deadline, and until they say yes nothing on the device would
+    // tell them.
+    await user.press(screen.getByTestId("home-open-details"));
+    await user.press(await screen.findByTestId("details-enable-reminders"));
     // The empty set the signed-out launch cleared the device with is the first
     // one; what the alarm produced is the last.
     await waitFor(() =>
@@ -136,7 +139,8 @@ describe("one account's life through the app's own screens", () => {
     );
 
     // Today's task, walked with the development build's step controls.
-    await user.press(screen.getByTestId("home-open-task"));
+    await user.press(screen.getByTestId("details-back"));
+    await user.press(await screen.findByTestId("home-open-task"));
     expect(await screen.findByTestId("daily-completion")).toBeOnTheScreen();
 
     await user.press(screen.getByTestId("start-capture"));
@@ -160,24 +164,30 @@ describe("one account's life through the app's own screens", () => {
 
     // Home counts the day once it re-reads the challenge on the way back.
     await user.press(screen.getByTestId("daily-back"));
-    expect(await screen.findByTestId("home-progress")).toHaveTextContent(
-      new RegExp(`1 of ${REQUIRED_TASK_COUNT} days done`),
-    );
-    // And the morning that was walked is a kept day on the row, which is the
-    // one place the month reads as something other than a fraction.
-    expect(screen.getByTestId("home-day-strip")).toHaveProp(
+    expect(await screen.findByTestId("home-day-count")).toHaveProp(
       "accessibilityLabel",
-      `Your days: 1 kept, ${REQUIRED_TASK_COUNT - 1} still to come.`,
+      `Day 2 of ${REQUIRED_TASK_COUNT}.`,
     );
     // Home says the morning is done and stops asking for a walk: the open task
     // is now tomorrow's, and the server refuses a completion taken for it
     // before its own day starts.
     expect(screen.getByTestId("home-walked-today-text")).toHaveTextContent(/Today's walk is done/);
-    expect(screen.getByTestId("home-task-opens")).toHaveTextContent(/opens tomorrow morning/);
+    expect(screen.getByTestId("home-current-task")).toHaveTextContent(/NEXT WALK · TOMORROW/);
     expect(screen.queryByTestId("home-open-task")).toBeNull();
 
-    // And the account can be deleted, from home, in two presses.
-    await user.press(screen.getByTestId("home-delete-account"));
+    // And the morning that was walked is a kept day on the challenge page's
+    // calendar, which is where the month reads as more than a fraction.
+    await user.press(screen.getByTestId("home-open-details"));
+    expect(await screen.findByTestId("details-progress")).toHaveTextContent(
+      new RegExp(`1 of ${REQUIRED_TASK_COUNT} walks done`),
+    );
+    expect(screen.getByTestId("details-calendar")).toHaveProp(
+      "accessibilityLabel",
+      `Your days: 1 kept, ${REQUIRED_TASK_COUNT - 1} still to come.`,
+    );
+
+    // And the account can be deleted, from the challenge page, in three presses.
+    await user.press(screen.getByTestId("details-account-delete"));
     await user.press(await screen.findByTestId("delete-account"));
     await user.press(screen.getByTestId("delete-account-confirm"));
 
@@ -225,12 +235,14 @@ describe("one account's life through the app's own screens", () => {
 
     // The hold cleared, and the screen says what it bought before home does.
     await user.press(await screen.findByTestId("created-done", {}, { timeout: 10_000 }));
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
-    expect(screen.getByTestId("home-deposit")).toHaveTextContent(/\$20\.00/);
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
+    expect(screen.getByTestId("home-stake")).toHaveTextContent(/\$20\.00/);
     expect(screen.getByTestId("home-current-task")).toBeOnTheScreen();
-    // With money now on the line, home says what one missed morning would cost
-    // and whether the lifetime allowance is still there to answer it.
-    expect(screen.getByTestId("home-miss-cost")).toHaveTextContent(
+    // With money now on the line, the challenge page says what one missed
+    // morning would cost and whether the lifetime allowance is still there to
+    // answer it.
+    await user.press(screen.getByTestId("home-open-details"));
+    expect(await screen.findByTestId("details-miss-cost")).toHaveTextContent(
       /one lifetime Emergency Recovery/,
     );
   }, 30_000);
@@ -260,11 +272,13 @@ describe("one account's life through the app's own screens", () => {
 
     // The hold cleared, and the screen says what it bought before home does.
     await user.press(await screen.findByTestId("created-done", {}, { timeout: 10_000 }));
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
 
     // Weeks later the renewal fails behind the user's back.
     server.lapsePaymentMethod();
-    await user.press(screen.getByTestId("home-refresh"));
+    await act(async () => {
+      screen.getByTestId("home").props.refreshControl.props.onRefresh();
+    });
 
     expect(await screen.findByTestId("home-deposit-unsecured")).toBeOnTheScreen();
     await user.press(screen.getByTestId("home-open-payment-method"));
@@ -278,7 +292,7 @@ describe("one account's life through the app's own screens", () => {
 
     // And home reads it back rather than still warning about the old card.
     await user.press(screen.getByTestId("payment-method-done-back"));
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-deposit-unsecured")).toBeNull();
   }, 30_000);
 
@@ -306,7 +320,7 @@ describe("one account's life through the app's own screens", () => {
     // What was created is read before home takes over: the press hands the
     // challenge back, not the creation itself.
     await user.press(await screen.findByTestId("created-done"));
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
 
     await user.press(screen.getByTestId("home-open-task"));
     await user.press(await screen.findByTestId("start-capture"));
@@ -357,7 +371,7 @@ describe("one account's life through the app's own screens", () => {
     // What was created is read before home takes over: the press hands the
     // challenge back, not the creation itself.
     await user.press(await screen.findByTestId("created-done"));
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
 
     // The morning goes by unwalked, and the sweep decides it. The user never
     // presses anything: they pick the phone up later in the day, and the app
@@ -383,7 +397,7 @@ describe("one account's life through the app's own screens", () => {
     expect(await screen.findByTestId("home-no-challenge")).toBeOnTheScreen();
   });
 
-  it("pauses and resumes a running challenge from home", async () => {
+  it("pauses from the challenge page and resumes from home", async () => {
     // A separate journey because pausing is only offered while a challenge is
     // running, and the first one deliberately finishes its challenge.
     const server = journeyServer();
@@ -402,9 +416,11 @@ describe("one account's life through the app's own screens", () => {
     // What was created is read before home takes over: the press hands the
     // challenge back, not the creation itself.
     await user.press(await screen.findByTestId("created-done"));
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
 
-    await user.press(screen.getByTestId("home-open-pause"));
+    // Pausing lives on the challenge page, opened from home.
+    await user.press(screen.getByTestId("home-open-details"));
+    await user.press(await screen.findByTestId("details-open-pause"));
     await user.press(await screen.findByTestId("pause"));
     await user.press(screen.getByTestId("pause-confirm"));
 
@@ -412,10 +428,12 @@ describe("one account's life through the app's own screens", () => {
     expect(await screen.findByTestId("paused-skipped")).toHaveTextContent(/is skipped/);
     await user.press(screen.getByTestId("pause-done"));
 
-    // The command returns to home, which re-reads the challenge: the paused
-    // state on screen is the server's, and nothing is due while it holds.
-    expect(await screen.findByTestId("home-challenge-status")).toHaveTextContent("Paused");
-    expect(screen.getByTestId("home-no-task")).toBeOnTheScreen();
+    // The command returns to the challenge page, which re-reads the challenge:
+    // the paused state on screen is the server's.
+    expect(await screen.findByTestId("details-status")).toHaveTextContent("Paused");
+    await user.press(screen.getByTestId("details-back"));
+    // And home asks for nothing while it holds.
+    expect(await screen.findByTestId("home-paused")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-open-task")).toBeNull();
 
     // Resuming puts a live task back in front of the user.
@@ -427,10 +445,8 @@ describe("one account's life through the app's own screens", () => {
     expect(await screen.findByTestId("resumed-live")).toHaveTextContent(/deadline counts again/);
     await user.press(screen.getByTestId("resume-done"));
 
-    expect(await screen.findByTestId("home-challenge-status")).toHaveTextContent(
-      "Challenge running",
-    );
-    expect(screen.getByTestId("home-current-task")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-current-task")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-paused")).toBeNull();
   });
 
   it("walks a day with no signal and says so on home until the walk lands", async () => {
@@ -451,7 +467,7 @@ describe("one account's life through the app's own screens", () => {
     }
     await user.press(screen.getByTestId("start-challenge"));
     await user.press(await screen.findByTestId("created-done"));
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
 
     // The walk happens where there is no signal.
     await user.press(screen.getByTestId("home-open-task"));
@@ -483,8 +499,9 @@ describe("one account's life through the app's own screens", () => {
     expect(await screen.findByTestId("home-task-waiting")).toHaveTextContent(
       /Walked and saved on this phone/,
     );
-    expect(screen.getByTestId("home-progress")).toHaveTextContent(
-      new RegExp(`0 of ${REQUIRED_TASK_COUNT} days done`),
+    expect(screen.getByTestId("home-day-count")).toHaveProp(
+      "accessibilityLabel",
+      `Day 1 of ${REQUIRED_TASK_COUNT}.`,
     );
 
     // And the card leads back to the walk, where sending it can be retried.
@@ -494,8 +511,9 @@ describe("one account's life through the app's own screens", () => {
     await waitFor(() => expect(server.completions()).toHaveLength(1));
     await user.press(screen.getByTestId("daily-back"));
 
-    expect(await screen.findByTestId("home-progress")).toHaveTextContent(
-      new RegExp(`1 of ${REQUIRED_TASK_COUNT} days done`),
+    expect(await screen.findByTestId("home-day-count")).toHaveProp(
+      "accessibilityLabel",
+      `Day 2 of ${REQUIRED_TASK_COUNT}.`,
     );
     expect(screen.queryByTestId("home-task-waiting")).toBeNull();
   });

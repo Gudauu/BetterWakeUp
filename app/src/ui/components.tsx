@@ -177,34 +177,53 @@ export function Screen({
   );
 }
 
-/** A raised block of related things. The app's only container with an edge. */
+/**
+ * A raised block of related things. The app's only container with an edge.
+ *
+ * With `onPress` the whole card is a tap target, for a card that leads to more
+ * of what it summarises. It is not one element to a screen reader: the card may
+ * hold buttons of its own, which a grouped element would hide, so a pressable
+ * card must also hold a control that does the same thing as the tap.
+ */
 export function Card({
   testID,
   children,
   style,
+  onPress,
 }: {
   readonly testID?: string;
   readonly children: ReactNode;
   readonly style?: StyleProp<ViewStyle>;
+  readonly onPress?: () => void;
 }) {
   const theme = useTheme();
+  const frame: StyleProp<ViewStyle> = [
+    {
+      backgroundColor: theme.colors.surface,
+      borderColor: theme.colors.border,
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      gap: theme.space.md,
+      padding: theme.space.xl,
+    },
+    style,
+  ];
+  if (onPress === undefined) {
+    return (
+      <View testID={testID} style={frame}>
+        {children}
+      </View>
+    );
+  }
   return (
-    <View
+    <Pressable
       testID={testID}
-      style={[
-        {
-          backgroundColor: theme.colors.surface,
-          borderColor: theme.colors.border,
-          borderRadius: theme.radius.lg,
-          borderWidth: 1,
-          gap: theme.space.md,
-          padding: theme.space.xl,
-        },
-        style,
-      ]}
+      accessible={false}
+      onPress={onPress}
+      style={({ pressed }) => [frame, pressed && styles.pressed]}
     >
       {children}
-    </View>
+    </Pressable>
   );
 }
 
@@ -450,32 +469,57 @@ export function ProgressBar({
   );
 }
 
-export type DayMarkTone = "success" | "danger" | "warning" | "accent" | "muted";
+export type DayMarkTone = "success" | "danger" | "warning" | "accent" | "muted" | "rest";
 
 export interface DayMark {
-  /** What this day is, in the same names statuses are read in elsewhere. */
+  /**
+   * What this day is, in the same names statuses are read in elsewhere.
+   * `rest` is a date that holds no walk, drawn as an empty square.
+   */
   readonly tone: DayMarkTone;
   /** Drawn as a ring rather than a block: the day being asked for right now. */
   readonly outlined?: boolean;
 }
 
+/** One square of a calendar: its day of the month, or null for padding. */
+export interface CalendarCell {
+  readonly label: string;
+  readonly mark: DayMark | null;
+}
+
+export interface CalendarMonthView {
+  readonly title: string;
+  /** Monday-first weeks of seven cells each. */
+  readonly weeks: readonly (readonly CalendarCell[])[];
+}
+
+const WEEKDAYS = [
+  { key: "mon", initial: "M" },
+  { key: "tue", initial: "T" },
+  { key: "wed", initial: "W" },
+  { key: "thu", initial: "T" },
+  { key: "fri", initial: "F" },
+  { key: "sat", initial: "S" },
+  { key: "sun", initial: "S" },
+] as const;
+
 /**
- * A challenge's days as a row of marks.
+ * A challenge's days as a wall calendar.
  *
- * A progress bar says how far along a month is; it cannot say which morning was
- * missed or how many are still ahead. The row can, in the space of two lines,
- * which is why it sits beside the bar rather than instead of it.
+ * A progress count says how far along a challenge is; it cannot say which
+ * morning was missed, or that the gap after a Friday is a weekend. A calendar
+ * can, because every date sits in its weekday's column.
  *
- * The row is one accessible element carrying the sentence its caller wrote, not
- * thirty unlabelled squares: a screen reader read mark by mark would be thirty
- * announcements of nothing.
+ * The calendar is one accessible element carrying the sentence its caller
+ * wrote, not a square at a time: a screen reader read date by date would be
+ * forty announcements of nothing.
  */
-export function DayStrip({
-  days,
+export function DayCalendar({
+  months,
   accessibilityLabel,
   testID,
 }: {
-  readonly days: readonly DayMark[];
+  readonly months: readonly CalendarMonthView[];
   readonly accessibilityLabel: string;
   readonly testID?: string;
 }) {
@@ -485,30 +529,75 @@ export function DayStrip({
       testID={testID}
       accessible
       accessibilityLabel={accessibilityLabel}
-      style={styles.dayStrip}
+      style={{ gap: theme.space.sm }}
     >
-      {days.map((day, index) => (
-        <View
-          // The row is a calendar: position is the identity, and two days can
-          // be the same mark without being the same day.
-          // biome-ignore lint/suspicious/noArrayIndexKey: position is the day
-          key={index}
-          style={dayMarkStyle(theme, day)}
-        />
+      {months.map((month) => (
+        <View key={month.title} style={{ gap: theme.space.xs }}>
+          <AppText variant="caption" tone="muted">
+            {month.title}
+          </AppText>
+          <View style={styles.calendarWeek}>
+            {WEEKDAYS.map((weekday) => (
+              <AppText
+                key={weekday.key}
+                variant="caption"
+                tone="muted"
+                center
+                style={styles.calendarCell}
+              >
+                {weekday.initial}
+              </AppText>
+            ))}
+          </View>
+          {month.weeks.map((week, weekIndex) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: position is the week
+            <View key={weekIndex} style={styles.calendarWeek}>
+              {week.map((cell, dayIndex) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: position is the weekday
+                <View key={dayIndex} style={styles.calendarCell}>
+                  {cell.mark === null ? null : (
+                    <View style={dayMarkStyle(theme, cell.mark, styles.calendarDay)}>
+                      <Text
+                        style={[theme.type.caption, { color: dayLabelColor(theme, cell.mark) }]}
+                      >
+                        {cell.label}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          ))}
+        </View>
       ))}
     </View>
   );
 }
 
 /**
- * What each mark in the row means, spelled out.
+ * The number on a square. A filled square takes the surface colour so the
+ * number reads against any tone in either theme; a ring takes its own tone, and
+ * a rest day is quiet because nothing happens on it.
+ */
+function dayLabelColor(theme: Theme, mark: DayMark): string {
+  if (mark.tone === "rest") {
+    return theme.colors.textMuted;
+  }
+  if (mark.outlined === true) {
+    return markColor(theme, mark.tone);
+  }
+  return mark.tone === "muted" ? theme.colors.text : theme.colors.surface;
+}
+
+/**
+ * What each mark in the calendar means, spelled out.
  *
- * Without it the row is colour and nothing else, which is a fact withheld from
+ * Without it the calendar is colour and nothing else, which is a fact withheld from
  * anyone who cannot separate the green of a kept morning from the red of a
  * missed one - and a guess for everyone else, since no screen ever said which
  * was which.
  *
- * It is hidden from a screen reader on purpose: `DayStrip` already carries the
+ * It is hidden from a screen reader on purpose: `DayCalendar` already carries the
  * counts as a sentence, and a legend explaining colours to someone who is not
  * looking at them is six announcements that help nobody.
  */
@@ -543,21 +632,27 @@ export function DayLegend({
  * One mark, drawn the same way wherever it appears. The legend is a lie the
  * moment it draws a swatch the row would not draw, so both go through here.
  */
-function dayMarkStyle(theme: Theme, mark: DayMark) {
+function dayMarkStyle(theme: Theme, mark: DayMark, size: ViewStyle = styles.dayMark) {
+  return [
+    size,
+    mark.tone === "rest"
+      ? { borderColor: theme.colors.border, borderWidth: 1 }
+      : mark.outlined === true
+        ? { borderColor: markColor(theme, mark.tone), borderWidth: 2 }
+        : { backgroundColor: markColor(theme, mark.tone) },
+  ];
+}
+
+function markColor(theme: Theme, tone: DayMarkTone): string {
   const colors: Readonly<Record<DayMarkTone, string>> = {
     success: theme.colors.success,
     danger: theme.colors.danger,
     warning: theme.colors.warning,
     accent: theme.colors.accent,
     muted: theme.colors.track,
+    rest: theme.colors.border,
   };
-  return [
-    styles.dayMark,
-    { borderRadius: theme.radius.sm },
-    mark.outlined === true
-      ? { borderColor: colors[mark.tone], borderWidth: 2 }
-      : { backgroundColor: colors[mark.tone] },
-  ];
+  return colors[tone];
 }
 
 export interface FieldProps {
@@ -867,10 +962,18 @@ const styles = StyleSheet.create({
   toggle: { minHeight: 44 },
   pill: { alignItems: "center", flexDirection: "row", gap: 8, paddingVertical: 6 },
   dot: { borderRadius: 999, height: 8, width: 8 },
-  // Wrapping rather than scrolling: a month has to be readable as a shape in
-  // one glance, and a row the user has to swipe hides the days behind the edge.
-  dayStrip: { flexDirection: "row", flexWrap: "wrap", gap: 5 },
-  dayMark: { height: 14, width: 14 },
+  calendarWeek: { flexDirection: "row", gap: 4 },
+  calendarCell: { flex: 1 },
+  // A calendar square fills its column, where a legend swatch is a fixed size.
+  calendarDay: {
+    alignItems: "center",
+    aspectRatio: 1,
+    borderRadius: 8,
+    justifyContent: "center",
+    width: "100%",
+  },
+  // Square like the calendar's own squares, at swatch size.
+  dayMark: { borderRadius: 4, height: 14, width: 14 },
   dayLegend: { flexDirection: "row", flexWrap: "wrap", columnGap: 14, rowGap: 6 },
   dayLegendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
 });

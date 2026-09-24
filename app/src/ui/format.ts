@@ -89,6 +89,24 @@ export function formatDuration(minutes: number): string {
   return `${hoursText} ${rest === 1 ? "1 minute" : `${rest} minutes`}`;
 }
 
+/**
+ * The same length of time, short enough to be a headline number: "9h 22m",
+ * "8m". Home draws the morning's countdown this large, where "9 hours 22
+ * minutes" would wrap. It is for the eye only; a screen reader is given
+ * `formatDuration` for the same minutes.
+ */
+export function formatCountdown(minutes: number): string {
+  if (minutes < 1) {
+    return "<1m";
+  }
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
+}
+
 function format(instant: string, options: Intl.DateTimeFormatOptions): string {
   try {
     return new Intl.DateTimeFormat("en-US", options).format(new Date(instant));

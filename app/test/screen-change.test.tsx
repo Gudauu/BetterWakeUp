@@ -41,11 +41,11 @@ describe("screenChangeText", () => {
   it("names the way back out of a screen sitting over home", () => {
     // The reader has just lost its place, and the control it most likely wants
     // next is the one every such screen puts at the top.
-    expect(screenChangeText(TASK)).toBe("Today's walk. Back to home is at the top of the screen.");
+    expect(screenChangeText(TASK)).toBe("Today's walk. Back is at the top of the screen.");
   });
 
   it("gives home no way back, because it is the bottom of the app", () => {
-    expect(screenChangeText(HOME)).not.toMatch(/Back to home/);
+    expect(screenChangeText(HOME)).not.toMatch(/Back/);
   });
 });
 
@@ -63,7 +63,7 @@ describe("useScreenChangeAnnouncement", () => {
 
     await moveTo(TASK, reader);
 
-    expect(reader.said()).toEqual(["Today's walk. Back to home is at the top of the screen."]);
+    expect(reader.said()).toEqual(["Today's walk. Back is at the top of the screen."]);
   });
 
   it("says nothing twice for one screen", async () => {

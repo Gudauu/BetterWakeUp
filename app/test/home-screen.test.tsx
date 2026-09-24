@@ -5,7 +5,15 @@
  */
 
 import type { ChallengeDay } from "@betterwakeup/contract";
-import { act, fireEvent, render, screen, userEvent, waitFor } from "@testing-library/react-native";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  userEvent,
+  waitFor,
+  within,
+} from "@testing-library/react-native";
 import { StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import type { ApiClient } from "../src/api/client.ts";
@@ -184,6 +192,12 @@ async function renderHome(
   );
 }
 
+/** Opens the challenge page from home, the way a user taps through to it. */
+async function openDetails(): Promise<void> {
+  await userEvent.press(await screen.findByTestId("home-open-details"));
+  await screen.findByTestId("details");
+}
+
 /** How many times the account's challenge has been asked for. */
 function reads(api: FakeApi): number {
   return api.names().filter((name) => name === "getCurrentChallenge").length;
@@ -241,11 +255,18 @@ describe("home reads the account's current challenge", () => {
 
     await renderHome(api);
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
-    expect(screen.getByTestId("home-challenge-status")).toHaveTextContent("Challenge running");
-    expect(screen.getByTestId("home-progress")).toHaveTextContent("4 of 30 days done, 25 to go.");
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
+    expect(screen.getByTestId("home-day-count")).toHaveProp("accessibilityLabel", "Day 5 of 30.");
     expect(screen.getByTestId("home-current-task")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-create-challenge")).toBeNull();
+
+    await openDetails();
+    expect(screen.getByTestId("details-status")).toHaveTextContent("Challenge running");
+    // Only completed walks count toward the total, so the skipped day leaves
+    // twenty-six to go rather than twenty-five.
+    expect(screen.getByTestId("details-progress")).toHaveTextContent(
+      "4 of 30 walks done, 26 to go.",
+    );
   });
 
   it("says a paused challenge is paused rather than running", async () => {
@@ -260,7 +281,9 @@ describe("home reads the account's current challenge", () => {
       }),
     );
 
-    expect(await screen.findByTestId("home-challenge-status")).toHaveTextContent("Paused");
+    expect(await screen.findByTestId("home-paused")).toBeOnTheScreen();
+    await openDetails();
+    expect(screen.getByTestId("details-status")).toHaveTextContent("Paused");
   });
 
   it("raises the recovery offer and the unsecured deposit where they are read", async () => {
@@ -286,42 +309,67 @@ describe("home reads the account's current challenge", () => {
   });
 });
 
-describe("home's row of days", () => {
-  /** A challenge whose calendar is exactly these statuses, in order. */
+describe("the challenge page's calendar", () => {
+  /** A challenge whose calendar is exactly these statuses, on consecutive dates. */
   const withDays = (statuses: readonly ChallengeDay["status"][]) =>
+    withDated(
+      statuses.map((status, index) => ({
+        date: `2026-09-${String(index + 1).padStart(2, "0")}`,
+        status,
+      })),
+    );
+  const withDated = (days: readonly ChallengeDay[]) =>
     fakeApi({
-      getCurrentChallenge: {
-        lastEnded: null,
-        challenge: challengeView({
-          days: statuses.map((status, index) => ({
-            date: `2026-09-${String(index + 1).padStart(2, "0")}`,
-            status,
-          })),
-        }),
-      },
+      getCurrentChallenge: { lastEnded: null, challenge: challengeView({ days: [...days] }) },
     });
 
-  it("draws one mark per day and says the same thing to a screen reader", async () => {
+  it("says the same thing to a screen reader as the squares say to the eye", async () => {
     await renderHome(withDays(["completed", "missed", "completed", "scheduled", "scheduled"]));
+    await openDetails();
 
-    const strip = await screen.findByTestId("home-day-strip");
-    expect(strip.children).toHaveLength(5);
-    expect(strip).toHaveProp("accessibilityLabel", "Your days: 2 kept, 1 missed, 2 still to come.");
+    expect(screen.getByTestId("details-calendar")).toHaveProp(
+      "accessibilityLabel",
+      "Your days: 2 kept, 1 missed, 2 still to come.",
+    );
+  });
+
+  it("greys out a date between two walks that holds none", async () => {
+    // 2026-09-04 is a Friday and 2026-09-07 the Monday after: the weekend
+    // between them is a rest, not a gap in the challenge.
+    await renderHome(
+      withDated([
+        { date: "2026-09-04", status: "completed" },
+        { date: "2026-09-07", status: "scheduled" },
+      ]),
+    );
+    await openDetails();
+
+    const calendar = screen.getByTestId("details-calendar");
+    const saturday = within(calendar).getByText("5").parent;
+    expect(StyleSheet.flatten(saturday?.props.style)).toMatchObject({
+      borderColor: lightTheme.colors.border,
+      borderWidth: 1,
+    });
+    expect(screen.getByTestId("details-legend", { includeHiddenElements: true })).toHaveTextContent(
+      /No walk/,
+    );
   });
 
   it("names a run the user is on, and stays quiet about one day", async () => {
     await renderHome(withDays(["completed", "completed", "completed", "scheduled"]));
+    await openDetails();
 
-    expect(await screen.findByTestId("home-streak")).toHaveTextContent("3 days in a row.");
+    expect(screen.getByTestId("details-streak")).toHaveTextContent("3 days in a row.");
   });
 
   it("says nothing about a run that has just been broken", async () => {
-    // The row already shows the missed day. A sentence about it would be the
-    // app scolding someone who turned up this morning.
+    // The calendar already shows the missed day. A sentence about it would be
+    // the app scolding someone who turned up this morning.
     await renderHome(withDays(["completed", "completed", "missed", "scheduled"]));
+    await openDetails();
 
-    expect(await screen.findByTestId("home-day-strip")).toBeOnTheScreen();
-    expect(screen.queryByTestId("home-streak")).toBeNull();
+    expect(screen.getByTestId("details-calendar")).toBeOnTheScreen();
+    expect(screen.queryByTestId("details-streak")).toBeNull();
   });
 
   it("says which square is which, for a reader who cannot separate the colours", async () => {
@@ -329,9 +377,9 @@ describe("home's row of days", () => {
     // as one colour - and until the key was drawn nothing on any screen said
     // which was which.
     await renderHome(withDays(["completed", "missed", "scheduled", "scheduled"]));
+    await openDetails();
 
-    await screen.findByTestId("home-day-strip");
-    const legend = screen.getByTestId("home-day-legend", { includeHiddenElements: true });
+    const legend = screen.getByTestId("details-legend", { includeHiddenElements: true });
     expect(legend).toHaveTextContent(/Walked/);
     expect(legend).toHaveTextContent(/Missed/);
     expect(legend).toHaveTextContent(/Due now/);
@@ -340,21 +388,25 @@ describe("home's row of days", () => {
 
   it("leaves outcomes the challenge has not had out of the key", async () => {
     await renderHome(withDays(["completed", "scheduled", "scheduled"]));
+    await openDetails();
 
-    await screen.findByTestId("home-day-strip");
-    const legend = screen.getByTestId("home-day-legend", { includeHiddenElements: true });
+    const legend = screen.getByTestId("details-legend", { includeHiddenElements: true });
     expect(legend).not.toHaveTextContent(/Missed/);
     expect(legend).not.toHaveTextContent(/Forgiven/);
     expect(legend).not.toHaveTextContent(/Paused/);
+    // Three consecutive walk days hold no rest day between them.
+    expect(legend).not.toHaveTextContent(/No walk/);
   });
 
   it("marks a paused day apart from a forgiven one, which shares its colour", async () => {
     // Both are amber, so colour alone would make them the same square and the
     // key would name one mark twice.
     await renderHome(withDays(["forgiven", "skipped", "scheduled"]));
+    await openDetails();
 
-    const [forgiven, skipped] = (await screen.findByTestId("home-day-strip"))
-      .children as unknown as { props: { style: unknown } }[];
+    const calendar = screen.getByTestId("details-calendar");
+    const forgiven = within(calendar).getByText("1").parent;
+    const skipped = within(calendar).getByText("2").parent;
     expect(StyleSheet.flatten(forgiven?.props.style)).toMatchObject({
       backgroundColor: lightTheme.colors.warning,
     });
@@ -364,11 +416,11 @@ describe("home's row of days", () => {
     });
   });
 
-  it("draws no row for a challenge whose days do not exist yet", async () => {
+  it("draws no calendar for a challenge whose days do not exist yet", async () => {
     await renderHome(withDays([]));
+    await openDetails();
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
-    expect(screen.queryByTestId("home-day-strip")).toBeNull();
+    expect(screen.queryByTestId("details-calendar")).toBeNull();
   });
 });
 
@@ -400,7 +452,7 @@ describe("home when a card stopped securing the deposit", () => {
       }),
     );
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-deposit-unsecured")).toBeNull();
   });
 
@@ -421,7 +473,7 @@ describe("home when a card stopped securing the deposit", () => {
     await user.press(await screen.findByTestId("payment-method-add"));
     await user.press(await screen.findByTestId("payment-method-done-back"));
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-deposit-unsecured")).toBeNull();
     expect(reads).toBe(2);
   });
@@ -438,7 +490,7 @@ describe("home when the user has travelled", () => {
       }),
     );
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-time-zone-move")).toBeNull();
   });
 
@@ -476,7 +528,7 @@ describe("home when the user has travelled", () => {
     expect(await screen.findByTestId("time-zone-screen")).toBeOnTheScreen();
 
     await user.press(screen.getByTestId("time-zone-back"));
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     // A weekend away is a reason to keep the deadlines where they are, and a
     // banner that came straight back would be nagging rather than helping.
     expect(screen.queryByTestId("home-time-zone-move")).toBeNull();
@@ -506,7 +558,7 @@ describe("home when the read fails", () => {
 
     await userEvent.press(screen.getByTestId("home-retry"));
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
   });
 
   it("names the network when there was no connection at all", async () => {
@@ -622,7 +674,7 @@ describe("home is the door to creating a challenge", () => {
 
     // The form reports what was created; home reads it back once that is left.
     await userEvent.press(await screen.findByTestId("created-done"));
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(api.names()).toContain("createChallenge");
   });
 
@@ -709,13 +761,14 @@ describe("home is the door to today's task", () => {
       }),
     );
 
-    const schedule = await screen.findByTestId("home-schedule");
+    await openDetails();
+    const schedule = screen.getByTestId("details-schedule");
 
     expect(schedule).toHaveTextContent(/Mon-Wed/);
     expect(schedule).toHaveTextContent(/6:30 AM/);
     expect(schedule).toHaveTextContent(/Sat/);
     expect(schedule).toHaveTextContent(/9:00 AM/);
-    expect(screen.getByTestId("home-schedule-zone")).toHaveTextContent(/Los Angeles/);
+    expect(screen.getByTestId("details-schedule-zone")).toHaveTextContent(/Los Angeles/);
   });
 
   it("comes back to home and re-reads the challenge", async () => {
@@ -733,7 +786,7 @@ describe("home is the door to today's task", () => {
 
     await userEvent.press(screen.getByTestId("daily-back"));
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(api.names().filter((name) => name === "getCurrentChallenge").length).toBe(before + 1);
   });
 
@@ -790,9 +843,7 @@ describe("home says what this device is still holding", () => {
   it("shows the step target when nothing has been walked yet", async () => {
     await renderHome(runningWithTask);
 
-    expect(await screen.findByTestId("home-current-task")).toHaveTextContent(
-      /250 steps to keep the day/,
-    );
+    expect(await screen.findByTestId("home-current-task")).toHaveTextContent(/250 STEPS/);
     expect(screen.queryByTestId("home-task-waiting")).toBeNull();
     expect(screen.getByTestId("home-open-task")).toHaveTextContent("Open today's task");
   });
@@ -968,17 +1019,21 @@ describe("the clock on this morning's walk", () => {
   it("counts the morning down quietly while there is time in it", async () => {
     await renderHome(withTask, { now: new Date("2026-09-01T12:00:00.000Z") });
 
-    expect(await screen.findByTestId("home-task-time-left")).toHaveTextContent(
-      /2 hours left to walk/,
-    );
+    const clock = await screen.findByTestId("home-task-time-left");
+    expect(clock).toHaveTextContent(/2h/);
+    expect(clock).toHaveProp("accessibilityLabel", "2 hours until the deadline.");
   });
 
   it("counts the last stretch down from the moment the alarm would have gone", async () => {
     await renderHome(withTask, { now: new Date("2026-09-01T13:40:00.000Z") });
 
-    expect(await screen.findByTestId("home-task-time-left")).toHaveTextContent(
-      /20 minutes left to walk/,
-    );
+    const clock = await screen.findByTestId("home-task-time-left");
+    expect(clock).toHaveTextContent(/20m/);
+    expect(clock).toHaveProp("accessibilityLabel", "20 minutes until the deadline.");
+    // And the card says so in the warning colour, not only in the number.
+    expect(StyleSheet.flatten(screen.getByTestId("home-current-task").props.style)).toMatchObject({
+      borderColor: lightTheme.colors.warning,
+    });
   });
 
   it("stops asking for a walk once the deadline has gone by", async () => {
@@ -986,10 +1041,6 @@ describe("the clock on this morning's walk", () => {
 
     expect(await screen.findByTestId("home-task-morning-gone")).toHaveTextContent(
       /7:00 AM deadline passed with no walk saved/,
-    );
-    // The step target is the answer to a question the morning no longer asks.
-    expect(screen.getByTestId("home-current-task")).not.toHaveTextContent(
-      /250 steps to keep the day/,
     );
     expect(screen.getByTestId("home-open-task")).toHaveTextContent("See what happened");
     // A countdown to a deadline that passed would be counting to nothing.
@@ -1007,8 +1058,9 @@ describe("the clock on this morning's walk", () => {
       let index = 0;
       await renderHome(withTask, { now: () => instants[Math.min(index++, 1)] as Date });
 
-      expect(await screen.findByTestId("home-task-time-left")).toHaveTextContent(
-        /1 minute left to walk/,
+      expect(await screen.findByTestId("home-task-time-left")).toHaveProp(
+        "accessibilityLabel",
+        "1 minute until the deadline.",
       );
       expect(screen.getByTestId("home-open-task")).toHaveTextContent("Open today's task");
 
@@ -1078,7 +1130,8 @@ describe("home is the door to pausing", () => {
     await renderHome(
       fakeApi({ getCurrentChallenge: { challenge: challengeView(), lastEnded: null } }),
     );
-    await userEvent.press(await screen.findByTestId("home-open-pause"));
+    await openDetails();
+    await userEvent.press(screen.getByTestId("details-open-pause"));
 
     expect(await screen.findByTestId("pause-screen")).toBeOnTheScreen();
     expect(screen.getByTestId("pause-status")).toHaveTextContent("Your challenge is running");
@@ -1186,9 +1239,13 @@ describe("home is the door to pausing", () => {
       fakeApi({ getCurrentChallenge: { challenge: challengeView(), lastEnded: null } }),
     );
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-paused")).toBeNull();
-    expect(screen.getByTestId("home-open-pause")).toHaveTextContent("Pause the challenge");
+    expect(screen.queryByTestId("home-open-pause")).toBeNull();
+    // Pausing a running challenge is not the thing to do next, so it lives on
+    // the challenge page.
+    await openDetails();
+    expect(screen.getByTestId("details-open-pause")).toHaveTextContent("Pause the challenge");
   });
 
   it("offers no pause for a challenge that has already ended", async () => {
@@ -1200,7 +1257,7 @@ describe("home is the door to pausing", () => {
       }),
     );
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-open-pause")).toBeNull();
   });
 
@@ -1208,7 +1265,8 @@ describe("home is the door to pausing", () => {
     const api = fakeApi({ getCurrentChallenge: { challenge: challengeView(), lastEnded: null } });
 
     await renderHome(api);
-    await userEvent.press(await screen.findByTestId("home-open-pause"));
+    await openDetails();
+    await userEvent.press(screen.getByTestId("details-open-pause"));
     const before = api.names().filter((name) => name === "getCurrentChallenge").length;
 
     await userEvent.press(screen.getByTestId("pause"));
@@ -1218,7 +1276,8 @@ describe("home is the door to pausing", () => {
     // confirmation.
     await userEvent.press(await screen.findByTestId("pause-done"));
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    // Back to the challenge page it was opened from, not all the way home.
+    expect(await screen.findByTestId("details")).toBeOnTheScreen();
     expect(api.names()).toContain("pauseChallenge");
     expect(api.names().filter((name) => name === "getCurrentChallenge").length).toBe(before + 1);
   });
@@ -1227,12 +1286,13 @@ describe("home is the door to pausing", () => {
     const api = fakeApi({ getCurrentChallenge: { challenge: challengeView(), lastEnded: null } });
 
     await renderHome(api);
-    await userEvent.press(await screen.findByTestId("home-open-pause"));
+    await openDetails();
+    await userEvent.press(screen.getByTestId("details-open-pause"));
     const before = api.names().filter((name) => name === "getCurrentChallenge").length;
 
     await userEvent.press(screen.getByTestId("pause-back"));
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("details")).toBeOnTheScreen();
     expect(api.names()).not.toContain("pauseChallenge");
     expect(api.names().filter((name) => name === "getCurrentChallenge").length).toBe(before);
   });
@@ -1261,7 +1321,7 @@ describe("home is the door to the recovery offer", () => {
       fakeApi({ getCurrentChallenge: { challenge: challengeView(), lastEnded: null } }),
     );
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-open-recovery")).toBeNull();
   });
 
@@ -1278,7 +1338,7 @@ describe("home is the door to the recovery offer", () => {
     // the user has read the day it forgave and the morning it added.
     await userEvent.press(await screen.findByTestId("recovery-done"));
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(api.names()).toContain("acceptRecovery");
     expect(api.names().filter((name) => name === "getCurrentChallenge").length).toBe(before + 1);
   });
@@ -1290,7 +1350,7 @@ describe("home is the door to the recovery offer", () => {
     await userEvent.press(await screen.findByTestId("home-open-recovery"));
     await userEvent.press(screen.getByTestId("decline-recovery"));
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(api.names()).not.toContain("acceptRecovery");
   });
 
@@ -1422,7 +1482,7 @@ describe("home says what happened to the challenge that ended", () => {
       }),
     );
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-finished")).toBeNull();
   });
 });
@@ -1432,7 +1492,8 @@ describe("home is the door to deleting the account", () => {
     // The App Store requires deletion from inside the app, and an account with
     // nothing running is exactly the one most likely to want it.
     await renderHome(fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } }));
-    await userEvent.press(await screen.findByTestId("home-delete-account"));
+    await userEvent.press(await screen.findByTestId("home-open-account"));
+    await userEvent.press(screen.getByTestId("account-delete"));
 
     expect(await screen.findByTestId("delete-account-screen")).toBeOnTheScreen();
     expect(screen.getByTestId("delete-account")).toBeOnTheScreen();
@@ -1452,7 +1513,8 @@ describe("home is the door to deleting the account", () => {
         },
       }),
     );
-    await userEvent.press(await screen.findByTestId("home-delete-account"));
+    await openDetails();
+    await userEvent.press(screen.getByTestId("details-account-delete"));
 
     expect(await screen.findByTestId("deletion-blocked")).toBeOnTheScreen();
     expect(screen.queryByTestId("delete-account")).toBeNull();
@@ -1473,7 +1535,8 @@ describe("home is the door to deleting the account", () => {
         },
       }),
     );
-    await userEvent.press(await screen.findByTestId("home-delete-account"));
+    await openDetails();
+    await userEvent.press(screen.getByTestId("details-account-delete"));
     await userEvent.press(await screen.findByTestId("deletion-hold-action"));
 
     // The one press that can actually move the settling along has to reach the
@@ -1515,7 +1578,8 @@ describe("home is the door to deleting the account", () => {
     const runtime = opened as unknown as FakeCompletionRuntime;
     expect(await runtime.store.list()).toHaveLength(1);
 
-    await userEvent.press(await screen.findByTestId("home-delete-account"));
+    await userEvent.press(await screen.findByTestId("home-open-account"));
+    await userEvent.press(screen.getByTestId("account-delete"));
     await userEvent.press(await screen.findByTestId("delete-account"));
     await userEvent.press(await screen.findByTestId("delete-account-confirm"));
 
@@ -1526,13 +1590,17 @@ describe("home is the door to deleting the account", () => {
     expect(runtime.leftHolding()).toEqual([]);
   });
 
-  it("comes back to home when the screen is left", async () => {
+  it("comes back one screen at a time when the screen is left", async () => {
     const api = fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } });
 
     await renderHome(api);
-    await userEvent.press(await screen.findByTestId("home-delete-account"));
+    await userEvent.press(await screen.findByTestId("home-open-account"));
+    await userEvent.press(screen.getByTestId("account-delete"));
     await userEvent.press(screen.getByTestId("delete-back"));
 
+    // One screen at a time: to the account page it was opened from, then home.
+    expect(await screen.findByTestId("account-screen")).toBeOnTheScreen();
+    await userEvent.press(screen.getByTestId("account-back"));
     expect(await screen.findByTestId("home-no-challenge")).toBeOnTheScreen();
     expect(api.names()).not.toContain("deleteAccount");
   });
@@ -1559,18 +1627,18 @@ describe("home's own actions", () => {
     const api = fakeApi({ getCurrentChallenge: answers(runningChallenge(), pending()) });
 
     await renderHome(api);
-    await screen.findByTestId("home-challenge");
+    await screen.findByTestId("home-summary");
     await userEvent.press(screen.getByTestId("home-refresh"));
 
-    expect(screen.getByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.getByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-loading")).toBeNull();
     expect(screen.getByTestId("home-refresh")).toHaveTextContent("Checking for updates");
   });
 
   it("asks the server again when the screen is pulled down", async () => {
     // The gesture every phone user reaches for on a screen of this morning's
-    // facts. The button that did this sits under a divider at the bottom of a
-    // page that scrolls, which is not where anyone looks for it.
+    // facts. The Refresh press sits at the foot of a page that scrolls, which
+    // is not where anyone looks for it.
     const api = fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } });
 
     await renderHome(api);
@@ -1590,12 +1658,12 @@ describe("home's own actions", () => {
     const api = fakeApi({ getCurrentChallenge: answers(runningChallenge(), pending()) });
 
     await renderHome(api);
-    await screen.findByTestId("home-challenge");
+    await screen.findByTestId("home-summary");
     await act(async () => {
       screen.getByTestId("home").props.refreshControl.props.onRefresh();
     });
 
-    expect(screen.getByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.getByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.getByTestId("home").props.refreshControl.props.refreshing).toBe(true);
   });
 
@@ -1615,18 +1683,18 @@ describe("home asks before signing out of a running challenge", () => {
     const api = fakeApi({ getCurrentChallenge: runningChallenge() });
 
     await renderHome(api, { onSignOut });
-    await screen.findByTestId("home-challenge");
-    await userEvent.press(screen.getByTestId("home-sign-out"));
+    await openDetails();
+    await userEvent.press(screen.getByTestId("details-account-sign-out"));
 
-    expect(screen.getByTestId("home-sign-out-consequence")).toHaveTextContent(
+    expect(screen.getByTestId("details-account-sign-out-consequence")).toHaveTextContent(
       /only a walk taken in the app can meet one/,
     );
-    expect(screen.getByTestId("home-sign-out-consequence")).toHaveTextContent(
+    expect(screen.getByTestId("details-account-sign-out-consequence")).toHaveTextContent(
       /wake-up reminders on this phone will be turned off/,
     );
     expect(onSignOut).not.toHaveBeenCalled();
 
-    await userEvent.press(screen.getByTestId("home-sign-out-confirm"));
+    await userEvent.press(screen.getByTestId("details-account-sign-out-confirm"));
 
     expect(onSignOut).toHaveBeenCalledTimes(1);
   });
@@ -1635,12 +1703,12 @@ describe("home asks before signing out of a running challenge", () => {
     const onSignOut = jest.fn();
 
     await renderHome(fakeApi({ getCurrentChallenge: runningChallenge() }), { onSignOut });
-    await screen.findByTestId("home-challenge");
-    await userEvent.press(screen.getByTestId("home-sign-out"));
-    await userEvent.press(screen.getByTestId("home-sign-out-cancel"));
+    await openDetails();
+    await userEvent.press(screen.getByTestId("details-account-sign-out"));
+    await userEvent.press(screen.getByTestId("details-account-sign-out-cancel"));
 
-    expect(screen.queryByTestId("home-sign-out-consequence")).toBeNull();
-    expect(screen.getByTestId("home-sign-out")).toBeOnTheScreen();
+    expect(screen.queryByTestId("details-account-sign-out-consequence")).toBeNull();
+    expect(screen.getByTestId("details-account-sign-out")).toBeOnTheScreen();
     expect(onSignOut).not.toHaveBeenCalled();
   });
 
@@ -1652,11 +1720,11 @@ describe("home asks before signing out of a running challenge", () => {
     await renderHome(fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: null } }), {
       onSignOut,
     });
-    await screen.findByTestId("home-no-challenge");
-    await userEvent.press(screen.getByTestId("home-sign-out"));
+    await userEvent.press(await screen.findByTestId("home-open-account"));
+    await userEvent.press(screen.getByTestId("account-sign-out"));
 
     expect(onSignOut).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTestId("home-sign-out-consequence")).toBeNull();
+    expect(screen.queryByTestId("account-sign-out-consequence")).toBeNull();
   });
 
   it("asks from the error screen too, where a running challenge cannot be ruled out", async () => {
@@ -1684,7 +1752,7 @@ describe("home says when this phone's sign-in runs out", () => {
 
   it("says nothing about a sign-in that is nowhere near running out", async () => {
     await renderHome(fakeApi({ getCurrentChallenge: runningChallenge() }));
-    await screen.findByTestId("home-challenge");
+    await screen.findByTestId("home-summary");
 
     expect(screen.queryByTestId("home-session-expiry")).toBeNull();
   });
@@ -1696,7 +1764,7 @@ describe("home says when this phone's sign-in runs out", () => {
     await renderHome(fakeApi({ getCurrentChallenge: runningChallenge() }), {
       session: expiringIn(2 * 24 * 60),
     });
-    await screen.findByTestId("home-challenge");
+    await screen.findByTestId("home-summary");
 
     expect(screen.getByTestId("home-session-expiry-when")).toHaveTextContent(
       /sign-in runs out in 2 days/,
@@ -1716,7 +1784,7 @@ describe("home says when this phone's sign-in runs out", () => {
       onSignOut,
       session: expiringIn(6 * 60),
     });
-    await screen.findByTestId("home-challenge");
+    await screen.findByTestId("home-summary");
     await userEvent.press(screen.getByTestId("home-session-renew"));
 
     expect(screen.getByTestId("home-session-renew-consequence")).toHaveTextContent(
@@ -1741,7 +1809,7 @@ describe("home says when this phone's sign-in runs out", () => {
       session: expiringIn(30),
       now: new Date(NOW.getTime() + 60 * 60_000),
     });
-    await screen.findByTestId("home-challenge");
+    await screen.findByTestId("home-summary");
 
     expect(screen.getByTestId("home-session-expiry-when")).toHaveTextContent(
       /sign-in has run out, so BetterWakeUp can no longer reach your account/,
@@ -1758,15 +1826,17 @@ describe("home and a phone picked up again", () => {
     const api = fakeApi({ getCurrentChallenge: runningChallenge() });
 
     await renderHome(api, { appReturn: appReturn.trigger });
-    await screen.findByTestId("home-challenge");
+    await screen.findByTestId("home-summary");
     const before = reads(api);
 
     await appReturn.fire();
 
     await waitFor(() => expect(reads(api)).toBe(before + 1));
-    // And settled: the label is the read's own progress indicator, so waiting
-    // for it back keeps the answer inside the test that asked for it.
-    await waitFor(() => expect(screen.getByTestId("home-refresh")).toHaveTextContent("Refresh"));
+    // And settled: the spinner is the read's own progress indicator, so waiting
+    // for it to stop keeps the answer inside the test that asked for it.
+    await waitFor(() =>
+      expect(screen.getByTestId("home").props.refreshControl.props.refreshing).toBe(false),
+    );
   });
 
   it("leaves what is on screen alone while the re-read is in flight", async () => {
@@ -1774,11 +1844,11 @@ describe("home and a phone picked up again", () => {
     const api = fakeApi({ getCurrentChallenge: answers(runningChallenge(), pending()) });
 
     await renderHome(api, { appReturn: appReturn.trigger });
-    await screen.findByTestId("home-challenge");
+    await screen.findByTestId("home-summary");
 
     await appReturn.fire();
 
-    expect(screen.getByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.getByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.getByTestId("home-current-task")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-loading")).toBeNull();
   });
@@ -1801,13 +1871,13 @@ describe("home and a phone picked up again", () => {
     });
 
     await renderHome(api, { appReturn: appReturn.trigger });
-    await screen.findByTestId("home-challenge");
-    expect(screen.getByTestId("home-progress")).toHaveTextContent("0 of 30 days done, 30 to go.");
+    await screen.findByTestId("home-summary");
+    expect(screen.getByTestId("home-day-count")).toHaveProp("accessibilityLabel", "Day 1 of 30.");
 
     await appReturn.fire();
 
     await waitFor(() =>
-      expect(screen.getByTestId("home-progress")).toHaveTextContent("7 of 30 days done, 23 to go."),
+      expect(screen.getByTestId("home-day-count")).toHaveProp("accessibilityLabel", "Day 8 of 30."),
     );
   });
 
@@ -1817,7 +1887,8 @@ describe("home and a phone picked up again", () => {
     const api = fakeApi({ getCurrentChallenge: runningChallenge() });
 
     await renderHome(api, { appReturn: appReturn.trigger });
-    await userEvent.press(await screen.findByTestId("home-open-pause"));
+    await openDetails();
+    await userEvent.press(screen.getByTestId("details-open-pause"));
     await screen.findByTestId("pause-screen");
     const before = reads(api);
 
@@ -1837,14 +1908,14 @@ describe("home and a phone picked up again", () => {
     });
 
     await renderHome(api, { appReturn: appReturn.trigger });
-    await screen.findByTestId("home-challenge");
+    await screen.findByTestId("home-summary");
 
     await appReturn.fire();
 
     expect(await screen.findByTestId("home-refresh-failed")).toHaveTextContent(
       /last connection's answer/,
     );
-    expect(screen.getByTestId("home-challenge")).toBeOnTheScreen();
+    expect(screen.getByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-error")).toBeNull();
   });
 
@@ -1861,7 +1932,7 @@ describe("home and a phone picked up again", () => {
     });
 
     await renderHome(api, { appReturn: appReturn.trigger });
-    await screen.findByTestId("home-challenge");
+    await screen.findByTestId("home-summary");
     await appReturn.fire();
     await screen.findByTestId("home-refresh-failed");
 
@@ -1871,7 +1942,7 @@ describe("home and a phone picked up again", () => {
   });
 });
 
-describe("home and the device's reminders", () => {
+describe("the challenge page and the device's reminders", () => {
   const running = (overrides = {}) =>
     fakeApi({
       getCurrentChallenge: {
@@ -1880,15 +1951,16 @@ describe("home and the device's reminders", () => {
       },
     });
 
-  it("offers reminders by naming the time it would wake the user", async () => {
+  it("offers reminders on the challenge page, naming the time they would come", async () => {
     // The whole product is being at the phone before a wall-clock time, so a
     // challenge on a silent device is the quietest way to lose a deposit.
     const notifier = fakeNotifier({ permission: "undetermined" });
 
     await renderHome(running(), { notifier });
+    await openDetails();
 
-    expect(await screen.findByTestId("home-reminders-offer")).toHaveTextContent(/6:15 AM/);
-    expect(screen.getByTestId("home-enable-reminders")).toBeOnTheScreen();
+    expect(screen.getByTestId("details-reminders-offer")).toHaveTextContent(/6:15 AM/);
+    expect(screen.getByTestId("details-enable-reminders")).toBeOnTheScreen();
     // Never asked before it is pressed: iOS gives an app one prompt for the
     // lifetime of an install.
     expect(notifier.requests).toBe(0);
@@ -1899,9 +1971,10 @@ describe("home and the device's reminders", () => {
     const notifier = fakeNotifier({ permission: "undetermined", onRequest: "granted" });
 
     await renderHome(running(), { notifier });
-    await userEvent.press(await screen.findByTestId("home-enable-reminders"));
+    await openDetails();
+    await userEvent.press(screen.getByTestId("details-enable-reminders"));
 
-    expect(await screen.findByTestId("home-reminders-on")).toHaveTextContent(/6:15 AM/);
+    expect(await screen.findByTestId("details-reminders-on")).toHaveTextContent(/6:15 AM/);
     await waitFor(() => expect(notifier.scheduled).toHaveLength(1));
     expect(notifier.scheduled.at(-1)?.map((reminder) => reminder.id)).toEqual([
       "44444444-4444-4444-8444-444444444444:alarm",
@@ -1913,20 +1986,22 @@ describe("home and the device's reminders", () => {
     const notifier = fakeNotifier({ permission: "granted" });
 
     await renderHome(running(), { notifier });
+    await openDetails();
 
-    expect(await screen.findByTestId("home-reminders-on")).toBeOnTheScreen();
+    expect(screen.getByTestId("details-reminders-on")).toBeOnTheScreen();
     await waitFor(() => expect(notifier.scheduled).toHaveLength(1));
     expect(notifier.requests).toBe(0);
-    expect(screen.queryByTestId("home-enable-reminders")).toBeNull();
+    expect(screen.queryByTestId("details-enable-reminders")).toBeNull();
   });
 
   it("says where to turn them back on when the device has refused", async () => {
     const notifier = fakeNotifier({ permission: "denied" });
 
     await renderHome(running(), { notifier });
+    await openDetails();
 
-    expect(await screen.findByTestId("home-reminders-denied")).toHaveTextContent(/device settings/);
-    expect(screen.queryByTestId("home-enable-reminders")).toBeNull();
+    expect(screen.getByTestId("details-reminders-denied")).toHaveTextContent(/device settings/);
+    expect(screen.queryByTestId("details-enable-reminders")).toBeNull();
   });
 
   it("opens those settings rather than only naming them", async () => {
@@ -1936,9 +2011,17 @@ describe("home and the device's reminders", () => {
     const settings = fakeSettings();
 
     await renderHome(running(), { notifier, settings });
+    await openDetails();
 
-    await userEvent.setup().press(await screen.findByTestId("home-reminders-settings"));
+    await userEvent.setup().press(screen.getByTestId("details-reminders-settings"));
     expect(settings.opened).toBe(1);
+  });
+
+  it("keeps reminders off home, where the next walk is the only thing asked for", async () => {
+    await renderHome(running(), { notifier: fakeNotifier({ permission: "undetermined" }) });
+
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
+    expect(screen.queryByText(/reminder/i)).toBeNull();
   });
 
   it("says nothing about reminders while the challenge is paused", async () => {
@@ -1950,8 +2033,8 @@ describe("home and the device's reminders", () => {
       notifier,
     });
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
-    expect(screen.queryByTestId("home-reminders-on")).toBeNull();
+    await openDetails();
+    expect(screen.queryByTestId("details-reminders")).toBeNull();
     await waitFor(() => expect(notifier.scheduled).toHaveLength(1));
     expect(notifier.scheduled.at(-1)).toEqual([]);
   });
@@ -1987,7 +2070,7 @@ describe("home and this phone's step counter", () => {
   it("says nothing about a phone that can count one", async () => {
     await renderHome(running());
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-movement")).toBeNull();
   });
 
@@ -2063,7 +2146,7 @@ describe("home and this phone's step counter", () => {
 
     await renderHome(running(), { movementDevice });
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-movement")).toBeNull();
   });
 
@@ -2138,13 +2221,13 @@ describe("a morning already kept", () => {
   it("offers no way to walk a morning that has not started", async () => {
     await renderHome(afterTodaysWalk(1), { now: AFTERNOON });
 
-    expect(await screen.findByTestId("home-task-opens")).toHaveTextContent(
-      /opens tomorrow morning and has to be walked then, by 7:00 AM/,
+    expect(await screen.findByTestId("home-current-task")).toHaveTextContent(
+      /NEXT WALK · TOMORROW/,
     );
     // The whole point: the server would refuse a walk taken tonight for it.
     expect(screen.queryByTestId("home-open-task")).toBeNull();
-    // Counting twenty hours down to a morning nobody is being asked about yet.
-    expect(screen.queryByTestId("home-task-time-left")).toBeNull();
+    // How long until its deadline is still worth knowing the night before.
+    expect(screen.getByTestId("home-task-time-left")).toBeOnTheScreen();
   });
 
   it("leaves this morning's own walk on offer", async () => {
@@ -2164,14 +2247,15 @@ describe("a morning already kept", () => {
   });
 });
 
-describe("what home says a missed morning would cost", () => {
+describe("what the challenge page says a missed morning would cost", () => {
   const showing = (challenge: ReturnType<typeof challengeView>) =>
     fakeApi({ getCurrentChallenge: { lastEnded: null, challenge } });
 
   it("says the safety net is there while the account still holds it", async () => {
     await renderHome(showing(fundedChallengeView({ currentTask: taskView() })));
 
-    expect(await screen.findByTestId("home-miss-cost")).toHaveTextContent(
+    await openDetails();
+    expect(screen.getByTestId("details-miss-cost")).toHaveTextContent(
       /You still hold your one lifetime Emergency Recovery/,
     );
   });
@@ -2184,7 +2268,8 @@ describe("what home says a missed morning would cost", () => {
       showing(fundedChallengeView({ recoveryAvailable: false, currentTask: taskView() })),
     );
 
-    expect(await screen.findByTestId("home-miss-cost")).toHaveTextContent(
+    await openDetails();
+    expect(screen.getByTestId("details-miss-cost")).toHaveTextContent(
       /already spent.*ends this challenge and charges your \$20\.00/,
     );
   });
@@ -2192,7 +2277,8 @@ describe("what home says a missed morning would cost", () => {
   it("says a challenge staking nothing still ends on a miss", async () => {
     await renderHome(showing(challengeView({ currentTask: taskView() })));
 
-    expect(await screen.findByTestId("home-miss-cost")).toHaveTextContent(/costs no money/);
+    await openDetails();
+    expect(screen.getByTestId("details-miss-cost")).toHaveTextContent(/costs no money/);
   });
 
   it("says nothing while the recovery offer is already on screen", async () => {
@@ -2210,7 +2296,8 @@ describe("what home says a missed morning would cost", () => {
     );
 
     expect(await screen.findByTestId("home-recovery-offer")).toBeOnTheScreen();
-    expect(screen.queryByTestId("home-miss-cost")).toBeNull();
+    await openDetails();
+    expect(screen.queryByTestId("details-miss-cost")).toBeNull();
   });
 });
 
@@ -2223,18 +2310,17 @@ describe("how long the challenge has been going", () => {
     // the zone this challenge reads its deadlines in.
     await renderHome(showing(challengeView({ currentTask: taskView() })));
 
-    expect(await screen.findByTestId("home-started")).toHaveTextContent(/Sunday, August 30/);
-    expect(await screen.findByTestId("home-challenge-day")).toHaveTextContent(
-      /Today is day 3 of this challenge\./,
-    );
+    await openDetails();
+    expect(screen.getByTestId("details-started")).toHaveTextContent(/Sunday, August 30/);
+    expect(screen.getByTestId("details-end-date")).toBeOnTheScreen();
   });
 
   it("says nothing about an age for a challenge that has not been activated", async () => {
     await renderHome(showing(challengeView({ activatedAt: null, currentTask: taskView() })));
 
-    expect(await screen.findByTestId("home-end-date")).toBeOnTheScreen();
-    expect(screen.queryByTestId("home-started")).toBeNull();
-    expect(screen.queryByTestId("home-challenge-day")).toBeNull();
+    await openDetails();
+    expect(screen.getByTestId("details-end-date")).toBeOnTheScreen();
+    expect(screen.queryByTestId("details-started")).toBeNull();
   });
 });
 
@@ -2267,7 +2353,7 @@ describe("the back gesture", () => {
 
     expect(await back.press()).toBe(true);
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     // The same trip the screen's own "Back to home" makes, re-read and all: a
     // walk may have been saved while the screen was up.
     expect(reads(api)).toBe(before + 1);
@@ -2306,11 +2392,11 @@ describe("the back gesture", () => {
 
     expect(await back.press()).toBe(true);
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-time-zone-move")).toBeNull();
   });
 
-  it("leaves the pause decision for home", async () => {
+  it("leaves the pause decision for the challenge page, then for home", async () => {
     const back = fakeBackPress();
     await renderHome(
       fakeApi({
@@ -2321,12 +2407,18 @@ describe("the back gesture", () => {
       }),
       { backPress: back.trigger },
     );
-    await userEvent.press(await screen.findByTestId("home-open-pause"));
+    await openDetails();
+    await userEvent.press(screen.getByTestId("details-open-pause"));
     await screen.findByTestId("pause-screen");
 
     expect(await back.press()).toBe(true);
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    // One screen back is the challenge page the pause was opened from, and one
+    // more is home, which is the top again.
+    expect(await screen.findByTestId("details")).toBeOnTheScreen();
+    expect(await back.press()).toBe(true);
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
+    expect(back.listening()).toBe(0);
   });
 });
 
@@ -2370,7 +2462,7 @@ describe("the alarm being tapped", () => {
       }),
       { reminderTaps: taps.trigger },
     );
-    await screen.findByTestId("home-challenge");
+    await screen.findByTestId("home-summary");
 
     await taps.tap("walk");
 
@@ -2383,7 +2475,7 @@ describe("the alarm being tapped", () => {
       fakeApi({ getCurrentChallenge: { challenge: OFFERED_RECOVERY, lastEnded: null } }),
       { reminderTaps: taps.trigger },
     );
-    await screen.findByTestId("home-challenge");
+    await screen.findByTestId("home-summary");
 
     await taps.tap("recovery");
 
@@ -2399,7 +2491,7 @@ describe("the alarm being tapped", () => {
       { reminderTaps: fakeReminderTaps({ launchedBy: "walk" }).trigger },
     );
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.queryByTestId("daily-completion")).toBeNull();
   });
 
@@ -2418,7 +2510,7 @@ describe("the alarm being tapped", () => {
 
     await userEvent.press(screen.getByTestId("daily-back"));
 
-    expect(await screen.findByTestId("home-challenge")).toBeOnTheScreen();
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.queryByTestId("daily-completion")).toBeNull();
   });
 });
@@ -2452,7 +2544,7 @@ describe("saying which screen home has opened", () => {
     await userEvent.press(await screen.findByTestId("home-open-task"));
     await screen.findByTestId("daily-completion");
 
-    expect(reader.said()).toEqual(["Today's walk. Back to home is at the top of the screen."]);
+    expect(reader.said()).toEqual(["Today's walk. Back is at the top of the screen."]);
   });
 
   it("names home again on the way back", async () => {
@@ -2470,7 +2562,7 @@ describe("saying which screen home has opened", () => {
     await screen.findByTestId("daily-completion");
 
     await userEvent.press(screen.getByTestId("daily-back"));
-    await screen.findByTestId("home-challenge");
+    await screen.findByTestId("home-summary");
 
     expect(reader.said()[1]).toBe("Home.");
   });
@@ -2491,7 +2583,7 @@ describe("saying which screen home has opened", () => {
     await screen.findByTestId("daily-completion");
 
     await back.press();
-    await screen.findByTestId("home-challenge");
+    await screen.findByTestId("home-summary");
 
     expect(reader.said()[1]).toBe("Home.");
   });
@@ -2511,7 +2603,7 @@ describe("saying which screen home has opened", () => {
     );
     await screen.findByTestId("daily-completion");
 
-    expect(reader.said()).toEqual(["Today's walk. Back to home is at the top of the screen."]);
+    expect(reader.said()).toEqual(["Today's walk. Back is at the top of the screen."]);
   });
 });
 
@@ -2527,7 +2619,7 @@ describe("whose walks the phone is holding", () => {
         owners.push(owner);
       },
     });
-    await screen.findByTestId("home-challenge");
+    await screen.findByTestId("home-summary");
 
     expect(owners).toEqual([SESSION.accountId]);
   });
