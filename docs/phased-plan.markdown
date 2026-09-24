@@ -359,6 +359,37 @@ any payload.
 **Done when:** a forced rejected completion appears in Sentry with no sensitive
 fields.
 
+### 34a. Walk window
+**Depends on:** 17, 20, 29, 31, 32.
+The rule is in `product.md` under Walk Window and Reminders.
+A per-challenge walk window chosen at creation, defaulting to 10 minutes, more than
+2 minutes and less than 2 hours (whole minutes, 3 to 119), and fixed once funded.
+The contract and the challenge schema carry it, and the creation form picks it with
+a one-minute stepper beside 5, 10, 15, 30 and 60 minute presets. The server derives
+the opening instant from the deadline and rejects a completion whose observation
+started before it, as well as one that finished outside it. The phone accepts movement for a walk only inside
+its window. Reminders collapse to one per walk at the opening instant, replacing
+the 45 and 10 minute leads, and the architecture's Reminders section is rewritten
+to match.
+**Done when:** tests cover both sides of the opening boundary on the server and on
+the phone, a walk started one second early is refused even if it finishes inside
+the window, the window bounds are rejected outside their range, and a scheduled
+reminder lands exactly at the opening instant.
+
+### 34b. Home and challenge page layout
+**Depends on:** 32, 33.
+Home answers one question: what the next walk is and how long is left. It holds the
+next walk as one card with a live countdown to its deadline, the walk number out of
+the required total, the amount at stake, and only the notices that ask the user to
+act. Everything else about the challenge moves to a challenge page opened from that
+card: a real calendar with non-active days greyed out, the schedule, the deposit and
+what a miss would cost, the reminder switch, pause, and the account controls. With no
+challenge running, home offers the account controls behind a settings button, so
+deletion stays reachable. The opening time and the walk window field arrive with 34a.
+**Done when:** home shows no schedule, calendar, reminder or account control; the
+challenge page and back navigation, including Android's back press, are covered by
+tests; and account deletion is reachable with and without a challenge.
+
 ---
 
 ## Phase 6: infrastructure
