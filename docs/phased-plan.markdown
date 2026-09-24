@@ -367,10 +367,10 @@ A per-challenge walk window chosen at creation, defaulting to 10 minutes, more t
 The contract and the challenge schema carry it, and the creation form picks it with
 a one-minute stepper beside 5, 10, 15, 30 and 60 minute presets. The server derives
 the opening instant from the deadline and rejects a completion whose observation
-started before it, as well as one that finished outside it. The phone accepts movement for a walk only inside
-its window. Reminders collapse to one per walk at the opening instant, replacing
-the 45 and 10 minute leads, and the architecture's Reminders section is rewritten
-to match.
+started before it, as well as one that finished outside it. The phone accepts
+movement for a walk only inside its window. Reminders collapse to one per walk at
+the opening instant, replacing the 45 and 10 minute leads, and the architecture's
+Reminders section is rewritten to match.
 **Done when:** tests cover both sides of the opening boundary on the server and on
 the phone, a walk started one second early is refused even if it finishes inside
 the window, the window bounds are rejected outside their range, and a scheduled
