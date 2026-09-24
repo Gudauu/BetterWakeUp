@@ -98,6 +98,11 @@ Walk opens = task deadline - walk window
 
 With a 7:00 AM deadline and a 10 minute window, the walk opens at 6:50 AM.
 
+The window is a length of time, not a time of day, so it can start on the date before its deadline.
+With a 12:30 AM deadline and a 60 minute window, the walk opens at 11:30 PM the evening before.
+A walk never opens before the previous walk's deadline, though.
+When two deadlines are closer together than the window, the later walk opens at the earlier one's deadline, so one walk can never count for two mornings.
+
 - The user chooses the window when creating the challenge. It defaults to 10 minutes and must be more than 2 minutes and less than 2 hours.
 - Like every other parameter, it cannot be changed once the challenge is funded. A window the user could widen later would make a funded challenge easier than the one they committed to.
 - The phone accepts movement for a walk only inside its window. Before the walk opens, the app shows when it opens and does not count steps.

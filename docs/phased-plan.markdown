@@ -367,14 +367,23 @@ A per-challenge walk window chosen at creation, defaulting to 10 minutes, more t
 The contract and the challenge schema carry it, and the creation form picks it with
 a one-minute stepper beside 5, 10, 15, 30 and 60 minute presets. The server derives
 the opening instant from the deadline and rejects a completion whose observation
-started before it, as well as one that finished outside it. The phone accepts
-movement for a walk only inside its window. Reminders collapse to one per walk at
-the opening instant, replacing the 45 and 10 minute leads, and the architecture's
-Reminders section is rewritten to match.
+started before it, as well as one that finished outside it. The opening instant is
+the deadline instant minus the window, or the previous task's deadline if that is
+later, and never a time of day on the task's date: it replaces the start of local
+day check in `create-completion.ts` and the calendar date comparison in
+`walk-window.ts`, which would both refuse a walk that opens the evening before its
+date. Home reads the same instant, not the date, to decide whether a walk has
+opened and whether it is tomorrow's. The phone accepts movement for a walk only
+inside its window. Reminders collapse to one per walk at the opening instant,
+replacing the 45 and 10 minute leads, and the architecture's Reminders section is
+rewritten to match.
 **Done when:** tests cover both sides of the opening boundary on the server and on
 the phone, a walk started one second early is refused even if it finishes inside
 the window, the window bounds are rejected outside their range, and a scheduled
-reminder lands exactly at the opening instant.
+reminder lands exactly at the opening instant. A 12:30 AM deadline with a 60 minute
+window is accepted from 11:30 PM the date before, on the server and on the phone,
+including across a daylight saving change, and a walk whose window reaches back
+past the previous deadline opens only at that deadline.
 
 ### 34b. Home and challenge page layout
 **Depends on:** 32, 33.
