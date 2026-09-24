@@ -24,6 +24,7 @@ import { describe, expect, it } from "vitest";
 
 import { createSessionGate } from "../../src/auth/session-gate.ts";
 import { hashSessionToken, mintSessionToken } from "../../src/auth/session-token.ts";
+import { acceptRecovery } from "../../src/challenges/accept-recovery.ts";
 import type { Database } from "../../src/db/index.ts";
 import { challengeAuthorizations } from "../../src/db/schema/authorizations.ts";
 import {
@@ -203,6 +204,11 @@ async function arrange(
   };
 }
 
+/**
+ * A command keyed the way every capture was before captures named their cause.
+ * Settlement never reads the key, so these fixtures double as the proof that a
+ * command written by an older server still executes.
+ */
 async function createCommand(
   db: Database,
   challengeId: string,
@@ -578,6 +584,67 @@ describe("the sweep's own pass", () => {
     expect(await app.provider.getTransactionStatus(arranged.authorizationId)).toMatchObject({
       state: "authorized",
     });
+  });
+
+  it("collects the forfeit of a miss that comes after an accepted recovery", async () => {
+    const { db } = testDatabase();
+    const app = harness();
+    const arranged = await arrange(db, app);
+
+    // The first miss opens the offer, and accepting it cancels that capture.
+    await createSweep({ db, provider: app.provider, now: () => OVERDUE_AT })(
+      scheduledEvent() as ScheduledEvent,
+      app.logger,
+    );
+    const [missed] = await db
+      .select({ id: scheduledTasks.id })
+      .from(scheduledTasks)
+      .where(
+        and(
+          eq(scheduledTasks.challengeId, arranged.challengeId),
+          eq(scheduledTasks.status, "missed"),
+        ),
+      );
+    if (missed === undefined) throw new Error("the first sweep missed no task");
+    await acceptRecovery(
+      { db, now: () => new Date(OVERDUE_AT.getTime() + 60_000) },
+      {
+        accountId: arranged.accountId,
+        challengeId: arranged.challengeId,
+        idempotencyKey: KEY.first,
+        taskId: missed.id,
+      },
+    );
+
+    // The second miss finds the allowance spent, so it fails the challenge and
+    // its capture is due at once. The cancelled capture must not swallow it.
+    const secondOverdue = new Date(taskDeadline(2).getTime() + 4 * 60 * 60 * 1000);
+    const result = await createSweep({ db, provider: app.provider, now: () => secondOverdue })(
+      scheduledEvent() as ScheduledEvent,
+      app.logger,
+    );
+
+    expect(result).toMatchObject({
+      challengesFailed: 1,
+      settlementsCreated: 1,
+      forfeitsCollected: 1,
+    });
+    expect((await challengeRow(db, arranged.challengeId))?.status).toBe("failed");
+    const captures = await db
+      .select({ status: paymentCommands.status, executeAfter: paymentCommands.executeAfter })
+      .from(paymentCommands)
+      .where(
+        and(
+          eq(paymentCommands.challengeId, arranged.challengeId),
+          eq(paymentCommands.kind, "capture"),
+        ),
+      )
+      .orderBy(asc(paymentCommands.createdAt));
+    expect(captures).toEqual([
+      expect.objectContaining({ status: "cancelled" }),
+      { status: "confirmed", executeAfter: secondOverdue },
+    ]);
+    expect(balanceOf(await ledger(db, arranged.challengeId), "platform_revenue")).toBe(DEPOSIT);
   });
 
   it("executes nothing when no provider is configured", async () => {

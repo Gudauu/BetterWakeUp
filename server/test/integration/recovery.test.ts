@@ -254,6 +254,28 @@ describe("what one recovery commits", () => {
     expect(await allowanceOf(db, offer.accountId)).toEqual(at);
   });
 
+  it("cancels a capture written before captures were keyed by their cause", async () => {
+    const db = testDatabase().db;
+    const offer = await arrangeOffer(db);
+    // The key every capture carried before this change. Nothing that selects a
+    // capture reads its key, so a pending one from then is cancelled the same.
+    await db
+      .update(paymentCommands)
+      .set({ dedupeKey: `capture:${offer.challengeId}` })
+      .where(eq(paymentCommands.challengeId, offer.challengeId));
+    const at = new Date(MISSED_AT.getTime() + HOUR_MS);
+
+    const response = await app(db, at).request(
+      ...recoveryRequest(offer.token, offer.challengeId, offer.taskId, KEY.first),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await captureOf(db, offer.challengeId)).toMatchObject({
+      status: "cancelled",
+      settledAt: at,
+    });
+  });
+
   it("answers with the forgiven task and the appended one", async () => {
     const db = testDatabase().db;
     const offer = await arrangeOffer(db);

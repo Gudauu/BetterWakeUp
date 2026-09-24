@@ -530,19 +530,24 @@ describe("the sweep leaves everything else alone", () => {
 });
 
 describe("the settlement command's dedupe key", () => {
-  it("is one key per kind per challenge, so a second pass writes nothing", async () => {
+  it("is one key per missed task, so a second pass writes nothing", async () => {
     const { db } = testDatabase();
     const { challengeId } = await insertChallenge(db, { depositMinorUnits: 2000 });
     const at = new Date(graceEnds(1).getTime() + SECOND_MS);
 
     await sweep(db, at);
+    await sweep(db, at);
 
-    const [command] = await db
+    const [missed] = await db
+      .select({ id: scheduledTasks.id })
+      .from(scheduledTasks)
+      .where(and(eq(scheduledTasks.challengeId, challengeId), eq(scheduledTasks.status, "missed")));
+    const commands = await db
       .select({ dedupeKey: paymentCommands.dedupeKey })
       .from(paymentCommands)
       .where(
         and(eq(paymentCommands.challengeId, challengeId), eq(paymentCommands.kind, "capture")),
       );
-    expect(command?.dedupeKey).toBe(`capture:${challengeId}`);
+    expect(commands).toEqual([{ dedupeKey: `capture:miss:${missed?.id}` }]);
   });
 });

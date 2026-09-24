@@ -146,7 +146,7 @@ async function resolveOne(
   }
 
   await markMissed(tx, task.taskId, options.now);
-  return await resolveChallenge(tx, challenge, options.now);
+  return await resolveChallenge(tx, challenge, task.taskId, options.now);
 }
 
 interface Candidate {
@@ -303,6 +303,7 @@ async function markMissed(tx: Transaction, taskId: string, now: Date): Promise<v
 async function resolveChallenge(
   tx: Transaction,
   challenge: LockedChallenge,
+  missedTaskId: string,
   now: Date,
 ): Promise<Resolution> {
   const recoverable = challenge.depositMinorUnits > 0 && challenge.recoveryConsumedAt === null;
@@ -329,6 +330,9 @@ async function resolveChallenge(
     (await createSettlementCommand(tx, {
       challengeId: challenge.id,
       kind: "capture",
+      // Keyed on the miss rather than the challenge: a challenge that recovered
+      // from an earlier miss still owes a capture for this one.
+      cause: { kind: "miss", taskId: missedTaskId },
       executeAfter: recoverable ? new Date(now.getTime() + RECOVERY_WINDOW_HOURS * HOUR_MS) : now,
     }));
 
