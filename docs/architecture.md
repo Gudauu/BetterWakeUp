@@ -301,6 +301,15 @@ A number below its field's minimum is read but refused, and the sentence naming 
 
 `configurationOf` states its remaining complaints in the same words. A path into the request body is the right thing to log and the wrong thing to show, so the schema's issues are mapped to sentences, sharing the fields' own wording so the banner and the line under the box cannot disagree.
 
+### The walk window being chosen
+
+The walk window is the one number on the form that is not typed.
+Its bounds are tight - more than 2 minutes and less than 2 hours, the contract's `MINIMUM_WALK_WINDOW_MINUTES` and `MAXIMUM_WALK_WINDOW_MINUTES` - so it is a one-minute stepper whose buttons stop at the bounds, beside presets of 5, 10, 15, 30 and 60 minutes, and a control that cannot leave the range has nothing to complain about.
+It defaults to 10 minutes.
+
+`app/src/challenges/walk-window-setting.ts` owns the presets, the clamping and the reading under the control, which turns the length into the clock time the earliest morning opens at - "A 7:00 AM morning opens at 6:50 AM" - and says "the night before" when the window crosses midnight, for the same reason the No Regret reading does.
+That reading is the configuring half only: once a challenge runs, the server states each task's own opening instant, which the previous task's deadline can also bound (see [Walk window](#walk-window)).
+
 ### The money being typed
 
 The deposit is the last field to be read this way and the only one where a misreading costs money, so `app/src/challenges/deposit.ts` owns it.
@@ -443,7 +452,9 @@ A reminder is a fact the device already holds - the deadline arrived on the last
 
 What is scheduled comes from instants the server sent, never from the weekly schedule.
 A challenge carries one open task at a time, so the app reminds about that task and asks again on the next read.
-Two per task: the alarm 45 minutes before the deadline, which is time enough to get up and walk, and a last call 10 minutes before it for a morning already going wrong.
+One per walk, at exactly the task's `opensAt` - the instant the server starts counting movement for it.
+The walk window already says when the user has to be moving, so a reminder any earlier would wake someone for a walk they cannot take yet, and a separate reminder time would only be a way for the two to disagree.
+A walk that is already open when the challenge is read has nothing left to ring for, and gets nothing.
 A recovery offer gets one an hour before it lapses, because that one is about the deposit rather than about walking.
 
 The set is replaced whole on every read rather than added to, and each reminder's identifier is derived from the task it belongs to.
@@ -657,8 +668,8 @@ The deadline used to be stated only as a wall-clock time - "250 steps by 7:00 AM
 That left the two moments the day turns on unspoken.
 Someone opening the app at 6:52 was not told they had eight minutes, and someone opening it at 7:20 was told "Not done yet" and offered a button that starts a walk `POST /tasks/:id/completions` has already stopped being able to accept: the command must arrive within the deadline's receipt grace, and the reported completion instant must itself be at or before the deadline, so a walk begun after it cannot count however far it goes.
 
-The boundary between a countdown worth reading quietly and one worth raising is `ALARM_LEAD_MINUTES`, imported rather than restated.
-The app has already decided that is the moment a user should be up and walking, and the reminder that fires then and the line that turns amber then are the same judgement.
+The boundary between a countdown worth reading quietly and one worth raising is the task's own `opensAt`.
+That is the moment movement starts counting and the one reminder rings, so the reminder and the line that turns amber are the same judgement; before it the countdown is a fact about a walk that cannot be taken yet.
 
 Past the deadline the screen withdraws the invitation rather than colouring it: the start button is gone, the advice says the window has closed, and a banner names the time that passed and points at the Emergency Recovery, which lives on home because the offer only exists once the server has recorded the missed day.
 While a walk is racing the clock the card adds the half of the rule a walker cannot guess - it is the instant the walk is saved that is judged, so a window opened in time and finished late is refused.
@@ -669,19 +680,23 @@ Home is the screen most people open first, and it named "Deadline 7:00 AM" and s
 Past it the card says the morning went by with nothing saved, stops short of calling the day lost because the sweep decides that, and mentions the Emergency Recovery only as a condition rather than as a promise, since a challenge that has already spent it gets no offer.
 A walk the deadline overtook while it sat unsent on the phone is told so plainly: the sentence that asked its owner to find signal was asking for work that could no longer buy anything.
 
-#### The morning that has not started yet
+#### The walk that has not opened yet
 
 `app/src/challenges/walk-window.ts` answers the other end of the same window: whether the walk home is showing can be walked at all yet.
 
 The server hands out one open task at a time, so the moment today's walk is acknowledged the open task is tomorrow morning's.
-Home drew it exactly as it had drawn today's - a step target, a countdown, and a button reading "Open today's task" - and a completion recorded for it that evening is refused, because `create-completion.ts` requires the observation to fall inside the task's own local day.
-That is the same defect as the passed deadline at the opposite edge of the window, and it was reachable every single day of a challenge rather than only on a missed one.
+A walk opens only at the task's `opensAt`, and `create-completion.ts` refuses one whose observation started before it, however it ended.
 
-The question is answered by comparing calendar dates in the challenge's own time zone, not instants: a task's `date` is the local day it belongs to, so "has that day started" is "what day is it where the challenge reads its deadlines".
-A runtime whose `Intl` cannot read the zone answers nothing and home says what it always said, because a guess about which day it is would be worse than the sentence it replaces.
+The question is answered by comparing instants, not calendar dates.
+A window is a length of time rather than a time of day, so a 12:30 AM deadline with an hour's window opens at 11:30 PM on the date before the task's own, and "has the task's day started" would hide a walk that is open.
+The instant is the server's, so the phone never derives it and cannot disagree with the server about where the window starts, including across a clock change.
+An opening instant that will not parse reads as open, because hiding the walk is the answer that costs a morning.
 
-Once the walk has not opened, the card asks for nothing: the button is gone, and the card's heading says the walk is tomorrow's.
+Before the walk opens, home and the task screen ask for nothing: the button is gone, both say when it opens - "today at 11:30 PM", "tomorrow at 6:50 AM" - and home's heading says whether it opens tomorrow.
 The countdown to its deadline stays, because how long is left until the next deadline is worth knowing the night before too.
+
+The phone accepts movement for a walk only inside its window.
+`app/src/completions/walk-acceptance.ts` holds a finished walk to the task's `opensAt` and `deadline` before anything is written to the store, on the pressed save and on the walk salvaged after an interruption alike: a record the server can only refuse is not a saved walk, so the screen says why nothing was recorded instead.
 
 The same read is what lets home say a morning was kept.
 Until then the only mark of a kept day on home was a square in the row of days: the card that had asked for the walk simply started asking for the next one, on the one screen a user opens after doing the thing the whole product is about.
@@ -798,7 +813,7 @@ The year is read from the server's own `pause.expiresAt` in the challenge's zone
 
 `resumeResult` leads with the clock, which is the point of it.
 Resuming is the only press in the app that hands the user a deadline they did not ask for: a pause set on a Friday and lifted on a Monday evening can put a morning hours away back in front of somebody who thought they were only ending a pause.
-So the morning, the time it is due, and how long is left are said on the screen that did it, with the countdown from `timeLeftUntil` and the urgency boundary the rest of the app already uses - `ALARM_LEAD_MINUTES` - deciding whether it is a note or a warning.
+So the morning, the time it is due, and how long is left are said on the screen that did it, with the countdown from `timeLeftUntil` and the urgency boundary the rest of the app already uses - whether the walk has opened - deciding whether it is a note or a warning.
 
 Both outcomes hand the challenge back only on "Done", for the same reason the recovery outcome does: the answer has to be read before the challenge is re-read, and the challenge this screen was given still says paused after a resume, so the outcome branch is checked before any branch that draws from it.
 
@@ -813,10 +828,10 @@ The screen answered it with two lines and called `onCreated` in the same breath,
 
 The first morning is the point of it.
 A challenge set up at bedtime can be due before the user next opens the app, and one set up on a Saturday afternoon may not be due for two days; which of those it is decides what the user does next, and the app knew it and said nothing.
-The countdown comes from `timeLeftUntil` and turns warning-toned at `ALARM_LEAD_MINUTES`, the same boundary the rest of the app reads a closing morning by.
+The countdown comes from `timeLeftUntil` and turns warning-toned once the walk has opened, the same boundary the rest of the app reads a closing morning by.
 
 A null `currentTask` is not "nothing was scheduled" - every day is materialized at activation, and the first one is simply still ahead - so it gets its own sentence.
-The reminders are stated as a condition rather than as a promise, because the alarms only exist on a phone that has allowed notifications and home is where that is asked for.
+The reminders are stated as a condition rather than as a promise, because the alarms only exist on a phone that has allowed notifications and the challenge page is where that is asked for.
 
 The challenge is handed back only on "Back to home", for the same reason the pause and recovery outcomes are: home re-reads the account on that callback, and a caller told at creation time replaces the answer with the screen the user pressed from.
 
@@ -888,7 +903,7 @@ The projection carries `firstTaskDeadline` for the reason its own contract comme
 `app/src/challenges/first-morning.ts` reads that instant against the clock the screen already holds, and answers three things: the morning as the day and the time it is due in the challenge's own zone, how far off that is, and the one thing worth saying before the press.
 
 Two cases are worth saying something about.
-Inside `ALARM_LEAD_MINUTES` the phone has no time left to set the alarm it would otherwise set, so the challenge would begin with a morning nothing but the user's own attention can meet; the boundary is the alarm's own lead here for the same reason it is everywhere else in the app.
+Inside the walk window the first walk is already open, so the one reminder a walk gets has nothing left to ring for and the challenge would begin with a morning nothing but the user's own attention can meet; the first task has no earlier deadline to open after, so it opens exactly the window before its own.
 Inside the No Regret cutoff the plan on screen has stopped describing what the server would make at all: the schedule engine takes the first morning whose cutoff is still ahead, so it would start the challenge on the next morning the schedule holds and both the first date and the end date would move.
 That second case cannot correct itself, because the projection is only re-asked when the configuration changes and nothing about sitting on the form changes it - the same reason the failed read above needed a press of its own.
 
@@ -1094,7 +1109,7 @@ Neither surface said so.
 Home and the task screen both drew the morning's countdown over a walk that had already been taken - "12 minutes left to walk", to a walker who had walked - which is the wrong sentence for the reader and the wrong deadline for the record, because the grace is not in it.
 
 `app/src/completions/receipt-window.ts` answers the question that state actually raises.
-It counts to the deadline plus the grace, names that moment as a wall-clock time in the challenge's own zone, and turns urgent at `LAST_CALL_LEAD_MINUTES` - the app's own already-chosen definition of a morning going wrong, with the difference that walking is no longer what fixes it.
+It counts to the deadline plus the grace, names that moment as a wall-clock time in the challenge's own zone, and turns urgent in its last ten minutes, `RECEIPT_CLOSING_MINUTES` - a walk walked but still unsent then is a morning going wrong, with the difference that walking is no longer what fixes it.
 Both surfaces draw that countdown in place of the morning's whenever this device is holding today's walk.
 
 Once the window has closed the wording changes rather than the countdown simply disappearing.
@@ -1317,12 +1332,14 @@ Store:
 - The weekly schedule and deadline for each active weekday.
 - The required task count.
 - The No Regret duration.
+- The walk window, in whole minutes from 3 to 119.
 - Whether the challenge is currently paused, and since when.
 - The policy version accepted when the challenge was funded.
 
 Materialize scheduled task rows with UTC instants for:
 
 - Task date in the challenge time zone.
+- Walk opening instant.
 - Task deadline.
 - Pause cutoff.
 
@@ -1357,6 +1374,18 @@ This keeps the end date correct, matches the product rule that pausing pushes th
 The invariant is scoped to `active` deliberately.
 A `missed` task drops the count below the required total by design, and it stays below until the task is forgiven or the challenge fails.
 
+### Walk window
+
+A walk opens at its deadline less the walk window, measured in real time like the pause cutoff, so a 12:30 AM deadline with a 60 minute window opens at 11:30 PM the evening before, whatever the clocks do in between.
+It never opens before the previous task's deadline, so one walk cannot count for two mornings, and never after its own deadline, which only a time zone change that reordered two deadlines could otherwise produce.
+
+The opening instant is stored on the task as `opens_at`, beside the deadline and the pause cutoff, rather than derived where it is read.
+The floor is another row's deadline, and every writer that places a task already holds that row: materialization places tasks in order, a replacement is appended after the last task, and a time zone change carries the previous deadline along the tasks it moves.
+Every reader, the completion check and the app's home and reminder among them, then reads one instant rather than re-deriving it, and the app is handed `opensAt` on every task view.
+
+It is never a time of day on the task's date.
+The first version of the completion check compared against the start of the task's local day, which would refuse a walk that opens the evening before.
+
 ### Pause mode
 
 Pausing sets a mode on the challenge rather than acting on one task.
@@ -1384,6 +1413,7 @@ A time zone change re-materializes only tasks whose stored pause cutoff is stric
 The boundary is deliberately stated against a stored instant rather than an informal notion of a window that has not started, because a task can have a passed pause cutoff and a future deadline, and the two readings would give that task different pause eligibility.
 
 A time zone change never rewrites completed, missed, forgiven, skipped, or currently open task rows.
+A task it does move gets its opening instant recomputed along with its deadline and cutoff, against the deadline of the task before it as that task now stands.
 
 **Who asks for the change.**
 The user never types a zone. The app compares the device's zone against the challenge's on every home read and offers the move when they disagree, because the user who has flown east is exactly the user who does not know their 7:00 AM deadline is now judged at 10:00 AM local.
@@ -1405,7 +1435,8 @@ The move itself is not confirmation-gated - it gives nothing up and can be made 
 
 The server clock decides whether acknowledgment and pause commands arrive in time.
 
-A completion is accepted when it is received no later than the task deadline plus a fixed sixty-second receipt grace, and the reported local completion timestamp falls inside the task window and at or before the deadline.
+A completion is accepted when it is received no later than the task deadline plus a fixed sixty-second receipt grace, and the walk lies inside the walk window: the observation started at or after the task's opening instant and ended at or before the deadline, and the reported completion timestamp falls between the two.
+A walk that started before the window opened is refused however it ended, because the early steps are part of one continuous observation and cannot be told apart from the rest.
 
 The grace exists because the product makes server acknowledgment a hard condition for credit, which would otherwise let a cold start, a slow handshake, or a moment of weak signal decide a user's deposit.
 It is a deliberate leniency of bounded size.

@@ -76,6 +76,7 @@ export function challengeView(overrides: Partial<ChallengeView> = {}): Challenge
       schedule: [{ weekday: "monday", deadline: "07:00" }],
       stepTarget: 250,
       noRegretMinutes: 480,
+      walkWindowMinutes: FIXTURE_WALK_WINDOW_MINUTES,
       timeZone: "America/Los_Angeles",
       deposit: { amount: 0, currency: "USD" },
     },
@@ -146,11 +147,25 @@ export function fundedChallengeView(overrides: Partial<ChallengeView> = {}): Cha
   };
 }
 
+/**
+ * The fixture's walk window. Wide rather than the product's default, so a test
+ * set an hour before its deadline - the moment most of them are written at - is
+ * looking at a walk that is open, which is the state they are about.
+ */
+export const FIXTURE_WALK_WINDOW_MINUTES = 90;
+
+/**
+ * A task as the server sends it. Its `opensAt` follows its deadline by the
+ * fixture's window unless the test names one, so overriding the deadline alone
+ * keeps the two consistent.
+ */
 export function taskView(overrides: Partial<TaskView> = {}): TaskView {
+  const deadline = overrides.deadline ?? "2026-09-01T14:00:00.000Z";
   return {
     id: "44444444-4444-4444-8444-444444444444",
     date: "2026-09-01",
-    deadline: "2026-09-01T14:00:00.000Z",
+    opensAt: new Date(Date.parse(deadline) - FIXTURE_WALK_WINDOW_MINUTES * 60_000).toISOString(),
+    deadline,
     pauseCutoff: "2026-09-01T06:00:00.000Z",
     status: "scheduled",
     acknowledgedAt: null,

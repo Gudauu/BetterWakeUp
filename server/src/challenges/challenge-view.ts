@@ -99,6 +99,7 @@ export async function loadChallengeView(db: Readable, challengeId: string): Prom
         ),
       stepTarget: challenge.stepTarget,
       noRegretMinutes: challenge.noRegretMinutes,
+      walkWindowMinutes: challenge.walkWindowMinutes,
       timeZone: challenge.timeZone,
       deposit: {
         amount: challenge.depositMinorUnits,
@@ -151,6 +152,7 @@ export function taskViewOf(task: TaskRow): TaskView {
   return {
     id: task.id,
     date: task.taskDate,
+    opensAt: task.opensAt.toISOString(),
     deadline: task.deadline.toISOString(),
     pauseCutoff: task.pauseCutoff.toISOString(),
     status: task.status,

@@ -25,6 +25,7 @@ const CONFIGURATION = {
   schedule: [{ weekday: "monday", deadline: "07:30" }],
   stepTarget: 500,
   noRegretMinutes: 60,
+  walkWindowMinutes: 10,
   timeZone: "America/Los_Angeles",
   deposit: { amount: 0, currency: "USD" },
 };

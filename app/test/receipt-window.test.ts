@@ -46,7 +46,7 @@ describe("how long a saved walk still has", () => {
     );
   });
 
-  it("turns urgent at the last call's own lead time and not before", () => {
+  it("turns urgent in its last ten minutes and not before", () => {
     const atBoundary = new Date(Date.parse(DEADLINE) + 60_000 - RECEIPT_CLOSING_MINUTES * 60_000);
     const justBefore = new Date(atBoundary.getTime() - 60_000);
 

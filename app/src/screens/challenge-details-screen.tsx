@@ -27,9 +27,10 @@ import {
 import { missCost } from "../challenges/miss-cost.ts";
 import { scheduleGroups } from "../challenges/schedule.ts";
 import { timeZoneLabel } from "../challenges/time-zone.ts";
+import { walkWindowSummary } from "../challenges/walk-window-setting.ts";
 import type { OpenSettingsState } from "../device/settings.ts";
 import type { RemindersState } from "../reminders/notifier.ts";
-import { ALARM_LEAD_MINUTES, nextAlarmAt } from "../reminders/reminders.ts";
+import { nextAlarmAt } from "../reminders/reminders.ts";
 import {
   AppText,
   Button,
@@ -247,6 +248,11 @@ export function ChallengeDetailsScreen({
           testID="details-steps"
         />
         <DetailRow
+          label="Walk opens"
+          value={walkWindowSummary(configuration.walkWindowMinutes)}
+          testID="details-walk-window"
+        />
+        <DetailRow
           label="Time zone"
           value={timeZoneLabel(configuration.timeZone)}
           testID="details-schedule-zone"
@@ -315,7 +321,7 @@ function monthTitle(firstOfMonth: string): string {
  * Whether the device will wake the user for this challenge.
  *
  * The offer names the time the nudge would arrive rather than the feature,
- * because "6:15 AM" is the thing worth agreeing to. A challenge that is over or
+ * because "6:50 AM" is the thing worth agreeing to. A challenge that is over or
  * paused has nothing to be woken for, so it says nothing at all rather than
  * offering a switch that would schedule nothing.
  */
@@ -344,13 +350,13 @@ function Reminders({
           <AppText variant="small" testID="details-reminders-on">
             {time === null
               ? "Reminders are on. You will be nudged before your next walk."
-              : `Reminders are on. You will be nudged at ${time}, ${ALARM_LEAD_MINUTES} minutes before the deadline.`}
+              : `Reminders are on. You will be nudged at ${time}, when your walk opens.`}
           </AppText>
         ) : reminders.permission === "denied" ? (
           <>
             <AppText variant="small" tone="muted" testID="details-reminders-denied">
               Reminders are off. Turn on notifications for BetterWakeUp in your device settings and
-              you will be nudged before each walk.
+              you will be nudged as each walk opens.
             </AppText>
             <OpenSettingsAction
               testID="details-reminders-settings"
@@ -362,8 +368,8 @@ function Reminders({
           <>
             <AppText variant="small" testID="details-reminders-offer">
               {time === null
-                ? `Get a reminder ${ALARM_LEAD_MINUTES} minutes before each deadline, so a walk is never missed by forgetting it.`
-                : `Get a reminder at ${time}, ${ALARM_LEAD_MINUTES} minutes before your deadline, so a walk is never missed by forgetting it.`}
+                ? "Get a reminder as each walk opens, so a walk is never missed by forgetting it."
+                : `Get a reminder at ${time}, when your walk opens, so a walk is never missed by forgetting it.`}
             </AppText>
             <Button
               testID="details-enable-reminders"

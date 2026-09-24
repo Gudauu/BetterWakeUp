@@ -58,6 +58,14 @@ import { NO_REGRET_HINT, noRegretReading } from "../challenges/no-regret.ts";
 import { scheduleSentence } from "../challenges/schedule.ts";
 import { readWakeTime } from "../challenges/wake-time.ts";
 import {
+  canStepWalkWindow,
+  stepWalkWindow,
+  WALK_WINDOW_HINT,
+  WALK_WINDOW_PRESETS,
+  walkWindowReading,
+  walkWindowSummary,
+} from "../challenges/walk-window-setting.ts";
+import {
   createConfiguredSettingsLauncher,
   type OpenSettingsState,
   type SettingsLauncher,
@@ -90,10 +98,11 @@ import {
   Divider,
   Field,
   Screen,
+  Stepper,
   TextButton,
   Toggle,
 } from "../ui/components.tsx";
-import { formatDay, formatWallClock } from "../ui/format.ts";
+import { formatDay, formatDuration, formatWallClock } from "../ui/format.ts";
 import { useTheme } from "../ui/theme.ts";
 import { OpenSettingsAction } from "./open-settings-action.tsx";
 
@@ -275,6 +284,7 @@ export function CreateChallengeScreen({
           projection,
           timeZone: draft.timeZone,
           noRegretMinutes: draft.noRegretMinutes,
+          walkWindowMinutes: draft.walkWindowMinutes,
           now: clock,
         });
 
@@ -700,6 +710,11 @@ export function CreateChallengeScreen({
             }
           }}
         />
+        <WalkWindowField
+          minutes={draft.walkWindowMinutes}
+          schedule={draft.schedule}
+          onChange={(minutes) => dispatch({ type: "setWalkWindowMinutes", minutes })}
+        />
         <CountField
           label="No Regret Time"
           hint={NO_REGRET_HINT}
@@ -784,6 +799,11 @@ export function CreateChallengeScreen({
               label="Mornings"
               value={scheduleSentence(draft.schedule)}
               testID="projection-schedule"
+            />
+            <DetailRow
+              label="Walk opens"
+              value={walkWindowSummary(draft.walkWindowMinutes)}
+              testID="projection-walk-window"
             />
             <DetailRow
               label="First morning"
@@ -994,6 +1014,61 @@ function DepositField({
         onChange(readDeposit(next).minorUnits);
       }}
     />
+  );
+}
+
+/**
+ * How long before each deadline the walk opens.
+ *
+ * A stepper rather than a typed box: the window has tight bounds, and a control
+ * that cannot leave them has nothing to complain about. The presets are the
+ * lengths most people want in one press, and the stepper reaches every whole
+ * minute between them.
+ */
+function WalkWindowField({
+  minutes,
+  schedule,
+  onChange,
+}: {
+  minutes: number;
+  schedule: readonly { readonly deadline: string }[];
+  onChange: (minutes: number) => void;
+}) {
+  return (
+    <View style={styles.group} testID="field-walk-window">
+      <AppText variant="small" style={styles.label}>
+        Walk window
+      </AppText>
+      <AppText variant="caption" tone="muted">
+        {WALK_WINDOW_HINT}
+      </AppText>
+      <Stepper
+        testID="walk-window-stepper"
+        value={formatDuration(minutes)}
+        decrementLabel="One minute shorter"
+        incrementLabel="One minute longer"
+        canDecrement={canStepWalkWindow(minutes, -1)}
+        canIncrement={canStepWalkWindow(minutes, 1)}
+        onDecrement={() => onChange(stepWalkWindow(minutes, -1))}
+        onIncrement={() => onChange(stepWalkWindow(minutes, 1))}
+      />
+      <View style={styles.chips}>
+        {WALK_WINDOW_PRESETS.map((preset) => (
+          <Chip
+            key={preset}
+            testID={`walk-window-preset-${preset}`}
+            label={`${preset} min`}
+            selected={minutes === preset}
+            onPress={() => onChange(preset)}
+          />
+        ))}
+      </View>
+      {/* Read back against the mornings picked above, because the length is
+          only meaningful as the clock time a morning opens at. */}
+      <AppText variant="caption" tone="muted" testID="walk-window-reading">
+        {walkWindowReading(minutes, schedule)}
+      </AppText>
+    </View>
   );
 }
 

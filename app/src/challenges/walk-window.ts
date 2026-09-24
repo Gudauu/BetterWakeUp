@@ -2,24 +2,25 @@
  * Whether the walk the app is showing can be walked yet.
  *
  * The server hands out one open task at a time, and the moment a morning is
- * kept the open task becomes the *next* morning's. Home drew that task exactly
- * as it drew today's: a step target and a button reading "Open today's task".
- * Both were wrong. A completion is refused unless its observation falls inside
- * the task's own local day (`create-completion.ts` checks it against the start
- * of that day), so a walk taken tonight for tomorrow's task is work the server
- * cannot accept - the same shape as the deadline that has already passed, at
+ * kept the open task becomes the *next* morning's. A walk opens only at its
+ * `opensAt` - the deadline less the challenge's walk window, or the previous
+ * task's deadline if that is later - and `create-completion.ts` refuses any
+ * walk that started before it. A walk taken before then is work the server
+ * cannot accept: the same shape as the deadline that has already passed, at
  * the other end of the window.
  *
- * The comparison is between calendar dates in the challenge's own time zone,
- * not between instants: the task's `date` is the local day it belongs to, so
- * "has that day started" is answered by asking what day it is where the
- * challenge reads its deadlines.
+ * The comparison is between instants, not calendar dates. A window is a length
+ * of time rather than a time of day, so a 12:30 AM deadline with an hour's
+ * window opens at 11:30 PM on the date before the task's own, and asking "has
+ * the task's day started" would hide a walk that is open. The server states the
+ * instant, so nothing here derives it.
  *
  * Nothing here decides what a day meant - `history.ts` reads the calendar - and
  * nothing here asks the server anything.
  */
 
-import type { ChallengeView } from "@betterwakeup/contract";
+import type { ChallengeView, TaskView } from "@betterwakeup/contract";
+import { formatDeadline, formatTimeOfDay } from "../ui/format.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -44,16 +45,16 @@ export function localDate(at: Date, timeZone: string): string | null {
 }
 
 export interface WalkWindow {
-  /** The task belongs to a day that has not started yet where the challenge is. */
+  /** The walk's window has not opened yet, so nothing walked now can count. */
   readonly opensLater: boolean;
-  /** That day is the one straight after today, which is worth saying as a word. */
+  /** It opens on the day straight after today, which is worth saying as a word. */
   readonly opensTomorrow: boolean;
   /** Today's own day was walked. Only true once the server has recorded it. */
   readonly walkedToday: boolean;
 }
 
 /**
- * Where the open task stands against the day it is now.
+ * Where the open task stands against the instant it is now.
  *
  * Null when the challenge holds no open task, and null when the zone cannot be
  * read at all - in both cases home says what it always said, because a guess
@@ -64,15 +65,44 @@ export function walkWindow(challenge: ChallengeView, now: Date): WalkWindow | nu
   if (task === null) {
     return null;
   }
-  const today = localDate(now, challenge.configuration.timeZone);
-  if (today === null) {
+  const { timeZone } = challenge.configuration;
+  const today = localDate(now, timeZone);
+  const opensOn = localDate(new Date(task.opensAt), timeZone);
+  if (today === null || opensOn === null) {
     return null;
   }
   return {
-    opensLater: task.date > today,
-    opensTomorrow: task.date === dayAfter(today),
+    opensLater: !hasOpened(task, now),
+    opensTomorrow: !hasOpened(task, now) && opensOn === dayAfter(today),
     walkedToday: challenge.days.some((day) => day.date === today && day.status === "completed"),
   };
+}
+
+/**
+ * Whether the walk's window has opened: `now` is at or past the server's
+ * `opensAt`. An instant that will not parse reads as open, because the answer
+ * that would cost a morning is the one that hides the walk.
+ */
+export function hasOpened(task: Pick<TaskView, "opensAt">, now: Date): boolean {
+  const opens = Date.parse(task.opensAt);
+  return Number.isNaN(opens) || now.getTime() >= opens;
+}
+
+/**
+ * When a walk that has not opened yet opens, said against today: "today at
+ * 11:30 PM", "tomorrow at 6:50 AM", or the day in full further out.
+ */
+export function opensAtText(task: Pick<TaskView, "opensAt">, timeZone: string, now: Date): string {
+  const today = localDate(now, timeZone);
+  const opensOn = localDate(new Date(task.opensAt), timeZone);
+  const time = formatTimeOfDay(task.opensAt, timeZone);
+  if (today !== null && opensOn === today) {
+    return `today at ${time}`;
+  }
+  if (today !== null && opensOn === dayAfter(today)) {
+    return `tomorrow at ${time}`;
+  }
+  return formatDeadline(task.opensAt, timeZone);
 }
 
 /** The date after a plain calendar date, read and rebuilt in UTC so no zone shifts it. */

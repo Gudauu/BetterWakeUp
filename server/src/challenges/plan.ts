@@ -46,6 +46,7 @@ export function scheduleConfigurationOf(
     requiredTaskCount: configuration.requiredTaskCount,
     schedule: configuration.schedule,
     noRegretMinutes: configuration.noRegretMinutes,
+    walkWindowMinutes: configuration.walkWindowMinutes,
     timeZone: configuration.timeZone,
   };
 }

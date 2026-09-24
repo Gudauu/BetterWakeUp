@@ -860,6 +860,65 @@ export function Chip({
 }
 
 /**
+ * A value moved one unit at a time, between two buttons that stop at its
+ * bounds. The buttons are named for what they do, so a screen reader says
+ * "one minute shorter" rather than "minus".
+ */
+export function Stepper({
+  testID,
+  value,
+  decrementLabel,
+  incrementLabel,
+  canDecrement,
+  canIncrement,
+  onDecrement,
+  onIncrement,
+}: {
+  readonly testID: string;
+  /** The current value as the user reads it, such as "10 minutes". */
+  readonly value: string;
+  readonly decrementLabel: string;
+  readonly incrementLabel: string;
+  readonly canDecrement: boolean;
+  readonly canIncrement: boolean;
+  readonly onDecrement: () => void;
+  readonly onIncrement: () => void;
+}) {
+  const theme = useTheme();
+  const step = (sign: "-" | "+", label: string, enabled: boolean, onPress: () => void) => (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !enabled }}
+      testID={`${testID}-${sign === "-" ? "decrement" : "increment"}`}
+      disabled={!enabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.chip,
+        { borderColor: theme.colors.border, borderRadius: theme.radius.pill },
+        pressed && enabled && styles.pressed,
+        !enabled && styles.inactive,
+      ]}
+    >
+      <Text style={[theme.type.headline, { color: theme.colors.text }]}>{sign}</Text>
+    </Pressable>
+  );
+  return (
+    <View style={styles.stepper} testID={testID}>
+      {step("-", decrementLabel, canDecrement, onDecrement)}
+      <Text
+        style={[theme.type.headline, styles.stepperValue, { color: theme.colors.text }]}
+        testID={`${testID}-value`}
+        accessibilityLiveRegion="polite"
+      >
+        {value}
+      </Text>
+      {step("+", incrementLabel, canIncrement, onIncrement)}
+    </View>
+  );
+}
+
+/**
  * A statement the user turns on. The whole row is the switch's label, so a
  * screen reader reads the sentence rather than the word "switch".
  */
@@ -960,6 +1019,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   toggle: { minHeight: 44 },
+  stepper: { alignItems: "center", flexDirection: "row", gap: 12 },
+  stepperValue: { minWidth: 104, textAlign: "center" },
   pill: { alignItems: "center", flexDirection: "row", gap: 8, paddingVertical: 6 },
   dot: { borderRadius: 999, height: 8, width: 8 },
   calendarWeek: { flexDirection: "row", gap: 4 },

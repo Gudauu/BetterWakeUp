@@ -203,9 +203,15 @@ describe("PauseScreen while paused", () => {
   it("names the deadline the resume just started counting", async () => {
     const user = userEvent.setup();
     const changed = jest.fn();
-    await draw(
-      <PauseScreen api={fakeApi()} challenge={paused(null)} now={now} onChanged={changed} />,
-    );
+    // A walk that opens ten minutes before its deadline, so an hour out the
+    // countdown is still a quiet fact rather than a reason to hurry.
+    const api = fakeApi({
+      resumeChallenge: {
+        challenge: challengeView(),
+        nextLiveTask: taskView({ opensAt: "2026-09-01T13:50:00.000Z" }),
+      },
+    });
+    await draw(<PauseScreen api={api} challenge={paused(null)} now={now} onChanged={changed} />);
 
     await user.press(screen.getByTestId("resume"));
     await user.press(screen.getByTestId("resume-confirm"));
@@ -222,7 +228,7 @@ describe("PauseScreen while paused", () => {
     expect(changed).toHaveBeenCalledTimes(1);
   });
 
-  it("draws a deadline inside the alarm's lead as a warning rather than a note", async () => {
+  it("draws a walk that has already opened as a warning rather than a note", async () => {
     const user = userEvent.setup();
     const api = fakeApi({
       resumeChallenge: {

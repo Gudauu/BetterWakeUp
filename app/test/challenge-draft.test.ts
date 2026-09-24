@@ -96,6 +96,33 @@ describe("the draft describes a configuration", () => {
   });
 });
 
+describe("the walk window", () => {
+  it("defaults to ten minutes and travels with the configuration", () => {
+    const result = configurationOf(createDraft(ZONE));
+
+    expect(createDraft(ZONE).walkWindowMinutes).toBe(10);
+    expect(result.ok && result.configuration.walkWindowMinutes).toBe(10);
+  });
+
+  it("is set by the stepper and the presets, and never leaves its bounds", () => {
+    const set = (minutes: number) =>
+      draftReducer(createDraft(ZONE), { type: "setWalkWindowMinutes", minutes }).walkWindowMinutes;
+
+    expect(set(60)).toBe(60);
+    expect(set(2)).toBe(3);
+    expect(set(120)).toBe(119);
+  });
+
+  it("is refused outside the contract's bounds in the form's own words", () => {
+    const result = configurationOf({ ...createDraft(ZONE), walkWindowMinutes: 2 });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.problems).toEqual(["The walk window has to be between 3 and 119 minutes."]);
+    }
+  });
+});
+
 describe("editing the draft", () => {
   it("keeps the schedule in weekday order and gives a new day the deadline already in use", () => {
     const started = draftReducer(createDraft(ZONE), {

@@ -51,6 +51,7 @@ const CONFIGURATION = {
   schedule: EVERY_DAY.map((weekday) => ({ weekday, deadline: "08:00" })),
   stepTarget: 500,
   noRegretMinutes: 60,
+  walkWindowMinutes: 10,
   timeZone: "America/Los_Angeles",
   deposit: { amount: 0, currency: "USD" },
 } as const;
@@ -201,7 +202,7 @@ describe("an account's whole life through the mounted surface", () => {
         clientRecordId: recordId,
         completedAt,
         observation: {
-          startedAt: new Date(Date.parse(completedAt) - 600_000).toISOString(),
+          startedAt: new Date(Date.parse(completedAt) - 300_000).toISOString(),
           endedAt: completedAt,
           steps: 640,
           provenance: "live-foreground",
@@ -258,7 +259,7 @@ describe("an account's whole life through the mounted surface", () => {
         clientRecordId: secondRecordId,
         completedAt: secondAt,
         observation: {
-          startedAt: new Date(Date.parse(secondAt) - 600_000).toISOString(),
+          startedAt: new Date(Date.parse(secondAt) - 300_000).toISOString(),
           endedAt: secondAt,
           steps: 700,
           provenance: "live-foreground",

@@ -41,6 +41,9 @@ export async function insertAccount(sql: RawSql): Promise<string> {
   return single(await sql.query("insert into accounts default values returning id"), "id");
 }
 
+/** The walk window the raw challenges carry, matching `walk_window_minutes` below. */
+const WALK_WINDOW_MS = 10 * 60 * 1000;
+
 /**
  * Inserts a task in one statement. Every outcome instant is tied to the status
  * by a check constraint, so the status alone is never enough.
@@ -55,14 +58,15 @@ export async function insertTask(
   return single(
     await sql.query(
       `insert into scheduled_tasks
-         (challenge_id, sequence, task_date, deadline, pause_cutoff, status,
+         (challenge_id, sequence, task_date, opens_at, deadline, pause_cutoff, status,
           acknowledged_at, skipped_at, missed_at, forgiven_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        returning id`,
       [
         challengeId,
         sequence,
         taskDate(sequence),
+        new Date(deadline.getTime() - WALK_WINDOW_MS),
         deadline,
         new Date(deadline.getTime() - PAUSE_CUTOFF_LEAD_MS),
         status,
@@ -113,9 +117,9 @@ export async function insertChallengeForAccount(
       await tx.query(
         `insert into challenges
            (account_id, status, required_task_count, step_target, no_regret_minutes,
-            time_zone, deposit_minor_units, policy_version, projected_end_date,
-            activated_at, terminal_at)
-         values ($1, $2, $3, 500, 60, 'America/Los_Angeles', $4, '2026-01-01', $5, $6, $7)
+            walk_window_minutes, time_zone, deposit_minor_units, policy_version,
+            projected_end_date, activated_at, terminal_at)
+         values ($1, $2, $3, 500, 60, 10, 'America/Los_Angeles', $4, '2026-01-01', $5, $6, $7)
          returning id`,
         [
           accountId,

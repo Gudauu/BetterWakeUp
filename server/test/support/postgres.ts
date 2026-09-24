@@ -21,13 +21,13 @@ declare module "vitest" {
 
 /**
  * Registers a fresh database around each test in the calling file and returns
- * an accessor for it.
+ * an accessor for it. With `empty`, the database holds no schema at all.
  */
-export function useTestDatabase(): () => TestDatabase {
+export function useTestDatabase(options: { readonly empty?: boolean } = {}): () => TestDatabase {
   let current: (TestDatabase & { drop(): Promise<void> }) | undefined;
 
   beforeEach(async () => {
-    current = await createTestDatabase(inject("postgres"));
+    current = await createTestDatabase(inject("postgres"), options);
   });
 
   afterEach(async () => {

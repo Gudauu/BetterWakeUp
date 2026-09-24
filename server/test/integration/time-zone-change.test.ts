@@ -135,6 +135,7 @@ async function tasksOf(db: Database, challengeId: string) {
       sequence: scheduledTasks.sequence,
       taskDate: scheduledTasks.taskDate,
       status: scheduledTasks.status,
+      opensAt: scheduledTasks.opensAt,
       deadline: scheduledTasks.deadline,
       pauseCutoff: scheduledTasks.pauseCutoff,
     })
@@ -169,6 +170,12 @@ describe("issue 22's acceptance boundary", () => {
     expect(tasks.slice(1).map((task) => task.pauseCutoff)).toEqual([
       utc("2026-01-06", "16:00"),
       utc("2026-01-07", "16:00"),
+    ]);
+    // And so did their walks, ten minutes before each new deadline.
+    expect(tasks.map((task) => task.opensAt)).toEqual([
+      utc("2026-01-05", "15:50"),
+      utc("2026-01-06", "16:50"),
+      utc("2026-01-07", "16:50"),
     ]);
     expect(await response.json()).toMatchObject({
       challenge: { configuration: { timeZone: ANCHORAGE } },

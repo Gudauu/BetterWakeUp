@@ -27,6 +27,28 @@ export const RECOVERY_WINDOW_HOURS = 24;
 export const MAXIMUM_PAUSE_DAYS = 365;
 
 /**
+ * The walk window's bounds, in whole minutes, both inclusive.
+ *
+ * The product states them as "more than 2 minutes and less than 2 hours". A
+ * window of two minutes or less leaves no room for a walk and the network to
+ * both happen, and one of two hours or more stops asking anyone to wake up.
+ */
+export const MINIMUM_WALK_WINDOW_MINUTES = 3;
+export const MAXIMUM_WALK_WINDOW_MINUTES = 119;
+
+/**
+ * How long before each deadline a walk opens, in whole minutes.
+ *
+ * Only movement inside the window counts: a walk opens at the deadline minus
+ * this, or at the previous task's deadline if that is later, and the server
+ * states that instant on every task as `opensAt`.
+ */
+export const walkWindowMinutes = z
+  .int()
+  .min(MINIMUM_WALK_WINDOW_MINUTES)
+  .max(MAXIMUM_WALK_WINDOW_MINUTES);
+
+/**
  * The share of forfeit revenue, after processing costs, the platform commits
  * to donating.
  *

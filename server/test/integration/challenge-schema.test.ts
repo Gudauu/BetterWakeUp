@@ -8,7 +8,7 @@
  * the rest.
  */
 
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { executeRows } from "../../src/db/index.ts";
@@ -171,6 +171,34 @@ describe("task outcomes", () => {
         .set({ pauseCutoff: new Date(taskDeadline(1).getTime() + 1000) })
         .where(eq(scheduledTasks.challengeId, challengeId)),
     );
+  });
+
+  it("rejects a walk that opens after its deadline, and accepts one opening at it", async () => {
+    const { db } = testDatabase();
+    const { challengeId } = await insertChallenge(db);
+
+    await expectSqlState(CHECK_VIOLATION, () =>
+      db
+        .update(scheduledTasks)
+        .set({ opensAt: new Date(taskDeadline(1).getTime() + 1000) })
+        .where(eq(scheduledTasks.challengeId, challengeId)),
+    );
+    await db
+      .update(scheduledTasks)
+      .set({ opensAt: taskDeadline(1) })
+      .where(and(eq(scheduledTasks.challengeId, challengeId), eq(scheduledTasks.sequence, 1)));
+  });
+
+  it("holds the walk window to more than 2 minutes and less than 2 hours", async () => {
+    const { db } = testDatabase();
+    const { challengeId } = await insertChallenge(db);
+    const withWindow = (walkWindowMinutes: number) =>
+      db.update(challenges).set({ walkWindowMinutes }).where(eq(challenges.id, challengeId));
+
+    await expectSqlState(CHECK_VIOLATION, () => withWindow(2));
+    await expectSqlState(CHECK_VIOLATION, () => withWindow(120));
+    await withWindow(3);
+    await withWindow(119);
   });
 
   it("rejects two tasks on one date, and two tasks at one ordinal", async () => {

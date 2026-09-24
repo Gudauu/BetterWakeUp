@@ -98,6 +98,8 @@ export const challenges = pgTable(
     stepTarget: integer("step_target").notNull(),
     /** The No Regret duration, as minutes before the deadline. */
     noRegretMinutes: integer("no_regret_minutes").notNull(),
+    /** How long before each deadline the walk opens, in minutes. */
+    walkWindowMinutes: integer("walk_window_minutes").notNull(),
     /** The confirmed IANA zone every task instant was computed in. */
     timeZone: text("time_zone").notNull(),
     /** Minor units, so no part of the system has to agree on a rounding rule. */
@@ -146,6 +148,11 @@ export const challenges = pgTable(
     check("challenges_required_task_count_positive", sql`${table.requiredTaskCount} > 0`),
     check("challenges_step_target_positive", sql`${table.stepTarget} > 0`),
     check("challenges_no_regret_minutes_nonnegative", sql`${table.noRegretMinutes} >= 0`),
+    // The contract's bounds: more than 2 minutes and less than 2 hours.
+    check(
+      "challenges_walk_window_minutes_in_range",
+      sql`${table.walkWindowMinutes} between 3 and 119`,
+    ),
     // A deposit is either nothing at all, or at least the processor's minimum,
     // which is the same rule the contract states for the wire.
     check(
@@ -208,6 +215,13 @@ export const scheduledTasks = pgTable(
     sequence: integer("sequence").notNull(),
     /** The calendar date in the challenge's time zone. */
     taskDate: date("task_date", { mode: "string" }).notNull(),
+    /**
+     * When the walk opens: the deadline less the walk window, or the previous
+     * task's deadline if that is later. Stored beside the deadline because the
+     * previous task is another row, and every writer that places a task
+     * already holds that row.
+     */
+    opensAt: timestamp("opens_at", { withTimezone: true, mode: "date" }).notNull(),
     deadline: timestamp("deadline", { withTimezone: true, mode: "date" }).notNull(),
     /** Deadline minus the No Regret duration. Pausing at or after this leaves the task live. */
     pauseCutoff: timestamp("pause_cutoff", { withTimezone: true, mode: "date" }).notNull(),
@@ -245,6 +259,10 @@ export const scheduledTasks = pgTable(
     check("scheduled_tasks_sequence_positive", sql`${table.sequence} > 0`),
     // The cutoff is the deadline minus a non-negative No Regret duration, so
     // the two coincide only when that duration is zero.
+    check(
+      "scheduled_tasks_opens_at_or_before_deadline",
+      sql`${table.opensAt} <= ${table.deadline}`,
+    ),
     check(
       "scheduled_tasks_cutoff_at_or_before_deadline",
       sql`${table.pauseCutoff} <= ${table.deadline}`,

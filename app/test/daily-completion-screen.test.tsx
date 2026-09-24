@@ -35,6 +35,7 @@ function task(overrides: Partial<TaskView> = {}): TaskView {
   return {
     id: TASK_ID,
     date: "2026-09-01",
+    opensAt: "2026-09-01T12:30:00.000Z",
     deadline: "2026-09-01T14:00:00.000Z",
     pauseCutoff: "2026-09-01T06:00:00.000Z",
     status: "scheduled",
@@ -64,7 +65,11 @@ interface Harness {
   readonly foreground: ReturnType<typeof createFakeForeground>;
 }
 
-async function harness(api: FakeApi = fakeApi({ createCompletion: COMPLETION_RESPONSE })) {
+async function harness(
+  api: FakeApi = fakeApi({ createCompletion: COMPLETION_RESPONSE }),
+  /** The capture's own clock, for a test about when a walk started and ended. */
+  captureNow: () => Date = () => NOW,
+) {
   let counter = 0;
   const store = await openPendingCompletionStore({
     owner: "account-1",
@@ -89,7 +94,7 @@ async function harness(api: FakeApi = fakeApi({ createCompletion: COMPLETION_RES
       pedometer,
       foreground,
       platform: "ios",
-      now: () => NOW,
+      now: captureNow,
     }),
     pedometer,
     foreground,
@@ -938,7 +943,7 @@ describe("the clock on the morning", () => {
     expect(screen.getByTestId("time-left")).toHaveTextContent("1 hour left to walk.");
   });
 
-  it("counts in minutes once the deadline is inside the alarm's own lead", async () => {
+  it("counts in minutes once the walk is open and the deadline close", async () => {
     await renderAt(CLOSING, await harness());
 
     expect(screen.getByTestId("time-left")).toHaveTextContent("10 minutes left to walk.");
@@ -957,14 +962,16 @@ describe("the clock on the morning", () => {
     );
   });
 
-  it("leaves a walk with the morning ahead of it saying nothing about the clock", async () => {
+  it("keeps the finish line in front of a walker for as long as the walk is open", async () => {
+    // The walk opened at 5:30 AM, so from then on the deadline is the whole
+    // point of the screen rather than background information.
     const given = await harness();
     await renderAt(NOW, given);
     const user = userEvent.setup();
 
     await user.press(screen.getByTestId("start-capture"));
 
-    expect(screen.queryByTestId("capture-deadline")).toBeNull();
+    expect(screen.getByTestId("capture-deadline")).toBeOnTheScreen();
   });
 
   it("stops offering a walk once the deadline has passed, and says what that means", async () => {
@@ -993,5 +1000,60 @@ describe("the clock on the morning", () => {
       expect(screen.getByTestId("progression")).toHaveTextContent("Done. Both checks passed"),
     );
     expect(screen.queryByTestId("time-left")).toBeNull();
+  });
+});
+
+describe("the walk window", () => {
+  /** The fixture task opens at 12:30Z, which is 5:30 AM in Los Angeles. */
+  const OPENS_AT = new Date("2026-09-01T12:30:00.000Z");
+
+  it("offers no walk a second before it opens, and says when it does", async () => {
+    await renderAt(new Date(OPENS_AT.getTime() - 1000), await harness());
+
+    expect(screen.queryByTestId("start-capture")).toBeNull();
+    expect(screen.getByTestId("daily-advice")).toHaveTextContent(
+      /^Your walk opens today at 5:30 AM\. Steps taken before then do not count/,
+    );
+    // Before the window the deadline is a fact, not a reason to hurry.
+    expect(screen.getByTestId("time-left")).toBeOnTheScreen();
+  });
+
+  it("offers the walk at the opening instant itself", async () => {
+    await renderAt(OPENS_AT, await harness());
+
+    expect(screen.getByTestId("start-capture")).toBeOnTheScreen();
+  });
+
+  it("refuses a walk that started a second early, even though it finished inside the window", async () => {
+    // The capture's clock reads one second before the opening when the walk
+    // starts, and well inside the window when it ends.
+    const instants = [new Date(OPENS_AT.getTime() - 1000), NOW];
+    let index = 0;
+    const api = fakeApi({ createCompletion: COMPLETION_RESPONSE });
+    const given = await harness(api, () => instants[Math.min(index++, 1)] as Date);
+    await renderAt(NOW, given);
+
+    await completeLocally(given);
+
+    expect(await screen.findByTestId("walk-outside-window")).toHaveTextContent(
+      /^This walk started before your walk opened at 5:30 AM, so it cannot count/,
+    );
+    // Nothing was written down, and nothing was sent.
+    expect(await given.store.list()).toHaveLength(0);
+    expect(api.names()).toEqual([]);
+    expect(screen.getByTestId("local-check-state")).toHaveTextContent("waiting");
+  });
+
+  it("records a walk that started exactly at the opening", async () => {
+    const instants = [OPENS_AT, NOW];
+    let index = 0;
+    const api = fakeApi({ createCompletion: COMPLETION_RESPONSE });
+    const given = await harness(api, () => instants[Math.min(index++, 1)] as Date);
+    await renderAt(NOW, given);
+
+    await completeLocally(given);
+
+    await waitFor(() => expect(api.names()).toEqual(["createCompletion"]));
+    expect(screen.queryByTestId("walk-outside-window")).toBeNull();
   });
 });

@@ -96,7 +96,7 @@ export function resumeResult(input: {
       nextLiveTask === null
         ? "No morning is live yet. The next one on your schedule becomes live on its own, and its deadline counts from then."
         : `Your next morning is ${formatDay(nextLiveTask.date)}, due by ${formatDeadline(nextLiveTask.deadline, zone)}. Its deadline counts again from now.`,
-    countdown: nextLiveTask === null ? null : timeLeftUntil(nextLiveTask.deadline, now),
+    countdown: nextLiveTask === null ? null : timeLeftUntil(nextLiveTask, now),
     ends: `Your challenge ends on ${formatDay(challenge.projectedEndDate)} if you keep every morning from here.`,
     reminders:
       "Your wake-up reminders are set again on this phone for the mornings that are counting.",

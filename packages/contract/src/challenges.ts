@@ -17,6 +17,7 @@ import {
   localDate,
   localTime,
   resourceId,
+  walkWindowMinutes,
   weekday,
 } from "./primitives.ts";
 import { taskStatus, taskView } from "./tasks.ts";
@@ -41,6 +42,8 @@ export const challengeConfiguration = z.object({
   stepTarget: z.int().min(1),
   /** Minimum advance notice required to skip a task, in minutes. */
   noRegretMinutes: z.int().nonnegative(),
+  /** How long before each deadline the walk opens. Fixed once the challenge exists. */
+  walkWindowMinutes,
   timeZone: ianaTimeZone,
   deposit: depositAmount,
 });

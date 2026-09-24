@@ -5,7 +5,7 @@
  * task is judged against only exist once a zone is chosen. When the user moves,
  * the wall-clock promise is what they want kept: an 08:00 deadline stays 08:00
  * where they now are. Every task keeps its calendar date and its sequence, and
- * only its deadline and pause cutoff move.
+ * only its opening instant, deadline and pause cutoff move.
  *
  * Which tasks move is the whole of the rule, and it is stated against a stored
  * instant:
@@ -95,6 +95,7 @@ async function rematerialize(
   const configuration: ScheduleConfiguration = {
     requiredTaskCount: challenge.requiredTaskCount,
     noRegretMinutes: challenge.noRegretMinutes,
+    walkWindowMinutes: challenge.walkWindowMinutes,
     timeZone: command.timeZone,
     schedule: await loadWeeklySchedule(tx, challenge.id),
   };
@@ -105,11 +106,19 @@ async function rematerialize(
     .where(eq(challenges.id, challenge.id));
 
   const moved: TaskView[] = [];
-  for (const task of await tasksAheadOfTheirCutoff(tx, challenge.id, at)) {
-    const instants = taskInstants(configuration, task.taskDate, task.sequence);
+  const ahead = await tasksAheadOfTheirCutoff(tx, challenge.id, at);
+  // A walk opens no earlier than the deadline before it. The first task that
+  // moves follows one that stays where it is, and every later one follows a
+  // task this loop has just moved, so the floor is carried along the way.
+  let previousDeadline =
+    ahead[0] === undefined ? null : await deadlineBefore(tx, challenge.id, ahead[0].sequence);
+  for (const task of ahead) {
+    const instants = taskInstants(configuration, task.taskDate, task.sequence, previousDeadline);
+    previousDeadline = instants.deadline;
     const [updated] = await tx
       .update(scheduledTasks)
       .set({
+        opensAt: instants.opensAt,
         deadline: instants.deadline,
         pauseCutoff: instants.pauseCutoff,
         updatedAt: at,
@@ -133,6 +142,7 @@ interface LockedChallenge {
   readonly timeZone: string;
   readonly requiredTaskCount: number;
   readonly noRegretMinutes: number;
+  readonly walkWindowMinutes: number;
 }
 
 /**
@@ -160,6 +170,7 @@ async function lockChallenge(
       timeZone: challenges.timeZone,
       requiredTaskCount: challenges.requiredTaskCount,
       noRegretMinutes: challenges.noRegretMinutes,
+      walkWindowMinutes: challenges.walkWindowMinutes,
     })
     .from(challenges)
     .where(and(eq(challenges.id, command.challengeId), eq(challenges.accountId, command.accountId)))
@@ -180,7 +191,29 @@ async function lockChallenge(
     timeZone: row.timeZone,
     requiredTaskCount: row.requiredTaskCount,
     noRegretMinutes: row.noRegretMinutes,
+    walkWindowMinutes: row.walkWindowMinutes,
   };
+}
+
+/**
+ * The deadline of the task before `sequence`, or null for the first task.
+ *
+ * Sequences run without a gap from 1, since materialization numbers them and
+ * a replacement continues from the last, so the task before is `sequence - 1`.
+ */
+async function deadlineBefore(
+  tx: Transaction,
+  challengeId: string,
+  sequence: number,
+): Promise<Date | null> {
+  const [previous] = await tx
+    .select({ deadline: scheduledTasks.deadline })
+    .from(scheduledTasks)
+    .where(
+      and(eq(scheduledTasks.challengeId, challengeId), eq(scheduledTasks.sequence, sequence - 1)),
+    )
+    .limit(1);
+  return previous?.deadline ?? null;
 }
 
 /** Open tasks whose stored cutoff is strictly later than the receipt instant, locked. */

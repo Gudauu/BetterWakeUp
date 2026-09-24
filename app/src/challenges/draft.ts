@@ -22,6 +22,11 @@ import {
 } from "@betterwakeup/contract";
 
 import { DAYS_TO_COMPLETE, NO_REGRET_MINUTES, STEP_TARGET } from "./counts.ts";
+import {
+  clampWalkWindow,
+  DEFAULT_WALK_WINDOW_MINUTES,
+  WALK_WINDOW_OUT_OF_RANGE,
+} from "./walk-window-setting.ts";
 
 /**
  * The one currency the product takes a deposit in. Named here so the payment
@@ -47,6 +52,8 @@ export interface ChallengeDraft {
   readonly schedule: readonly ScheduledWeekday[];
   readonly stepTarget: number;
   readonly noRegretMinutes: number;
+  /** How long before each deadline the walk opens. */
+  readonly walkWindowMinutes: number;
   /**
    * The zone the schedule is read in. Seeded from the device and confirmed by
    * the user, because a deadline in the wrong zone is a missed day.
@@ -72,6 +79,7 @@ export function createDraft(timeZone: string = detectTimeZone()): ChallengeDraft
     stepTarget: 250,
     // Eight hours, the example product.md gives for No Regret Time.
     noRegretMinutes: 480,
+    walkWindowMinutes: DEFAULT_WALK_WINDOW_MINUTES,
     timeZone,
     timeZoneConfirmed: false,
     depositMinorUnits: 0,
@@ -85,6 +93,7 @@ export type DraftAction =
   | { type: "setDeadline"; weekday: Weekday; deadline: string }
   | { type: "setStepTarget"; steps: number }
   | { type: "setNoRegretMinutes"; minutes: number }
+  | { type: "setWalkWindowMinutes"; minutes: number }
   | { type: "setTimeZone"; timeZone: string }
   | { type: "setTimeZoneConfirmed"; confirmed: boolean }
   | { type: "setDeposit"; minorUnits: number }
@@ -118,6 +127,11 @@ export function draftReducer(draft: ChallengeDraft, action: DraftAction): Challe
       return { ...draft, stepTarget: action.steps };
     case "setNoRegretMinutes":
       return { ...draft, noRegretMinutes: action.minutes };
+    case "setWalkWindowMinutes":
+      // The control can only offer lengths inside the bounds, so a value
+      // outside them is a bug upstream; it lands on the nearest one rather
+      // than on a form that cannot say why it will not start.
+      return { ...draft, walkWindowMinutes: clampWalkWindow(action.minutes) };
     case "setTimeZone":
       // A zone the user changed is a zone they have not confirmed yet.
       return { ...draft, timeZone: action.timeZone, timeZoneConfirmed: false };
@@ -169,6 +183,7 @@ export function configurationOf(draft: ChallengeDraft): DraftConfiguration {
     schedule: draft.schedule,
     stepTarget: draft.stepTarget,
     noRegretMinutes: draft.noRegretMinutes,
+    walkWindowMinutes: draft.walkWindowMinutes,
     timeZone: draft.timeZone,
     deposit: { amount: draft.depositMinorUnits, currency: DEPOSIT_CURRENCY },
   });
@@ -197,6 +212,7 @@ const PROBLEM_BY_PATH: Readonly<Record<string, string>> = {
   schedule: "Pick at least one morning for your challenge.",
   stepTarget: STEP_TARGET.tooSmall,
   noRegretMinutes: NO_REGRET_MINUTES.tooSmall,
+  walkWindowMinutes: WALK_WINDOW_OUT_OF_RANGE,
   timeZone: "That time zone is not one deadlines can be read in.",
 };
 

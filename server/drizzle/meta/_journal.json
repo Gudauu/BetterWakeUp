@@ -78,6 +78,13 @@
       "when": 1786973741239,
       "tag": "0010_challenge_authorizations",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790277756615,
+      "tag": "0011_walk_window",
+      "breakpoints": true
     }
   ]
 }

@@ -6,70 +6,67 @@
  * stops being live, and it never fires for a challenge that is paused or over.
  */
 
-import {
-  ALARM_LEAD_MINUTES,
-  LAST_CALL_LEAD_MINUTES,
-  nextAlarmAt,
-  RECOVERY_LEAD_MINUTES,
-  remindersFor,
-} from "../src/reminders/reminders.ts";
+import { nextAlarmAt, RECOVERY_LEAD_MINUTES, remindersFor } from "../src/reminders/reminders.ts";
 import { challengeView, taskView } from "./support/fake-api.ts";
 
 /** Well before the fixture's 7:00 AM Los Angeles deadline. */
 const NIGHT_BEFORE = new Date("2026-08-31T20:00:00.000Z");
 
-const RUNNING = challengeView({ currentTask: taskView() });
+/** The walk opens ten minutes before its 7:00 AM deadline. */
+const OPENS_AT = "2026-09-01T13:50:00.000Z";
+
+const RUNNING = challengeView({ currentTask: taskView({ opensAt: OPENS_AT }) });
 
 describe("what a running challenge asks to be reminded of", () => {
-  it("sets an alarm before the deadline and a last call after it", () => {
+  it("sets one reminder per walk, exactly at the instant the server says it opens", () => {
     const reminders = remindersFor(RUNNING, NIGHT_BEFORE);
 
-    expect(reminders.map((reminder) => reminder.at)).toEqual([
-      "2026-09-01T13:15:00.000Z",
-      "2026-09-01T13:50:00.000Z",
+    expect(reminders.map((reminder) => reminder.at)).toEqual([OPENS_AT]);
+  });
+
+  it("follows a walk that opens the evening before its date", () => {
+    // A 12:30 AM deadline with an hour's window opens at 11:30 PM the night
+    // before; the reminder rings then, not at some time on the task's own date.
+    const late = challengeView({
+      currentTask: taskView({
+        date: "2026-09-02",
+        opensAt: "2026-09-02T06:30:00.000Z",
+        deadline: "2026-09-02T07:30:00.000Z",
+      }),
+    });
+
+    expect(remindersFor(late, NIGHT_BEFORE).map((reminder) => reminder.at)).toEqual([
+      "2026-09-02T06:30:00.000Z",
     ]);
-    expect(ALARM_LEAD_MINUTES).toBe(45);
-    expect(LAST_CALL_LEAD_MINUTES).toBe(10);
   });
 
   it("names the step target and the deadline in the challenge's own zone", () => {
     // The user reads this half asleep, from a lock screen: the two things worth
     // carrying are how many steps and by when, in the time they set.
-    const [alarm, lastCall] = remindersFor(RUNNING, NIGHT_BEFORE);
+    const [reminder] = remindersFor(RUNNING, NIGHT_BEFORE);
 
-    expect(alarm?.body).toBe("250 steps by 7:00 AM. Open BetterWakeUp and walk.");
-    expect(lastCall?.title).toBe("Last call - 7:00 AM");
-    expect(lastCall?.body).toBe("10 minutes left to walk your 250 steps.");
+    expect(reminder?.title).toBe("Your walk is open");
+    expect(reminder?.body).toBe("250 steps by 7:00 AM. Open BetterWakeUp and walk.");
   });
 
-  it("identifies each reminder by the task it belongs to", () => {
+  it("identifies the reminder by the task it belongs to", () => {
     // The scheduled set is replaced whole on every read of the challenge, so a
     // stable identifier is what keeps a second read from stacking a duplicate.
     const ids = remindersFor(RUNNING, NIGHT_BEFORE).map((reminder) => reminder.id);
 
-    expect(ids).toEqual([
-      "44444444-4444-4444-8444-444444444444:alarm",
-      "44444444-4444-4444-8444-444444444444:last-call",
-    ]);
+    expect(ids).toEqual(["44444444-4444-4444-8444-444444444444:opens"]);
   });
 
   it("says what tapping it should open, since the tap may launch the app", () => {
-    // The point of the alarm is the walk. Working out where to send someone
+    // The point of the reminder is the walk. Working out where to send someone
     // from the notification alone is only possible if the notification carries
     // it: a tap on a locked phone starts the app knowing nothing at all.
-    expect(remindersFor(RUNNING, NIGHT_BEFORE).map((reminder) => reminder.opens)).toEqual([
-      "walk",
-      "walk",
-    ]);
+    expect(remindersFor(RUNNING, NIGHT_BEFORE).map((reminder) => reminder.opens)).toEqual(["walk"]);
   });
 
-  it("drops a reminder whose moment has already passed", () => {
-    // Between the two leads: the alarm is behind us and the last call is not.
-    const reminders = remindersFor(RUNNING, new Date("2026-09-01T13:30:00.000Z"));
-
-    expect(reminders.map((reminder) => reminder.id)).toEqual([
-      "44444444-4444-4444-8444-444444444444:last-call",
-    ]);
+  it("drops the reminder once the walk has opened", () => {
+    expect(remindersFor(RUNNING, new Date(OPENS_AT))).toEqual([]);
+    expect(remindersFor(RUNNING, new Date(Date.parse(OPENS_AT) - 1))).toHaveLength(1);
   });
 });
 
@@ -79,7 +76,7 @@ describe("what is never reminded about", () => {
   });
 
   it("says nothing while the challenge is paused", () => {
-    // Nothing is due, so a 6:15 AM alarm would be waking someone for a walk the
+    // Nothing is due, so a 6:50 AM alarm would be waking someone for a walk the
     // server is not judging them on.
     const paused = challengeView({
       currentTask: taskView(),
@@ -126,11 +123,11 @@ describe("the recovery offer", () => {
   });
 });
 
-describe("the alarm home names", () => {
-  it("is the instant the first reminder would fire, whatever the clock says", () => {
-    // Home shows this under the next walk, so it has to describe the setting
-    // rather than appear and disappear as the deadline passes.
-    expect(nextAlarmAt(RUNNING)).toBe("2026-09-01T13:15:00.000Z");
+describe("the reminder the challenge page names", () => {
+  it("is the instant the walk opens, whatever the clock says", () => {
+    // The challenge page shows this beside the switch, so it has to describe
+    // the setting rather than appear and disappear as the walk opens.
+    expect(nextAlarmAt(RUNNING)).toBe(OPENS_AT);
   });
 
   it("is absent when there is nothing to be woken for", () => {

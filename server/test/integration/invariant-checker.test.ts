@@ -98,10 +98,12 @@ describe("each invariant, broken on purpose", () => {
       await tx.execute(sql`
         insert into challenges (
           account_id, status, required_task_count, step_target, no_regret_minutes,
-          time_zone, deposit_minor_units, policy_version, projected_end_date, activated_at
+          walk_window_minutes, time_zone, deposit_minor_units, policy_version,
+          projected_end_date, activated_at
         )
         select account_id, 'active', required_task_count, step_target, no_regret_minutes,
-          time_zone, deposit_minor_units, policy_version, projected_end_date, activated_at
+          walk_window_minutes, time_zone, deposit_minor_units, policy_version,
+          projected_end_date, activated_at
         from challenges where id = ${arranged.challengeId}
       `);
     });

@@ -13,7 +13,9 @@
  * challenge holds a task on, which is what pushes the projected end date later
  * and what keeps the one-task-per-date index satisfiable. The challenge's
  * stored projection moves with it: a reader would otherwise be told the
- * challenge ends on a date it now has a task past.
+ * challenge ends on a date it now has a task past. The replacement's walk opens
+ * no earlier than the last task's deadline, which is why that deadline is read
+ * along with its date.
  */
 
 import { desc, eq } from "drizzle-orm";
@@ -36,7 +38,11 @@ export async function appendReplacementTask(
   now: Date,
 ): Promise<TaskRow> {
   const last = await lastTask(tx, challengeId);
-  const replacement = appendTask(configuration, last.taskDate, last.sequence + 1);
+  const replacement = appendTask(
+    configuration,
+    { date: last.taskDate, deadline: last.deadline },
+    last.sequence + 1,
+  );
 
   const [appended] = await tx
     .insert(scheduledTasks)
@@ -44,6 +50,7 @@ export async function appendReplacementTask(
       challengeId,
       sequence: replacement.sequence,
       taskDate: replacement.date,
+      opensAt: replacement.opensAt,
       deadline: replacement.deadline,
       pauseCutoff: replacement.pauseCutoff,
       status: "scheduled",
@@ -65,9 +72,13 @@ export async function appendReplacementTask(
 async function lastTask(
   tx: Transaction,
   challengeId: string,
-): Promise<Pick<TaskRow, "sequence" | "taskDate">> {
+): Promise<Pick<TaskRow, "sequence" | "taskDate" | "deadline">> {
   const [last] = await tx
-    .select({ sequence: scheduledTasks.sequence, taskDate: scheduledTasks.taskDate })
+    .select({
+      sequence: scheduledTasks.sequence,
+      taskDate: scheduledTasks.taskDate,
+      deadline: scheduledTasks.deadline,
+    })
     .from(scheduledTasks)
     .where(eq(scheduledTasks.challengeId, challengeId))
     .orderBy(desc(scheduledTasks.sequence))

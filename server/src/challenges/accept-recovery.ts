@@ -179,6 +179,7 @@ async function lockOfferingChallenge(
       status: challenges.status,
       requiredTaskCount: challenges.requiredTaskCount,
       noRegretMinutes: challenges.noRegretMinutes,
+      walkWindowMinutes: challenges.walkWindowMinutes,
       timeZone: challenges.timeZone,
     })
     .from(challenges)
@@ -201,6 +202,7 @@ async function lockOfferingChallenge(
     configuration: {
       requiredTaskCount: row.requiredTaskCount,
       noRegretMinutes: row.noRegretMinutes,
+      walkWindowMinutes: row.walkWindowMinutes,
       timeZone: row.timeZone,
       schedule: await loadWeeklySchedule(tx, row.id),
     },

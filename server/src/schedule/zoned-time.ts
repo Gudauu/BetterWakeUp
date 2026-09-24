@@ -52,11 +52,6 @@ export function resolveLocalTime(date: string, time: string, zone: string): Date
   return shifted.toJSDate();
 }
 
-/** The instant the calendar day `date` begins in `zone`. */
-export function startOfLocalDay(date: string, zone: string): Date {
-  return resolveLocalTime(date, "00:00", zone);
-}
-
 /** The calendar date `instant` falls on in `zone`, as `YYYY-MM-DD`. */
 export function localDateOf(instant: Date, zone: string): string {
   const zoned = DateTime.fromJSDate(instant, { zone });

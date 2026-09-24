@@ -157,7 +157,9 @@ describe("what the move does to this morning", () => {
   const DEADLINE = "2026-09-02T14:00:00.000Z";
   // Still ahead of every clock below, so the server would re-materialize it.
   const CUTOFF = "2026-09-02T13:00:00.000Z";
-  const task = { deadline: DEADLINE, pauseCutoff: CUTOFF };
+  // Opens an hour before the deadline, so an hour is the window the moved walk
+  // would already be open inside.
+  const task = { opensAt: "2026-09-02T13:00:00.000Z", deadline: DEADLINE, pauseCutoff: CUTOFF };
 
   it("keeps the wall clock and reads it in the new zone", () => {
     const moved = deadlineAfterMove(EAST, new Date(DEADLINE));
@@ -176,7 +178,7 @@ describe("what the move does to this morning", () => {
     expect(impact?.sentence).toContain("switching back afterwards does not undo it");
   });
 
-  it("names the minutes left when the move lands inside the alarm's lead", () => {
+  it("names the minutes left when the move lands inside the walk's own window", () => {
     const impact = moveImpact({ move: EAST, task, now: new Date("2026-09-02T10:30:00.000Z") });
 
     expect(impact?.landing).toBe("closing");
@@ -191,7 +193,7 @@ describe("what the move does to this morning", () => {
   });
 
   it("says nothing about a task the server would leave exactly where it is", () => {
-    const settled = { deadline: DEADLINE, pauseCutoff: "2026-09-02T08:00:00.000Z" };
+    const settled = { ...task, pauseCutoff: "2026-09-02T08:00:00.000Z" };
 
     expect(
       moveImpact({ move: EAST, task: settled, now: new Date("2026-09-02T09:00:00.000Z") }),

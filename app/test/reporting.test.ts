@@ -253,6 +253,7 @@ describe("what a sync event reports", () => {
           task: {
             id: INPUT.taskId,
             date: "2026-03-01",
+            opensAt: "2026-03-01T14:50:00.000Z",
             deadline: "2026-03-01T15:00:00.000Z",
             pauseCutoff: "2026-03-01T14:00:00.000Z",
             status: "completed",

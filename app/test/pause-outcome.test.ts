@@ -99,7 +99,7 @@ describe("resumeResult", () => {
     expect(result.countdown?.sentence).toMatch(/1 hour left to walk/);
   });
 
-  it("reads a deadline inside the alarm's own lead as closing", () => {
+  it("reads a walk that has already opened as closing", () => {
     const result = resumeResult({
       challenge: running,
       nextLiveTask: taskView(),

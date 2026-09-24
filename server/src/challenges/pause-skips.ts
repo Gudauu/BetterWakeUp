@@ -114,6 +114,7 @@ async function lockPausedChallenge(
       pausedAt: challenges.pausedAt,
       requiredTaskCount: challenges.requiredTaskCount,
       noRegretMinutes: challenges.noRegretMinutes,
+      walkWindowMinutes: challenges.walkWindowMinutes,
       timeZone: challenges.timeZone,
     })
     .from(challenges)
@@ -129,6 +130,7 @@ async function lockPausedChallenge(
     configuration: {
       requiredTaskCount: row.requiredTaskCount,
       noRegretMinutes: row.noRegretMinutes,
+      walkWindowMinutes: row.walkWindowMinutes,
       timeZone: row.timeZone,
       schedule: await loadWeeklySchedule(tx, challengeId),
     },

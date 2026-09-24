@@ -24,6 +24,11 @@ const FIRST_TASK_DATE = Date.UTC(2026, 0, 5, 16, 0, 0);
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** The No Regret duration the fixtures use, matching `noRegretMinutes` below. */
 const PAUSE_CUTOFF_LEAD_MS = 60 * 60 * 1000;
+/**
+ * The walk window the fixtures use, matching `walkWindowMinutes` below. Tasks
+ * are a day apart, so no window reaches back to the deadline before it.
+ */
+const WALK_WINDOW_MS = 10 * 60 * 1000;
 
 export interface ChallengeOptions {
   /** How many completions the challenge needs. */
@@ -81,6 +86,7 @@ export function taskValues(
     challengeId,
     sequence,
     taskDate: taskDate(sequence),
+    opensAt: new Date(deadline.getTime() - WALK_WINDOW_MS),
     deadline,
     pauseCutoff: new Date(deadline.getTime() - PAUSE_CUTOFF_LEAD_MS),
     status,
@@ -132,6 +138,7 @@ export async function insertChallengeForAccount(
         requiredTaskCount: options.requiredTaskCount,
         stepTarget: 500,
         noRegretMinutes: 60,
+        walkWindowMinutes: 10,
         timeZone: "America/Los_Angeles",
         depositMinorUnits: options.depositMinorUnits,
         policyVersion: "2026-01-01",

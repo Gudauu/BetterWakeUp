@@ -18,8 +18,9 @@
  *    `active` challenge.
  * 4. The command must have been received no later than the deadline plus the
  *    sixty-second receipt grace.
- * 5. The reported completion instant must fall inside the task window and at or
- *    before the deadline.
+ * 5. The walk must lie inside the task's walk window: the observation started
+ *    at or after the task opened and ended at or before the deadline, and the
+ *    reported completion instant falls between the two.
  * 6. The observation must reach the challenge's step target.
  *
  * The first two are decided before an idempotency key is claimed. A request
@@ -51,7 +52,6 @@ import type { Database } from "../db/client.ts";
 import { challenges, scheduledTasks, taskCompletions } from "../db/schema/challenges.ts";
 import { AppError } from "../errors/app-error.ts";
 import { runIdempotent, type Transaction } from "../idempotency/service.ts";
-import { startOfLocalDay } from "../schedule/zoned-time.ts";
 import { createSettlementCommand } from "../sweep/payment-commands.ts";
 
 export interface CreateCompletionDependencies {
@@ -140,14 +140,13 @@ function assertProvenanceAccepted(body: CreateCompletionRequest): void {
 interface TaskAndChallenge {
   readonly taskId: string;
   readonly taskStatus: (typeof scheduledTasks.$inferSelect)["status"];
-  readonly taskDate: string;
+  readonly opensAt: Date;
   readonly deadline: Date;
   readonly challengeId: string;
   readonly challengeStatus: (typeof challenges.$inferSelect)["status"];
   readonly depositMinorUnits: number;
   readonly requiredTaskCount: number;
   readonly stepTarget: number;
-  readonly timeZone: string;
 }
 
 async function acknowledge(
@@ -171,7 +170,7 @@ async function acknowledge(
   }
 
   assertWithinReceiptGrace(task, receivedAt);
-  assertInsideTaskWindow(task, command.body);
+  assertInsideWalkWindow(task, command.body);
   assertStepTargetMet(task, command.body);
 
   await tx.insert(taskCompletions).values({
@@ -207,8 +206,8 @@ async function acknowledge(
 /**
  * The task and its challenge, with the task row locked.
  *
- * One statement rather than two reads: the challenge's step target, time zone,
- * and status all decide this command, and reading them separately would leave a
+ * One statement rather than two reads: the challenge's step target and status
+ * both decide this command, and reading them separately would leave a
  * window in which the challenge ended between the two reads.
  *
  * A task that does not exist and a task belonging to somebody else are the same
@@ -223,14 +222,13 @@ async function lockTask(
     .select({
       taskId: scheduledTasks.id,
       taskStatus: scheduledTasks.status,
-      taskDate: scheduledTasks.taskDate,
+      opensAt: scheduledTasks.opensAt,
       deadline: scheduledTasks.deadline,
       challengeId: challenges.id,
       challengeStatus: challenges.status,
       depositMinorUnits: challenges.depositMinorUnits,
       requiredTaskCount: challenges.requiredTaskCount,
       stepTarget: challenges.stepTarget,
-      timeZone: challenges.timeZone,
     })
     .from(scheduledTasks)
     .innerJoin(challenges, eq(challenges.id, scheduledTasks.challengeId))
@@ -256,21 +254,33 @@ function assertWithinReceiptGrace(task: TaskAndChallenge, receivedAt: Date): voi
 }
 
 /**
- * The reported instant has to be inside the task's own day and at or before the
- * deadline.
+ * The walk has to lie inside the task's walk window, both ends inclusive.
  *
- * The window start is the beginning of the task's calendar day in the
- * challenge's zone, derived here rather than stored: the task row keeps the date
- * and the zone is on the challenge, so the two together are the window and
- * storing a third instant would mean keeping it true through a time zone change.
+ * The opening instant is the task's own `opens_at`, never a time of day on the
+ * task's date: a window can open the evening before, and a walk it holds is as
+ * good as one after midnight. A walk that started before the window opened is
+ * refused however it ended, because the steps taken early are part of the one
+ * continuous observation and cannot be told apart from the rest. The reported
+ * completion instant is held to the same window, since it is the device's word
+ * for when the walk was evaluated.
  */
-function assertInsideTaskWindow(task: TaskAndChallenge, body: CreateCompletionRequest): void {
+function assertInsideWalkWindow(task: TaskAndChallenge, body: CreateCompletionRequest): void {
+  const opensAt = task.opensAt.getTime();
+  const deadline = task.deadline.getTime();
+  const startedAt = Date.parse(body.observation.startedAt);
+  const endedAt = Date.parse(body.observation.endedAt);
   const completedAt = Date.parse(body.completedAt);
-  const windowStart = startOfLocalDay(task.taskDate, task.timeZone).getTime();
-  if (completedAt >= windowStart && completedAt <= task.deadline.getTime()) return;
+  if (
+    startedAt >= opensAt &&
+    endedAt <= deadline &&
+    completedAt >= opensAt &&
+    completedAt <= deadline
+  ) {
+    return;
+  }
   throw new AppError(
     "completion_outside_task_window",
-    "The reported completion instant is outside this task's window or past its deadline.",
+    "The walk has to start at or after this task's walk opens and finish by its deadline.",
   );
 }
 

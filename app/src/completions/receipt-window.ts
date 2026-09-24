@@ -20,21 +20,19 @@
  */
 
 import { RECEIPT_GRACE_SECONDS } from "@betterwakeup/contract";
-import { LAST_CALL_LEAD_MINUTES } from "../reminders/reminders.ts";
 import { formatDuration, formatTimeOfDay } from "../ui/format.ts";
 
 /**
  * How urgently the remaining time reads.
  *
- * The boundary is the last call's own lead time. The app has already decided
- * that `LAST_CALL_LEAD_MINUTES` before the deadline is the moment a morning is
- * going wrong and is worth interrupting someone over, and a walk that is walked
- * but unsent at that moment is in exactly that position - with the difference
- * that walking is no longer what fixes it.
+ * The boundary is the last ten minutes. A walk that is walked but still unsent
+ * then is in the position a morning going wrong is in - with the difference
+ * that walking is no longer what fixes it, so the line turns amber while there
+ * is still time to find signal.
  */
 export type ReceiptUrgency = "ample" | "closing" | "gone";
 
-export const RECEIPT_CLOSING_MINUTES = LAST_CALL_LEAD_MINUTES;
+export const RECEIPT_CLOSING_MINUTES = 10;
 
 export interface ReceiptWindow {
   readonly urgency: ReceiptUrgency;

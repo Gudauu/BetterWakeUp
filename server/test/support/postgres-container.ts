@@ -84,16 +84,23 @@ export interface TestDatabase {
 
 let sequence = 0;
 
-/** Copies the migrated template into a database nothing else touches. */
+/**
+ * Copies the migrated template into a database nothing else touches, or, with
+ * `empty`, creates one no migration has reached, for a test that migrates it
+ * itself.
+ */
 export async function createTestDatabase(
   harness: PostgresHarness,
+  options: { readonly empty?: boolean } = {},
 ): Promise<TestDatabase & { drop(): Promise<void> }> {
   sequence += 1;
   // The process id keeps parallel test workers from colliding on a name.
   const name = `betterwakeup_test_${process.pid}_${sequence}`;
   await withAdminClient(harness.adminConnectionString, async (client) => {
     await client.query(
-      `CREATE DATABASE ${quoteIdentifier(name)} TEMPLATE ${quoteIdentifier(TEMPLATE_DATABASE)}`,
+      options.empty === true
+        ? `CREATE DATABASE ${quoteIdentifier(name)}`
+        : `CREATE DATABASE ${quoteIdentifier(name)} TEMPLATE ${quoteIdentifier(TEMPLATE_DATABASE)}`,
     );
   });
 

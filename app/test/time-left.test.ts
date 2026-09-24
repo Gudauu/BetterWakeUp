@@ -8,7 +8,6 @@
  */
 
 import {
-  CLOSING_MINUTES,
   deadlineMissedText,
   finishByText,
   morningGoneText,
@@ -19,8 +18,8 @@ import {
 } from "../src/completions/time-left.ts";
 
 /** The reading for a given number of minutes, or a failure if there is none. */
-function at(minutes: number | null): TimeLeft {
-  const left = timeLeft(minutes);
+function at(minutes: number | null, opened = true): TimeLeft {
+  const left = timeLeft(minutes, opened);
   if (left === null) {
     throw new Error("expected a countdown");
   }
@@ -41,13 +40,13 @@ describe("a morning with time in it", () => {
     expect(at(0).urgency).toBe("closing");
   });
 
-  it("stays quiet while the deadline is further off than the alarm's own lead", () => {
-    expect(at(CLOSING_MINUTES + 1).urgency).toBe("ample");
-    expect(at(CLOSING_MINUTES).urgency).toBe("closing");
+  it("stays quiet until the walk opens, however close the deadline", () => {
+    expect(at(5, false).urgency).toBe("ample");
+    expect(at(119, true).urgency).toBe("closing");
   });
 
   it("counts to nothing when there is no deadline to count to", () => {
-    expect(timeLeft(null)).toBeNull();
+    expect(timeLeft(null, true)).toBeNull();
   });
 });
 
@@ -67,23 +66,29 @@ describe("a morning that has run out", () => {
   });
 });
 
-describe("the countdown read straight from the deadline", () => {
-  const DEADLINE = "2026-09-01T14:00:00.000Z";
+describe("the countdown read straight from the task", () => {
+  const TASK = { opensAt: "2026-09-01T13:50:00.000Z", deadline: "2026-09-01T14:00:00.000Z" };
 
   it("reads the same as the countdown from derived minutes", () => {
-    expect(timeLeftUntil(DEADLINE, new Date("2026-09-01T12:00:00.000Z"))?.sentence).toBe(
+    expect(timeLeftUntil(TASK, new Date("2026-09-01T12:00:00.000Z"))?.sentence).toBe(
       "2 hours left to walk.",
     );
-    expect(timeLeftUntil(DEADLINE, new Date("2026-09-01T13:40:00.000Z"))?.urgency).toBe("closing");
-    expect(timeLeftUntil(DEADLINE, new Date("2026-09-01T14:30:00.000Z"))?.urgency).toBe("expired");
+    expect(timeLeftUntil(TASK, new Date("2026-09-01T14:30:00.000Z"))?.urgency).toBe("expired");
+  });
+
+  it("turns amber at the opening instant and not a millisecond before", () => {
+    expect(timeLeftUntil(TASK, new Date("2026-09-01T13:49:59.999Z"))?.urgency).toBe("ample");
+    expect(timeLeftUntil(TASK, new Date("2026-09-01T13:50:00.000Z"))?.urgency).toBe("closing");
   });
 
   it("rounds down, so a part-minute is not counted as one", () => {
-    expect(timeLeftUntil(DEADLINE, new Date("2026-09-01T13:59:30.000Z"))?.minutes).toBe(0);
+    expect(timeLeftUntil(TASK, new Date("2026-09-01T13:59:30.000Z"))?.minutes).toBe(0);
   });
 
   it("counts to nothing when the instant cannot be read", () => {
-    expect(timeLeftUntil("not an instant", new Date("2026-09-01T12:00:00.000Z"))).toBeNull();
+    expect(
+      timeLeftUntil({ ...TASK, deadline: "not an instant" }, new Date("2026-09-01T12:00:00.000Z")),
+    ).toBeNull();
   });
 });
 

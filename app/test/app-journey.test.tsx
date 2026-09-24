@@ -129,14 +129,10 @@ describe("one account's life through the app's own screens", () => {
     // tell them.
     await user.press(screen.getByTestId("home-open-details"));
     await user.press(await screen.findByTestId("details-enable-reminders"));
-    // The empty set the signed-out launch cleared the device with is the first
-    // one; what the alarm produced is the last.
-    await waitFor(() =>
-      expect(notifier.scheduled.at(-1)?.map((reminder) => reminder.title)).toEqual([
-        "Time to get moving",
-        expect.stringContaining("Last call"),
-      ]),
-    );
+    // Today's walk is already open, so it has nothing left to ring for: the
+    // one reminder a walk gets rings as it opens. The set is asked for anyway.
+    await waitFor(() => expect(notifier.requests).toBe(1));
+    expect(screen.getByTestId("details-reminders-on")).toBeOnTheScreen();
 
     // Today's task, walked with the development build's step controls.
     await user.press(screen.getByTestId("details-back"));
@@ -174,6 +170,15 @@ describe("one account's life through the app's own screens", () => {
     expect(screen.getByTestId("home-walked-today-text")).toHaveTextContent(/Today's walk is done/);
     expect(screen.getByTestId("home-current-task")).toHaveTextContent(/NEXT WALK · TOMORROW/);
     expect(screen.queryByTestId("home-open-task")).toBeNull();
+    // And the device now holds tomorrow's reminder, set for the instant that
+    // walk opens. The empty set the signed-out launch cleared the device with
+    // is the first one; the last is what the new task produced.
+    await waitFor(() =>
+      expect(notifier.scheduled.at(-1)?.map((reminder) => reminder.title)).toEqual([
+        "Your walk is open",
+      ]),
+    );
+    expect(notifier.scheduled.at(-1)?.[0]?.at).toBe(server.challenge()?.currentTask?.opensAt);
 
     // And the morning that was walked is a kept day on the challenge page's
     // calendar, which is where the month reads as more than a fraction.

@@ -8,17 +8,24 @@
  * tested to within however long the suite takes to run.
  *
  * The fixtures place the only task of interest on 2026-01-05, deadline 08:00 in
- * `America/Los_Angeles`, which is 16:00 UTC that day, so the window is
- * 2026-01-05T08:00Z through 2026-01-05T16:00Z and every instant in this file is
- * written out rather than computed.
+ * `America/Los_Angeles`, which is 16:00 UTC that day, with a ten minute walk
+ * window, so the walk opens at 2026-01-05T15:50Z and every instant in this file
+ * is written out rather than computed. The walk window cases that need a real
+ * schedule materialize one through the engine instead.
  */
 
-import { IDEMPOTENCY_HEADER, type MovementObservation } from "@betterwakeup/contract";
+import {
+  type ChallengeConfiguration,
+  IDEMPOTENCY_HEADER,
+  type MovementObservation,
+} from "@betterwakeup/contract";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createSessionGate } from "../../src/auth/session-gate.ts";
 import { hashSessionToken, mintSessionToken } from "../../src/auth/session-token.ts";
+import { materializeChallenge } from "../../src/challenges/materialize.ts";
+import { planChallenge } from "../../src/challenges/plan.ts";
 import type { Database } from "../../src/db/index.ts";
 import { taskCompletions } from "../../src/db/schema/challenges.ts";
 import { challenges, idempotencyKeys, scheduledTasks, sessions } from "../../src/db/schema.ts";
@@ -40,7 +47,7 @@ const SESSION_SECRET = "0123456789abcdef0123456789abcdef";
 /** The deadline of the fixtures' first task: 08:00 in Los Angeles on 5 January. */
 const DEADLINE = taskDeadline(1);
 const GRACE_MS = 60_000;
-/** Inside the task window and before the deadline, which is what the rule asks. */
+/** Inside the walk window and before the deadline, which is what the rule asks. */
 const COMPLETED_AT = "2026-01-05T15:59:00.000Z";
 
 function observation(overrides: Partial<MovementObservation> = {}): MovementObservation {
@@ -229,30 +236,6 @@ describe("what a completion has to carry", () => {
     expect(await db.select().from(idempotencyKeys)).toHaveLength(0);
   });
 
-  it("rejects a reported instant before the task's window opens", async () => {
-    const { db } = testDatabase();
-    const { token, taskId } = await arrange(db);
-
-    const response = await app(db, DEADLINE).request(
-      ...post(
-        token,
-        taskId,
-        completion(KEY.first, {
-          // One minute before midnight local, which is the previous day's task.
-          completedAt: "2026-01-05T07:59:00.000Z",
-          observation: observation({
-            startedAt: "2026-01-05T07:50:00.000Z",
-            endedAt: "2026-01-05T07:59:00.000Z",
-          }),
-        }),
-        KEY.first,
-      ),
-    );
-
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ code: "completion_outside_task_window" });
-  });
-
   it("rejects a reported instant past the deadline even inside the grace", async () => {
     const { db } = testDatabase();
     const { token, taskId } = await arrange(db);
@@ -316,6 +299,233 @@ describe("what a completion has to carry", () => {
     expect(stored?.completedAt.toISOString()).toBe(COMPLETED_AT);
     // The acknowledgment instant is the server's, not the device's.
     expect(stored?.acknowledgedAt.toISOString()).toBe(receivedAt.toISOString());
+  });
+});
+
+/**
+ * An account with a session and a challenge materialized by the real engine,
+ * so the tasks carry the opening instants the schedule rule gives them rather
+ * than ones a fixture wrote down.
+ */
+async function arrangeSchedule(
+  db: Database,
+  configuration: Omit<ChallengeConfiguration, "requiredTaskCount" | "stepTarget" | "deposit">,
+  startingAt: Date,
+): Promise<{ token: string; tasks: { id: string; opensAt: Date; deadline: Date }[] }> {
+  const { accountId, token } = await signIn(db);
+  const full: ChallengeConfiguration = {
+    ...configuration,
+    requiredTaskCount: 3,
+    stepTarget: 500,
+    deposit: { amount: 0, currency: "USD" },
+  };
+  const challengeId = await db.transaction(
+    async (tx) =>
+      await materializeChallenge(tx, {
+        accountId,
+        configuration: full,
+        policyVersion: "disclosures.2",
+        plan: planChallenge(full, startingAt),
+        activatedAt: startingAt,
+      }),
+  );
+  const tasks = await db
+    .select({
+      id: scheduledTasks.id,
+      opensAt: scheduledTasks.opensAt,
+      deadline: scheduledTasks.deadline,
+    })
+    .from(scheduledTasks)
+    .where(eq(scheduledTasks.challengeId, challengeId))
+    .orderBy(asc(scheduledTasks.sequence));
+  return { token, tasks };
+}
+
+/** A walk from `startedAt` to `endedAt`, reported as completed when it ended. */
+function walk(key: string, startedAt: string, endedAt: string): CompletionBody {
+  return completion(key, {
+    completedAt: endedAt,
+    observation: observation({ startedAt, endedAt }),
+  });
+}
+
+const SECOND_MS = 1000;
+const iso = (at: number) => new Date(at).toISOString();
+
+describe("the walk window", () => {
+  // The fixtures' first task opens ten minutes before its 16:00Z deadline.
+  const OPENS_AT = Date.parse("2026-01-05T15:50:00.000Z");
+
+  it("accepts a walk that starts at the instant the window opens", async () => {
+    const { db } = testDatabase();
+    const { token, taskId } = await arrange(db);
+
+    const response = await app(db, DEADLINE).request(
+      ...post(token, taskId, walk(KEY.first, iso(OPENS_AT), COMPLETED_AT), KEY.first),
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it("refuses a walk started one second early, even though it finishes inside the window", async () => {
+    const { db } = testDatabase();
+    const { token, taskId } = await arrange(db);
+
+    const response = await app(db, DEADLINE).request(
+      ...post(token, taskId, walk(KEY.first, iso(OPENS_AT - SECOND_MS), COMPLETED_AT), KEY.first),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "completion_outside_task_window" });
+    expect(await db.select().from(taskCompletions)).toHaveLength(0);
+  });
+
+  it("refuses a walk that ended after the deadline, whatever instant it reports", async () => {
+    const { db } = testDatabase();
+    const { token, taskId } = await arrange(db);
+
+    const response = await app(db, DEADLINE).request(
+      ...post(
+        token,
+        taskId,
+        completion(KEY.first, {
+          completedAt: DEADLINE.toISOString(),
+          observation: observation({ endedAt: iso(DEADLINE.getTime() + SECOND_MS) }),
+        }),
+        KEY.first,
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "completion_outside_task_window" });
+  });
+
+  it("opens a 12:30 AM deadline with a 60 minute window at 11:30 PM the date before", async () => {
+    const { db } = testDatabase();
+    // Noon on Tuesday 13 January in Los Angeles. The first task is Wednesday's
+    // 12:30 AM deadline, 08:30Z, whose walk opens at 11:30 PM on Tuesday.
+    const { token, tasks } = await arrangeSchedule(
+      db,
+      {
+        schedule: [{ weekday: "wednesday", deadline: "00:30" }],
+        noRegretMinutes: 0,
+        walkWindowMinutes: 60,
+        timeZone: "America/Los_Angeles",
+      },
+      new Date("2026-01-13T20:00:00.000Z"),
+    );
+    const [task] = tasks;
+    if (task === undefined) throw new Error("the plan materialized no task");
+    expect(task.opensAt.toISOString()).toBe("2026-01-14T07:30:00.000Z");
+
+    const early = await app(db, task.deadline).request(
+      ...post(
+        token,
+        task.id,
+        walk(KEY.first, "2026-01-14T07:29:59.000Z", "2026-01-14T07:40:00.000Z"),
+        KEY.first,
+      ),
+    );
+    expect(early.status).toBe(409);
+
+    const onTime = await app(db, task.deadline).request(
+      ...post(
+        token,
+        task.id,
+        walk(KEY.second, "2026-01-14T07:30:00.000Z", "2026-01-14T07:40:00.000Z"),
+        KEY.second,
+      ),
+    );
+    expect(onTime.status).toBe(200);
+  });
+
+  it("opens it at 11:30 PM the date before across a daylight saving change", async () => {
+    const { db } = testDatabase();
+    // Chile springs forward at midnight: 2026-09-06 has no 00:00 to 00:59, so
+    // a 12:30 AM deadline that morning falls at 01:30 -03, which is 04:30Z.
+    // Sixty real minutes before it is 03:30Z, which reads as 11:30 PM -04 on the
+    // 5th, and the window spans the transition.
+    const { token, tasks } = await arrangeSchedule(
+      db,
+      {
+        schedule: [{ weekday: "sunday", deadline: "00:30" }],
+        noRegretMinutes: 0,
+        walkWindowMinutes: 60,
+        timeZone: "America/Santiago",
+      },
+      new Date("2026-09-05T12:00:00.000Z"),
+    );
+    const [task] = tasks;
+    if (task === undefined) throw new Error("the plan materialized no task");
+    expect(task.deadline.toISOString()).toBe("2026-09-06T04:30:00.000Z");
+    expect(task.opensAt.toISOString()).toBe("2026-09-06T03:30:00.000Z");
+
+    const early = await app(db, task.deadline).request(
+      ...post(
+        token,
+        task.id,
+        walk(KEY.first, "2026-09-06T03:29:59.000Z", "2026-09-06T03:45:00.000Z"),
+        KEY.first,
+      ),
+    );
+    expect(early.status).toBe(409);
+
+    const onTime = await app(db, task.deadline).request(
+      ...post(
+        token,
+        task.id,
+        walk(KEY.second, "2026-09-06T03:30:00.000Z", "2026-09-06T03:45:00.000Z"),
+        KEY.second,
+      ),
+    );
+    expect(onTime.status).toBe(200);
+  });
+
+  it("opens a walk whose window reaches past the previous deadline only at that deadline", async () => {
+    const { db } = testDatabase();
+    // Monday at 11:30 PM and Tuesday at 12:30 AM are an hour apart, and the
+    // window is just under two hours, so Tuesday's walk opens at Monday's
+    // deadline rather than at 10:31 PM on Monday.
+    const { token, tasks } = await arrangeSchedule(
+      db,
+      {
+        schedule: [
+          { weekday: "monday", deadline: "23:30" },
+          { weekday: "tuesday", deadline: "00:30" },
+        ],
+        noRegretMinutes: 0,
+        walkWindowMinutes: 119,
+        timeZone: "America/Los_Angeles",
+      },
+      new Date("2026-01-12T20:00:00.000Z"),
+    );
+    const [monday, tuesday] = tasks;
+    if (monday === undefined || tuesday === undefined) throw new Error("expected two tasks");
+    expect(tuesday.opensAt.toISOString()).toBe(monday.deadline.toISOString());
+
+    const beforeMonday = await app(db, tuesday.deadline).request(
+      ...post(
+        token,
+        tuesday.id,
+        walk(
+          KEY.first,
+          iso(monday.deadline.getTime() - SECOND_MS),
+          iso(tuesday.deadline.getTime()),
+        ),
+        KEY.first,
+      ),
+    );
+    expect(beforeMonday.status).toBe(409);
+
+    const atMonday = await app(db, tuesday.deadline).request(
+      ...post(
+        token,
+        tuesday.id,
+        walk(KEY.second, iso(monday.deadline.getTime()), iso(tuesday.deadline.getTime())),
+        KEY.second,
+      ),
+    );
+    expect(atMonday.status).toBe(200);
   });
 });
 

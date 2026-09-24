@@ -20,6 +20,13 @@
  * - **How the cutoff is measured.** The cutoff is the deadline instant minus
  *   the No Regret duration in real time, not in wall-clock time. Eight hours of
  *   notice means eight hours of notice on the day the clocks change too.
+ * - **When a walk opens.** A walk opens the walk window before its deadline,
+ *   in real time like the cutoff, so it can open on the date before its own.
+ *   It never opens before the previous task's deadline, though: when two
+ *   deadlines are closer together than the window, the later walk opens at the
+ *   earlier one's deadline, so one walk cannot count for two mornings. And it
+ *   never opens after its own deadline, which only a time zone change that
+ *   reordered two deadlines could otherwise produce.
  * - **What a replacement task costs.** A task appended to replace a skipped or
  *   forgiven one lands on the next scheduled date strictly after the last task
  *   the challenge holds, which is what pushes the end date later and what keeps
@@ -30,7 +37,7 @@ import type { Weekday, WeeklySchedule } from "@betterwakeup/contract";
 import { DateTime } from "luxon";
 
 import { AppError } from "../errors/app-error.ts";
-import { localDateOf, resolveLocalTime, startOfLocalDay } from "./zoned-time.ts";
+import { localDateOf, resolveLocalTime } from "./zoned-time.ts";
 
 /** Luxon numbers weekdays 1 (Monday) through 7 (Sunday). */
 const WEEKDAY_BY_LUXON_NUMBER: Readonly<Record<number, Weekday>> = {
@@ -58,24 +65,19 @@ export interface ScheduleConfiguration {
   readonly schedule: WeeklySchedule;
   /** Minutes of advance notice required to pause a task. */
   readonly noRegretMinutes: number;
+  /** Minutes before each deadline the walk opens. */
+  readonly walkWindowMinutes: number;
   readonly timeZone: string;
 }
 
-/**
- * One materialized task.
- *
- * `windowStart` is not stored on the task row: the row keeps the date, and the
- * window is that date's beginning in the challenge's zone. It is returned here
- * because it is the third instant derived from the same conversion, and the
- * completion path judges a device-reported timestamp against it.
- */
+/** One materialized task. */
 export interface MaterializedTask {
   /** Position within the challenge, starting at 1. */
   readonly sequence: number;
   /** The calendar date in the challenge's zone, as `YYYY-MM-DD`. */
   readonly date: string;
-  /** The instant that calendar day begins in the challenge's zone. */
-  readonly windowStart: Date;
+  /** When the walk opens. Movement observed before it does not count. */
+  readonly opensAt: Date;
   readonly deadline: Date;
   /** The deadline less the No Regret duration. Pausing at or after it is too late. */
   readonly pauseCutoff: Date;
@@ -107,7 +109,7 @@ export function materializeSchedule(
     if (previous === undefined) {
       throw new AppError("internal_error", "a schedule lost the task it just placed");
     }
-    tasks.push(appendTask(configuration, previous.date, tasks.length + 1));
+    tasks.push(appendTask(configuration, previous, tasks.length + 1));
   }
   return tasks;
 }
@@ -115,20 +117,26 @@ export function materializeSchedule(
 /**
  * The task appended when a skipped or forgiven task consumes a row.
  *
- * It lands on the next scheduled date strictly after `lastTaskDate`, which is
- * the last date the challenge holds a task on. There is no eligibility test
+ * It lands on the next scheduled date strictly after `last`, which is the last
+ * task the challenge holds, and opens no earlier than that task's deadline. There is no eligibility test
  * against an instant here: the replacement is always in the future relative to
  * the task it replaces, and holding it to a cutoff rule as well would let a
  * pause silently shorten a challenge.
  */
 export function appendTask(
   configuration: ScheduleConfiguration,
-  lastTaskDate: string,
+  last: PreviousTask,
   sequence: number,
 ): MaterializedTask {
   const deadlines = deadlinesByWeekday(configuration.schedule);
-  const date = nextScheduledDate(deadlines, nextDate(lastTaskDate));
-  return taskOn(configuration, deadlines, date, sequence);
+  const date = nextScheduledDate(deadlines, nextDate(last.date));
+  return taskOn(configuration, deadlines, date, sequence, last.deadline);
+}
+
+/** The task before the one being placed: its date, and the deadline it closes at. */
+export interface PreviousTask {
+  readonly date: string;
+  readonly deadline: Date;
 }
 
 /**
@@ -151,14 +159,17 @@ export function projectEndDate(configuration: ScheduleConfiguration, startingAt:
  *
  * The time zone change path re-materializes tasks by recomputing exactly this,
  * keeping each task's calendar date and sequence and moving only its instants.
+ * `previousDeadline` is the deadline of the task before it, as that task now
+ * stands, or null for a challenge's first task.
  */
 export function taskInstants(
   configuration: ScheduleConfiguration,
   date: string,
   sequence: number,
+  previousDeadline: Date | null,
 ): MaterializedTask {
   const deadlines = deadlinesByWeekday(configuration.schedule);
-  return taskOn(configuration, deadlines, date, sequence);
+  return taskOn(configuration, deadlines, date, sequence, previousDeadline);
 }
 
 /** The first task on or after `fromDate` whose cutoff is still ahead of `startingAt`. */
@@ -171,7 +182,8 @@ function firstTaskFrom(
   let candidate = fromDate;
   for (let attempt = 0; attempt <= MAXIMUM_DAYS_BETWEEN_TASKS; attempt += 1) {
     const date = nextScheduledDate(deadlines, candidate);
-    const task = taskOn(configuration, deadlines, date, 1);
+    // The first task has no task before it, so its window is its own.
+    const task = taskOn(configuration, deadlines, date, 1, null);
     if (task.pauseCutoff.getTime() > startingAt.getTime()) {
       return task;
     }
@@ -185,6 +197,7 @@ function taskOn(
   deadlines: Map<Weekday, string>,
   date: string,
   sequence: number,
+  previousDeadline: Date | null,
 ): MaterializedTask {
   const deadlineLocal = deadlines.get(weekdayOf(date));
   if (deadlineLocal === undefined) {
@@ -194,12 +207,30 @@ function taskOn(
   return {
     sequence,
     date,
-    windowStart: startOfLocalDay(date, configuration.timeZone),
+    opensAt: opensAtFor(deadline, configuration.walkWindowMinutes, previousDeadline),
     deadline,
     // Real time, not wall-clock time: the notice a user gets does not change
     // because the clocks did.
     pauseCutoff: new Date(deadline.getTime() - configuration.noRegretMinutes * 60_000),
   };
+}
+
+/**
+ * When a walk with this deadline opens.
+ *
+ * The window is real time, like the cutoff: ten minutes before a deadline is
+ * ten minutes on the night the clocks change too, and it can reach back across
+ * midnight into the date before. The previous deadline bounds it from below,
+ * and the task's own deadline from above.
+ */
+function opensAtFor(
+  deadline: Date,
+  walkWindowMinutes: number,
+  previousDeadline: Date | null,
+): Date {
+  const windowStart = deadline.getTime() - walkWindowMinutes * 60_000;
+  const floor = previousDeadline?.getTime() ?? Number.NEGATIVE_INFINITY;
+  return new Date(Math.min(deadline.getTime(), Math.max(windowStart, floor)));
 }
 
 /** The first date on or after `fromDate` that the weekly schedule covers. */

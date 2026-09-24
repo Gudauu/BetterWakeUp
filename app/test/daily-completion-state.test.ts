@@ -17,6 +17,7 @@ function task(overrides: Partial<TaskView> = {}): TaskView {
   return {
     id: TASK_ID,
     date: "2026-09-01",
+    opensAt: "2026-09-01T12:30:00.000Z",
     deadline: "2026-09-01T14:00:00.000Z",
     pauseCutoff: "2026-09-01T06:00:00.000Z",
     status: "scheduled",

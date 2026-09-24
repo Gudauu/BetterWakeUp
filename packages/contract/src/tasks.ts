@@ -15,6 +15,12 @@ export const taskStatus = z.enum(["scheduled", "completed", "skipped", "missed",
 export const taskView = z.object({
   id: resourceId,
   date: localDate,
+  /**
+   * When the walk opens: the deadline less the challenge's walk window, or the
+   * previous task's deadline if that is later. Movement observed before it
+   * does not count. It can fall on the date before `date`.
+   */
+  opensAt: instant,
   deadline: instant,
   /** Deadline minus the challenge's No Regret Time. Pausing after this leaves the task live. */
   pauseCutoff: instant,

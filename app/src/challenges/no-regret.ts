@@ -136,7 +136,9 @@ export function skipWindowSentence(
   return `You have until ${formatDeadline(pauseCutoff, timeZone)} to skip it - ${formatDuration(window.minutesLeft)} left.`;
 }
 
-function earliestDeadline(schedule: readonly { readonly deadline: string }[]): string | null {
+export function earliestDeadline(
+  schedule: readonly { readonly deadline: string }[],
+): string | null {
   let earliest: string | null = null;
   for (const day of schedule) {
     if (!/^\d{2}:\d{2}$/.test(day.deadline)) {

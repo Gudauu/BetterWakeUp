@@ -357,7 +357,8 @@ describe("what the screen shows about the plan", () => {
     expect(screen.queryByTestId("projection-first-caution")).toBeNull();
   });
 
-  it("warns when the first deadline is too close for the phone to wake anyone", async () => {
+  it("warns when the first walk is already open, so no reminder will ring for it", async () => {
+    // Five minutes before the deadline, inside the draft's ten minute window.
     await renderScreen(
       { ...readyDraft(), noRegretMinutes: 0 },
       fakeApi(),
@@ -365,11 +366,11 @@ describe("what the screen shows about the plan", () => {
       createFakePedometer(),
       fakeSettings(),
       true,
-      { now: () => new Date("2026-09-01T13:30:00.000Z") },
+      { now: () => new Date("2026-09-01T13:55:00.000Z") },
     );
 
     expect(screen.getByTestId("projection-first-caution")).toHaveTextContent(
-      /nothing will wake you for it/,
+      /already open, so no reminder will ring for it/,
     );
   });
 
@@ -587,7 +588,7 @@ describe("what the screen shows about the plan", () => {
       createFakePedometer(),
       fakeSettings(),
       true,
-      // Set up at bedtime: the first deadline lands inside the alarm's own lead.
+      // Set up at 6:30 AM, with the first walk already open.
       { now: () => new Date("2026-09-01T13:30:00.000Z") },
     );
 
@@ -696,6 +697,46 @@ describe("the form the user fills in", () => {
     );
     // A caution and not a bar: the app has no maximum to enforce.
     expect(screen.getByTestId("deposit-and-start")).toBeOnTheScreen();
+  });
+
+  it("picks the walk window with presets and a one-minute stepper", async () => {
+    const api = await renderScreen(readyDraft());
+    const user = userEvent.setup();
+
+    // Ten minutes by default, read back against the 7:00 AM mornings.
+    expect(screen.getByTestId("walk-window-stepper-value")).toHaveTextContent("10 minutes");
+    expect(screen.getByTestId("walk-window-reading")).toHaveTextContent(
+      /A 7:00 AM morning opens at 6:50 AM/,
+    );
+
+    await user.press(screen.getByTestId("walk-window-preset-30"));
+    await user.press(screen.getByTestId("walk-window-stepper-increment"));
+
+    expect(screen.getByTestId("walk-window-stepper-value")).toHaveTextContent("31 minutes");
+    expect(screen.getByTestId("walk-window-preset-30")).toHaveProp("accessibilityState", {
+      selected: false,
+    });
+    expect(screen.getByTestId("walk-window-reading")).toHaveTextContent(/opens at 6:29 AM/);
+
+    await user.press(screen.getByTestId("start-challenge"));
+
+    const created = api.calls.find((call) => call.name === "createChallenge");
+    expect(
+      (created?.input as { body: { configuration: { walkWindowMinutes: number } } }).body
+        .configuration.walkWindowMinutes,
+    ).toBe(31);
+  });
+
+  it("stops the stepper at the window's bounds", async () => {
+    await renderScreen({ ...readyDraft(), walkWindowMinutes: 4 });
+    const user = userEvent.setup();
+
+    await user.press(screen.getByTestId("walk-window-stepper-decrement"));
+    expect(screen.getByTestId("walk-window-stepper-value")).toHaveTextContent("3 minutes");
+    expect(screen.getByTestId("walk-window-stepper-decrement")).toBeDisabled();
+
+    await user.press(screen.getByTestId("walk-window-stepper-decrement"));
+    expect(screen.getByTestId("walk-window-stepper-value")).toHaveTextContent("3 minutes");
   });
 
   it("takes a deadline typed the way a person says it, not only as HH:MM", async () => {

@@ -2382,6 +2382,50 @@ pass. The layout was also checked by rendering the real home and challenge page
 on the web against the test fakes, in light and dark, which caught a calendar
 square drawn at the legend swatch's height.
 
+### Issue 34a: walk window
+
+A walk now opens a fixed length of time before its deadline, and only
+movement inside that window counts. The contract carries
+`walkWindowMinutes` on the configuration, 3 to 119 whole minutes, and a
+server-computed `opensAt` on every task view.
+
+The server stores the window on the challenge and the opening instant on each
+task as `opens_at`, beside the pause cutoff, with check constraints for both.
+The schedule engine opens a walk at its deadline less the window, in real
+time, but never before the previous task's deadline and never after its own.
+It is stored rather than derived because the floor is another row's
+deadline. Every writer that places a task already holds that row:
+materialization, the replacement append, and the time zone change, which
+carries the previous deadline along the tasks it moves. Migration
+`0011_walk_window.sql` backfills existing challenges with the 10 minute default
+and their tasks with the same rule. Its first version failed on the
+development database: the backfill left deferred trigger events pending, and
+PostgreSQL refuses an `ALTER TABLE` while they are. Every other test migrates
+an empty template, so `migration-upgrade.test.ts` now migrates a database to
+just before a migration, writes rows, and applies the rest. The completion check now requires the observation
+to start at or after `opens_at` and end by the deadline. This replaces the
+start of local day comparison, and `startOfLocalDay` is gone.
+
+The app picks the window with a one-minute stepper beside 5, 10, 15, 30 and 60
+minute presets. Home and the task screen decide whether a walk has opened from
+`opensAt`, not from the task's date, and say when it opens. The phone refuses
+to record a walk that started before `opensAt` or ended after the deadline.
+Reminders collapse to one per walk at the opening instant, and the countdown
+turns amber at the same moment.
+
+Tests cover both sides of the opening boundary on the server and the phone. A
+walk started one second early is refused though it finishes inside the window,
+and the window bounds are rejected on the contract and in the database. A
+12:30 AM deadline with a 60 minute window is accepted from 11:30 PM the date
+before, including across Chile's midnight transitions. A window reaching past
+the previous deadline opens at that deadline, and a reminder lands exactly at
+`opensAt`. 704 server and contract tests and 1080 app tests pass.
+
+The configuration change is breaking: a server with this change refuses a
+creation from an older app, and a funding intent stored before it no longer
+parses at its webhook. The development database needs migration 0011 before
+this server is deployed, as `docs/deployment.md` describes.
+
 ## Handed back
 
 ### Issue 44: production readiness sign-off

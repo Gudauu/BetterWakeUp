@@ -36,7 +36,7 @@ import {
   fundedChallengeView,
   PAUSE_EXPIRES_AT,
   PAUSED_AT,
-  taskView,
+  taskView as serverTaskView,
 } from "./support/fake-api.ts";
 import { fakeAppReturn } from "./support/fake-app-return.ts";
 import { fakeBackPress } from "./support/fake-back-press.ts";
@@ -71,6 +71,18 @@ const METRICS = {
  * carry, so the offer reads as open for the tests that are about something else.
  */
 const NOW = new Date("2026-09-01T12:00:00.000Z");
+
+/**
+ * A task whose walk has already opened at `NOW`, unless the test names its own
+ * `opensAt`: almost every test here is about a walk that can be walked. It
+ * opens no later than ten minutes before its deadline, so a test that moves the
+ * deadline behind `NOW` still describes a window the server could send.
+ */
+function taskView(overrides: Parameters<typeof serverTaskView>[0] = {}) {
+  const deadline = Date.parse(overrides.deadline ?? "2026-09-01T14:00:00.000Z");
+  const opensAt = new Date(Math.min(NOW.getTime(), deadline - 10 * 60_000)).toISOString();
+  return serverTaskView({ opensAt, ...overrides });
+}
 
 async function renderHome(
   api: ApiClient,
@@ -1102,7 +1114,7 @@ describe("the clock on this morning's walk", () => {
     expect(screen.queryByTestId("home-task-time-left")).toBeNull();
   });
 
-  it("says a saved walk is running out of time from the last call onwards", async () => {
+  it("says a saved walk is running out of time in its last ten minutes", async () => {
     await renderHome(withTask, { seed: heldWalk, now: new Date("2026-09-01T13:55:00.000Z") });
 
     expect(await screen.findByTestId("home-task-receipt-left")).toHaveTextContent(
@@ -1947,7 +1959,12 @@ describe("the challenge page and the device's reminders", () => {
     fakeApi({
       getCurrentChallenge: {
         lastEnded: null,
-        challenge: challengeView({ currentTask: taskView(), ...overrides }),
+        // The walk opens at 6:50 AM, still ahead of the clock, so there is a
+        // reminder left to schedule for it.
+        challenge: challengeView({
+          currentTask: taskView({ opensAt: "2026-09-01T13:50:00.000Z" }),
+          ...overrides,
+        }),
       },
     });
 
@@ -1959,7 +1976,9 @@ describe("the challenge page and the device's reminders", () => {
     await renderHome(running(), { notifier });
     await openDetails();
 
-    expect(screen.getByTestId("details-reminders-offer")).toHaveTextContent(/6:15 AM/);
+    expect(screen.getByTestId("details-reminders-offer")).toHaveTextContent(
+      /at 6:50 AM, when your walk opens/,
+    );
     expect(screen.getByTestId("details-enable-reminders")).toBeOnTheScreen();
     // Never asked before it is pressed: iOS gives an app one prompt for the
     // lifetime of an install.
@@ -1974,11 +1993,10 @@ describe("the challenge page and the device's reminders", () => {
     await openDetails();
     await userEvent.press(screen.getByTestId("details-enable-reminders"));
 
-    expect(await screen.findByTestId("details-reminders-on")).toHaveTextContent(/6:15 AM/);
+    expect(await screen.findByTestId("details-reminders-on")).toHaveTextContent(/6:50 AM/);
     await waitFor(() => expect(notifier.scheduled).toHaveLength(1));
-    expect(notifier.scheduled.at(-1)?.map((reminder) => reminder.id)).toEqual([
-      "44444444-4444-4444-8444-444444444444:alarm",
-      "44444444-4444-4444-8444-444444444444:last-call",
+    expect(notifier.scheduled.at(-1)?.map((reminder) => reminder.at)).toEqual([
+      "2026-09-01T13:50:00.000Z",
     ]);
   });
 
@@ -2194,6 +2212,7 @@ describe("a morning already kept", () => {
           currentTask: taskView({
             id: "44444444-4444-4444-8444-444444444445",
             date: "2026-09-02",
+            opensAt: "2026-09-02T13:50:00.000Z",
             deadline: "2026-09-02T14:00:00.000Z",
             pauseCutoff: "2026-09-02T06:00:00.000Z",
           }),
@@ -2228,6 +2247,43 @@ describe("a morning already kept", () => {
     expect(screen.queryByTestId("home-open-task")).toBeNull();
     // How long until its deadline is still worth knowing the night before.
     expect(screen.getByTestId("home-task-time-left")).toBeOnTheScreen();
+    // And when it opens, which is when the phone starts counting.
+    expect(screen.getByTestId("home-task-opens")).toHaveTextContent("Opens tomorrow at 6:50 AM");
+  });
+
+  // A 12:30 AM deadline with an hour's window opens at 11:30 PM the night
+  // before. Home has to offer it from then, although its date is tomorrow.
+  const lateNight = (now: string) =>
+    renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          lastEnded: null,
+          challenge: challengeView({
+            currentTask: taskView({
+              date: "2026-09-02",
+              opensAt: "2026-09-02T06:30:00.000Z",
+              deadline: "2026-09-02T07:30:00.000Z",
+            }),
+          }),
+        },
+      }),
+      { now: new Date(now) },
+    );
+
+  it("holds a walk that opens tonight until a second before it opens", async () => {
+    await lateNight("2026-09-02T06:29:59.000Z");
+
+    expect(await screen.findByTestId("home-task-opens")).toHaveTextContent(
+      "Opens today at 11:30 PM",
+    );
+    expect(screen.queryByTestId("home-open-task")).toBeNull();
+  });
+
+  it("offers that walk at 11:30 PM, the evening before its date", async () => {
+    await lateNight("2026-09-02T06:30:00.000Z");
+
+    expect(await screen.findByTestId("home-open-task")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-task-opens")).toBeNull();
   });
 
   it("leaves this morning's own walk on offer", async () => {

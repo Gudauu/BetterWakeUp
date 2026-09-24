@@ -9,18 +9,20 @@
  */
 
 import { firstMorningReading } from "../src/challenges/first-morning.ts";
-import { ALARM_LEAD_MINUTES } from "../src/reminders/reminders.ts";
 import { PROJECTION } from "./support/fake-api.ts";
 
 const ZONE = "America/Los_Angeles";
 
 /** The fixture's first deadline is 14:00Z, which is 7:00 AM in the zone above. */
+const WALK_WINDOW_MINUTES = 30;
+
 function readingAt(minutesBefore: number, noRegretMinutes = 0) {
   const deadline = new Date(PROJECTION.firstTaskDeadline).getTime();
   return firstMorningReading({
     projection: PROJECTION,
     timeZone: ZONE,
     noRegretMinutes,
+    walkWindowMinutes: WALK_WINDOW_MINUTES,
     now: new Date(deadline - minutesBefore * 60_000),
   });
 }
@@ -52,6 +54,7 @@ describe("the time the first morning is due", () => {
         projection: { ...PROJECTION, firstTaskDeadline: "not an instant" },
         timeZone: ZONE,
         noRegretMinutes: 0,
+        walkWindowMinutes: WALK_WINDOW_MINUTES,
         now: new Date("2026-09-01T00:00:00.000Z"),
       }),
     ).toBeNull();
@@ -59,18 +62,18 @@ describe("the time the first morning is due", () => {
 });
 
 describe("a first deadline the phone cannot wake anyone for", () => {
-  it("turns closing inside the alarm's own lead and says no reminder can reach them", () => {
-    const reading = readingAt(30);
+  it("turns closing once the first walk is already open and says no reminder will ring", () => {
+    const reading = readingAt(20);
 
     expect(reading?.urgency).toBe("closing");
-    expect(reading?.countdown).toBe("That is 30 minutes from now.");
-    expect(reading?.caution).toContain(`less than ${ALARM_LEAD_MINUTES} minutes away`);
-    expect(reading?.caution).toContain("nothing will wake you for it");
+    expect(reading?.countdown).toBe("That is 20 minutes from now.");
+    expect(reading?.caution).toContain("already open");
+    expect(reading?.caution).toContain("no reminder will ring");
   });
 
-  it("takes the alarm's lead as the boundary rather than a number of its own", () => {
-    expect(readingAt(ALARM_LEAD_MINUTES)?.urgency).toBe("closing");
-    expect(readingAt(ALARM_LEAD_MINUTES + 1)?.urgency).toBe("ample");
+  it("takes the walk window as the boundary, since the one reminder rings as it opens", () => {
+    expect(readingAt(WALK_WINDOW_MINUTES)?.urgency).toBe("closing");
+    expect(readingAt(WALK_WINDOW_MINUTES + 1)?.urgency).toBe("ample");
   });
 });
 

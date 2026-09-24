@@ -28,7 +28,6 @@ import { ApiError } from "../api/errors.ts";
 import { noAnswerMessage } from "../api/no-answer.ts";
 import { tryAgainMessage, unlistedMessage } from "../api/try-again.ts";
 import { waitMessageFor } from "../api/wait-again.ts";
-import { ALARM_LEAD_MINUTES } from "../reminders/reminders.ts";
 import { formatDuration, formatTimeOfDay } from "../ui/format.ts";
 import type { CommandOutcome } from "./lifecycle-commands.ts";
 
@@ -188,7 +187,7 @@ export interface MoveImpact {
 
 export interface MoveImpactInput {
   readonly move: TimeZoneMove;
-  readonly task: Pick<TaskView, "deadline" | "pauseCutoff">;
+  readonly task: Pick<TaskView, "opensAt" | "deadline" | "pauseCutoff">;
   readonly now: Date;
 }
 
@@ -237,7 +236,10 @@ export function moveImpact(input: MoveImpactInput): MoveImpact | null {
       sentence: `Switching now moves this morning's deadline from ${was} to ${becomes} where you are, which has already gone by. That morning would count as missed, and switching back afterwards does not undo it.`,
     };
   }
-  if (minutes <= ALARM_LEAD_MINUTES) {
+  // Inside the task's own window the moved walk would already be open, so there
+  // is no morning left to plan and no reminder left to ring.
+  const windowMinutes = Math.round((deadline.getTime() - Date.parse(input.task.opensAt)) / 60_000);
+  if (minutes <= windowMinutes) {
     return {
       deadline: moved,
       landing: "closing",

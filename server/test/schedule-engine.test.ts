@@ -22,11 +22,14 @@ import {
   type ScheduleConfiguration,
   taskInstants,
 } from "../src/schedule/engine.ts";
-import { localDateOf, resolveLocalTime, startOfLocalDay } from "../src/schedule/zoned-time.ts";
+import { localDateOf, resolveLocalTime } from "../src/schedule/zoned-time.ts";
 
 const LOS_ANGELES = "America/Los_Angeles";
 
-/** Weekdays at 09:00, weekends inactive, with eight hours of No Regret Time. */
+/**
+ * Weekdays at 09:00, weekends inactive, with eight hours of No Regret Time and
+ * a ten minute walk window.
+ */
 function weekdayConfiguration(overrides: Partial<ScheduleConfiguration> = {}) {
   return {
     requiredTaskCount: 5,
@@ -38,6 +41,7 @@ function weekdayConfiguration(overrides: Partial<ScheduleConfiguration> = {}) {
       { weekday: "friday", deadline: "09:00" },
     ],
     noRegretMinutes: 8 * 60,
+    walkWindowMinutes: 10,
     timeZone: LOS_ANGELES,
     ...overrides,
   } satisfies ScheduleConfiguration;
@@ -113,19 +117,6 @@ describe("resolving a wall-clock time in a zone", () => {
       );
     });
   }
-
-  it("starts a day at the instant the calendar date begins", () => {
-    expect(startOfLocalDay("2026-11-01", LOS_ANGELES).toISOString()).toBe(
-      "2026-11-01T07:00:00.000Z",
-    );
-  });
-
-  it("starts a day at the transition when that day has no midnight", () => {
-    // Chile's forward transition happens at midnight, so 2026-09-06 begins at 01:00.
-    expect(startOfLocalDay("2026-09-06", "America/Santiago").toISOString()).toBe(
-      "2026-09-06T04:00:00.000Z",
-    );
-  });
 
   it("reads an instant back as the calendar date it falls on locally", () => {
     expect(localDateOf(new Date("2026-01-01T07:59:00.000Z"), LOS_ANGELES)).toBe("2025-12-31");
@@ -395,7 +386,9 @@ describe("appending a replacement task", () => {
     const tasks = materializeSchedule(configuration, new Date("2026-01-15T00:00:00.000Z"));
     const last = tasks[tasks.length - 1];
 
-    const appended = appendTask(configuration, last?.date ?? "", tasks.length + 1);
+    if (last === undefined) throw new Error("a schedule with no tasks");
+
+    const appended = appendTask(configuration, last, tasks.length + 1);
 
     expect(last?.date).toBe("2026-01-21");
     expect(appended.date).toBe("2026-01-22");
@@ -405,12 +398,15 @@ describe("appending a replacement task", () => {
   it("crosses an inactive weekend", () => {
     const configuration = weekdayConfiguration();
 
-    expect(appendTask(configuration, "2026-01-16", 2).date).toBe("2026-01-19");
+    const friday = { date: "2026-01-16", deadline: new Date("2026-01-16T17:00:00.000Z") };
+
+    expect(appendTask(configuration, friday, 2).date).toBe("2026-01-19");
   });
 
   it("is placed by date alone, so a long pause never shortens the challenge", () => {
     const configuration = weekdayConfiguration();
-    const appended = appendTask(configuration, "2026-01-15", 2);
+    const thursday = { date: "2026-01-15", deadline: new Date("2026-01-15T17:00:00.000Z") };
+    const appended = appendTask(configuration, thursday, 2);
 
     expect(appended.date).toBe("2026-01-16");
     expect(appended.deadline.toISOString()).toBe("2026-01-16T17:00:00.000Z");
@@ -422,26 +418,150 @@ describe("recomputing a task's instants", () => {
     const configuration = weekdayConfiguration();
     const tasks = materializeSchedule(configuration, new Date("2026-01-15T00:00:00.000Z"));
 
+    let previousDeadline: Date | null = null;
     for (const task of tasks) {
-      expect(taskInstants(configuration, task.date, task.sequence)).toEqual(task);
+      expect(taskInstants(configuration, task.date, task.sequence, previousDeadline)).toEqual(task);
+      previousDeadline = task.deadline;
     }
   });
 
   it("moves only the instants when the zone changes", () => {
     const configuration = weekdayConfiguration();
-    const moved = taskInstants({ ...configuration, timeZone: "Europe/Berlin" }, "2026-01-15", 4);
+    const moved = taskInstants(
+      { ...configuration, timeZone: "Europe/Berlin" },
+      "2026-01-15",
+      4,
+      new Date("2026-01-14T08:00:00.000Z"),
+    );
 
     expect(moved.date).toBe("2026-01-15");
     expect(moved.sequence).toBe(4);
     expect(moved.deadline.toISOString()).toBe("2026-01-15T08:00:00.000Z");
     expect(moved.pauseCutoff.toISOString()).toBe("2026-01-15T00:00:00.000Z");
+    expect(moved.opensAt.toISOString()).toBe("2026-01-15T07:50:00.000Z");
   });
 
   it("refuses a date the weekly schedule does not cover", () => {
     // Saturday. A caller asking for instants on an inactive day has a bug, and
     // inventing a deadline for it would hide the bug behind a plausible task.
-    expect(() => taskInstants(weekdayConfiguration(), "2026-01-17", 1)).toThrow(
+    expect(() => taskInstants(weekdayConfiguration(), "2026-01-17", 1, null)).toThrow(
       /not an active weekday/,
     );
+  });
+});
+
+describe("when a walk opens", () => {
+  /** Every day at `deadline`, which is the densest schedule a challenge can hold. */
+  function daily(deadline: string, overrides: Partial<ScheduleConfiguration> = {}) {
+    return weekdayConfiguration({
+      schedule: (
+        ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const
+      ).map((weekday) => ({ weekday, deadline })),
+      noRegretMinutes: 0,
+      ...overrides,
+    });
+  }
+
+  it("opens the walk window before the deadline", () => {
+    const [first] = materializeSchedule(
+      weekdayConfiguration(),
+      new Date("2026-01-15T00:00:00.000Z"),
+    );
+
+    // 09:00 in Los Angeles in January is 17:00 UTC, and ten minutes before it is 08:50.
+    expect(first?.deadline.toISOString()).toBe("2026-01-15T17:00:00.000Z");
+    expect(first?.opensAt.toISOString()).toBe("2026-01-15T16:50:00.000Z");
+  });
+
+  it("opens on the date before when the window reaches back past midnight", () => {
+    const [first] = materializeSchedule(
+      daily("00:30", { walkWindowMinutes: 60 }),
+      new Date("2026-01-14T12:00:00.000Z"),
+    );
+
+    // A 12:30 AM deadline on the 15th opens at 11:30 PM on the 14th.
+    expect(first?.date).toBe("2026-01-15");
+    expect(first?.deadline.toISOString()).toBe("2026-01-15T08:30:00.000Z");
+    expect(first?.opensAt.toISOString()).toBe("2026-01-15T07:30:00.000Z");
+    expect(localDateOf(first?.opensAt ?? new Date(0), LOS_ANGELES)).toBe("2026-01-14");
+  });
+
+  it("measures the window in real time across a backward transition", () => {
+    // 2026-11-01 in Los Angeles repeats 01:00 to 02:00. The 00:30 deadline is
+    // before the change, at UTC-7, and the evening before is at UTC-7 too, so
+    // sixty real minutes still read as 11:30 PM on the 31st.
+    const tasks = materializeSchedule(
+      daily("00:30", { walkWindowMinutes: 60, requiredTaskCount: 3 }),
+      new Date("2026-10-31T12:00:00.000Z"),
+    );
+    const sunday = tasks.find((task) => task.date === "2026-11-01");
+    const monday = tasks.find((task) => task.date === "2026-11-02");
+
+    expect(sunday?.deadline.toISOString()).toBe("2026-11-01T07:30:00.000Z");
+    expect(sunday?.opensAt.toISOString()).toBe("2026-11-01T06:30:00.000Z");
+    // The first deadline after the change is at UTC-8, and so is its window.
+    expect(monday?.deadline.toISOString()).toBe("2026-11-02T08:30:00.000Z");
+    expect(monday?.opensAt.toISOString()).toBe("2026-11-02T07:30:00.000Z");
+  });
+
+  it("measures the window in real time when it spans a forward transition", () => {
+    // 2026-03-08 in Los Angeles skips 02:00 to 03:00. A 03:30 deadline with a
+    // ninety minute window opens at 01:00 by the wall clock, not 02:00: ninety
+    // real minutes, one of which the clock never showed.
+    const tasks = materializeSchedule(
+      daily("03:30", { walkWindowMinutes: 90, requiredTaskCount: 2 }),
+      new Date("2026-03-07T12:00:00.000Z"),
+    );
+    const sunday = tasks.find((task) => task.date === "2026-03-08");
+
+    expect(sunday?.deadline.toISOString()).toBe("2026-03-08T10:30:00.000Z");
+    expect(sunday?.opensAt.toISOString()).toBe("2026-03-08T09:00:00.000Z");
+    expect(resolveLocalTime("2026-03-08", "01:00", LOS_ANGELES).toISOString()).toBe(
+      "2026-03-08T09:00:00.000Z",
+    );
+  });
+
+  it("never opens before the previous task's deadline", () => {
+    // Monday at 23:30 and Tuesday at 00:30 are an hour apart. A two hour window
+    // on Tuesday would reach back past Monday's deadline, so it opens there.
+    const configuration = weekdayConfiguration({
+      schedule: [
+        { weekday: "monday", deadline: "23:30" },
+        { weekday: "tuesday", deadline: "00:30" },
+      ],
+      walkWindowMinutes: 119,
+      noRegretMinutes: 0,
+      requiredTaskCount: 3,
+    });
+    const tasks = materializeSchedule(configuration, new Date("2026-01-12T12:00:00.000Z"));
+    const [monday, tuesday] = tasks;
+
+    expect(monday?.date).toBe("2026-01-12");
+    expect(tuesday?.date).toBe("2026-01-13");
+    expect(tuesday?.opensAt.toISOString()).toBe(monday?.deadline.toISOString());
+    // Monday itself has no task an hour before it, so its window is whole.
+    expect(monday?.opensAt.getTime()).toBe((monday?.deadline.getTime() ?? 0) - 119 * 60_000);
+  });
+
+  it("opens a replacement no earlier than the deadline of the task it follows", () => {
+    const configuration = daily("00:30", { walkWindowMinutes: 119 });
+    const last = { date: "2026-01-15", deadline: new Date("2026-01-16T07:00:00.000Z") };
+
+    const appended = appendTask(configuration, last, 2);
+
+    expect(appended.date).toBe("2026-01-16");
+    expect(appended.opensAt.toISOString()).toBe("2026-01-16T07:00:00.000Z");
+  });
+
+  it("never opens after its own deadline, even behind a later previous deadline", () => {
+    // Only a time zone change can put the previous deadline after this one.
+    const moved = taskInstants(
+      weekdayConfiguration(),
+      "2026-01-15",
+      2,
+      new Date("2026-01-15T20:00:00.000Z"),
+    );
+
+    expect(moved.opensAt.toISOString()).toBe(moved.deadline.toISOString());
   });
 });

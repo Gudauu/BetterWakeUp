@@ -54,10 +54,12 @@ const REFUSALS: Partial<Record<ErrorCode, Refusal>> = {
     canWalkAgain: false,
   },
   completion_outside_task_window: {
-    reason: "This walk finished outside today's window, so it could not count for today.",
+    reason: "This walk fell outside its window, so it could not count.",
     nextStep:
-      "Only a walk finished on the day itself, at or before the deadline, counts. Home shows what your challenge is asking for next.",
-    canWalkAgain: false,
+      "Only a walk started after the walk opens and finished at or before the deadline counts. If the deadline has not passed, start another walk now.",
+    // A walk begun a moment early can be walked again while the window is
+    // still open; the screen withdraws the offer once the deadline has gone.
+    canWalkAgain: true,
   },
   step_target_not_met: {
     reason: "This walk came in under the step target, so it could not be counted.",

@@ -1,5 +1,5 @@
 /**
- * The nudge before the deadline.
+ * The nudge when the walk opens.
  *
  * The product is a wake-up challenge with money on it, and until now the only
  * thing that ever told a user their walk was due was the user. Opening the app
@@ -8,23 +8,19 @@
  * reason that had nothing to do with wanting to get up.
  *
  * What is scheduled comes from instants the server sent. A challenge carries
- * one open task at a time and that task carries its own deadline, so the app
- * never derives when a walk is due from the weekly schedule: it reminds about
- * the task it was handed, and asks again the next time it reads the challenge.
+ * one open task at a time and that task carries its own opening instant, so the
+ * app never derives when a walk is due from the weekly schedule: it reminds
+ * about the task it was handed, and asks again the next time it reads the
+ * challenge.
  *
- * Two reminders per task, because they answer different things. The first is
- * the alarm - enough time to get up and walk. The second is the last call, for
- * a morning that is already going wrong. A third would be nagging.
+ * One reminder per walk, at the moment it opens. The walk window already says
+ * when the user has to be moving - movement before it does not count - so a
+ * reminder any earlier would wake someone for a walk they cannot take yet, and
+ * a separate reminder time would only be a way for the two to disagree.
  */
 
 import type { ChallengeView } from "@betterwakeup/contract";
 import { formatTimeOfDay } from "../ui/format.ts";
-
-/** How long before the deadline the alarm lands. Enough time to walk it off. */
-export const ALARM_LEAD_MINUTES = 45;
-
-/** The last call, for a user who slept through the first one. */
-export const LAST_CALL_LEAD_MINUTES = 10;
 
 /**
  * How long before a recovery offer lapses the user is told. The offer decides
@@ -80,17 +76,12 @@ export function remindersFor(challenge: ChallengeView | null, now: Date): readon
     if (currentTask.status === "scheduled") {
       const time = formatTimeOfDay(currentTask.deadline, configuration.timeZone);
       reminders.push({
-        id: `${currentTask.id}:alarm`,
-        at: minutesBefore(currentTask.deadline, ALARM_LEAD_MINUTES),
-        title: "Time to get moving",
+        id: `${currentTask.id}:opens`,
+        // The server's own instant rather than one worked out here, so the
+        // phone rings at the moment the server starts counting movement.
+        at: currentTask.opensAt,
+        title: "Your walk is open",
         body: `${configuration.stepTarget} steps by ${time}. Open BetterWakeUp and walk.`,
-        opens: "walk",
-      });
-      reminders.push({
-        id: `${currentTask.id}:last-call`,
-        at: minutesBefore(currentTask.deadline, LAST_CALL_LEAD_MINUTES),
-        title: `Last call - ${time}`,
-        body: `${LAST_CALL_LEAD_MINUTES} minutes left to walk your ${configuration.stepTarget} steps.`,
         opens: "walk",
       });
     }
@@ -113,10 +104,10 @@ export function remindersFor(challenge: ChallengeView | null, now: Date): readon
 }
 
 /**
- * When the next alarm would land, whatever the clock says now.
+ * When the next walk's reminder would land, whatever the clock says now.
  *
- * Home names this so the user can see the promise being kept - "Reminder at
- * 6:15 AM" under the walk it is about. It deliberately ignores `now`: a screen
+ * The challenge page names this so the user can see the promise being kept -
+ * "nudged at 6:50 AM" beside the switch. It deliberately ignores `now`: a screen
  * whose text appears and disappears as the deadline passes would be describing
  * the schedule rather than the setting.
  */
@@ -128,7 +119,7 @@ export function nextAlarmAt(challenge: ChallengeView): string | null {
   if (challenge.status !== "active" || challenge.pause.pausedAt !== null) {
     return null;
   }
-  return minutesBefore(currentTask.deadline, ALARM_LEAD_MINUTES);
+  return currentTask.opensAt;
 }
 
 function minutesBefore(instant: string, minutes: number): string {

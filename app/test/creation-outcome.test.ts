@@ -34,7 +34,7 @@ describe("the first morning", () => {
     expect(result.countdown?.urgency).toBe("ample");
   });
 
-  it("reads as closing once the first deadline is inside the alarm's own lead", () => {
+  it("reads as closing once the first walk has opened", () => {
     // Set up at 6:30 in the morning, which is what a challenge made at bedtime
     // in a western zone looks like by the time the first deadline lands.
     const result = creationResult({
@@ -118,13 +118,18 @@ describe("what is at stake", () => {
 });
 
 describe("the reminders", () => {
-  it("states the two leads as a condition rather than as a promise", () => {
-    const result = creationResult({ challenge: started, now: NOW });
+  it("states the one reminder, at the walk's opening, as a condition rather than as a promise", () => {
+    const result = creationResult({
+      challenge: challengeView({
+        ...started,
+        configuration: { ...started.configuration, walkWindowMinutes: 10 },
+      }),
+      now: NOW,
+    });
 
     // The alarms only exist on a phone that has allowed notifications, so the
     // sentence must not read as one that is already set.
     expect(result.reminders).toMatch(/Once notifications are allowed/);
-    expect(result.reminders).toContain("45 minutes");
-    expect(result.reminders).toContain("10 minutes");
+    expect(result.reminders).toContain("when each walk opens, 10 minutes before its deadline");
   });
 });

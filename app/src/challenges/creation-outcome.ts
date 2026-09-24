@@ -24,8 +24,7 @@
 
 import type { ChallengeView } from "@betterwakeup/contract";
 import { type TimeLeft, timeLeftUntil } from "../completions/time-left.ts";
-import { ALARM_LEAD_MINUTES, LAST_CALL_LEAD_MINUTES } from "../reminders/reminders.ts";
-import { formatDay, formatTimeOfDay } from "../ui/format.ts";
+import { formatDay, formatDuration, formatTimeOfDay } from "../ui/format.ts";
 import { formatMoney } from "./draft.ts";
 
 /** What a created challenge came to, in the order a user asks after starting it. */
@@ -71,7 +70,7 @@ export function creationResult(input: {
         : // The day is named beside the time rather than through
           // `formatDeadline`, which would repeat the date it has just given.
           `Your first morning is ${formatDay(task.date)}, due by ${formatTimeOfDay(task.deadline, zone)}.`,
-    countdown: task === null ? null : timeLeftUntil(task.deadline, now),
+    countdown: task === null ? null : timeLeftUntil(task, now),
     proof: `Each morning asks for ${stepsSentence(configuration.stepTarget)} walked with the app open before its deadline. Nothing counts once the deadline has passed.`,
     length:
       days === 1
@@ -82,9 +81,9 @@ export function creationResult(input: {
         ? "Nothing is staked on this challenge, so nothing can ever be charged for it. What you have put up is the habit."
         : `${formatMoney(staked)} is held on your card, not charged. It is taken only if this challenge ends short, and released when it ends any other way.`,
     // Stated as a condition rather than as a promise: the alarms are only ever
-    // set on a phone that has allowed notifications, and home is where that is
-    // asked for and reported.
-    reminders: `Once notifications are allowed on this phone, it wakes you ${ALARM_LEAD_MINUTES} minutes before each deadline, with a last call ${LAST_CALL_LEAD_MINUTES} minutes before it. Home says whether they are on.`,
+    // set on a phone that has allowed notifications, and the challenge page is
+    // where that is asked for and reported.
+    reminders: `Once notifications are allowed on this phone, it wakes you when each walk opens, ${formatDuration(configuration.walkWindowMinutes)} before its deadline. The challenge page says whether they are on.`,
   };
 }
 

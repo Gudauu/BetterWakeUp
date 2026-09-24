@@ -308,8 +308,8 @@ function AppliedScreen(props: {
     nextLiveTask: applied.response.nextLiveTask,
     now: props.now,
   });
-  // Anything but a morning comfortably ahead: a deadline inside the alarm's own
-  // lead, or one the pause outlived, is the reason this banner exists.
+  // Anything but a morning comfortably ahead: a walk that has already opened,
+  // or one the pause outlived, is the reason this banner exists.
   const urgent = result.countdown !== null && result.countdown.urgency !== "ample";
   return (
     <Screen testID="pause-screen">

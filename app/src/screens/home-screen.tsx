@@ -32,7 +32,7 @@ import {
 } from "../challenges/recovery-window.ts";
 import { nextActiveMorning, nextMorningText } from "../challenges/schedule.ts";
 import { type TimeZoneMove, timeZoneLabel, timeZoneMoveFor } from "../challenges/time-zone.ts";
-import { walkedTodayText, walkWindow } from "../challenges/walk-window.ts";
+import { opensAtText, walkedTodayText, walkWindow } from "../challenges/walk-window.ts";
 import { receiptGoneText, receiptWindow } from "../completions/receipt-window.ts";
 import {
   type CompletionRuntimeFactory,
@@ -815,8 +815,8 @@ function HomeChallenge({
   // ends only when its owner ends it and home is the screen they open.
   const pause = pausePresentation({ challenge, now });
   const { configuration, currentTask } = challenge;
-  // Where the open task stands against the day it is now. The moment a morning
-  // is kept the server's open task is the next morning's.
+  // Where the open task stands against its opening instant. The moment a
+  // morning is kept the server's open task is the next morning's.
   const walk = walkWindow(challenge, now);
   const history = challengeHistory(challenge);
 
@@ -990,7 +990,7 @@ function NextWalkCard({
 }) {
   const theme = useTheme();
   const { configuration } = challenge;
-  const left = timeLeftUntil(task.deadline, now);
+  const left = timeLeftUntil(task, now);
   const deadlineTime = formatTimeOfDay(task.deadline, configuration.timeZone);
   // Past the deadline nothing walked now can count, so the card stops asking
   // for a walk and says what happened instead.
@@ -1029,7 +1029,7 @@ function NextWalkCard({
       <AppText variant="title">{formatDay(task.date)}</AppText>
 
       {/* The clock, as big as the screen has: quiet while the morning is
-          long, amber from the moment the alarm would have gone off, and gone
+          long, amber from the moment the walk opens and its reminder rings, and gone
           once the deadline is behind - what is left to say then is said below.
           A screen reader hears the words rather than "2h 5m". */}
       {left === null || morningGone || receipt !== null ? null : (
@@ -1103,10 +1103,14 @@ function NextWalkCard({
         </AppText>
       ) : null}
 
-      {/* No way in until the day the walk belongs to starts. The task screen
-          would offer a walk whose completion the server refuses for being
-          outside the task's own window. */}
-      {opensLater ? null : (
+      {/* No way in until the walk opens. The task screen would offer a walk
+          whose completion the server refuses for starting before its window,
+          so the card says when that is instead. */}
+      {opensLater ? (
+        <AppText variant="small" tone="muted" testID="home-task-opens">
+          Opens {opensAtText(task, configuration.timeZone, now)}
+        </AppText>
+      ) : (
         <Button
           testID="home-open-task"
           label={taskButtonLabel(unsent.currentTask, morningGone)}

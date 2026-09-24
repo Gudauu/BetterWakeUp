@@ -7,7 +7,9 @@ import {
   errorCode,
   ianaTimeZone,
   localTime,
+  MAXIMUM_WALK_WINDOW_MINUTES,
   MINIMUM_FUNDED_DEPOSIT_MINOR_UNITS,
+  MINIMUM_WALK_WINDOW_MINUTES,
   movementObservation,
   weeklySchedule,
 } from "../src/index.ts";
@@ -20,6 +22,7 @@ const validConfiguration = {
   ],
   stepTarget: 250,
   noRegretMinutes: 480,
+  walkWindowMinutes: 10,
   timeZone: "America/Los_Angeles",
   deposit: { amount: 2000, currency: "USD" },
 };
@@ -41,6 +44,28 @@ describe("deposit amount", () => {
 
   it("rejects a fractional amount, since money is carried in minor units", () => {
     expect(depositAmount.safeParse({ amount: 100.5, currency: "USD" }).success).toBe(false);
+  });
+});
+
+describe("walk window", () => {
+  const withWindow = (walkWindowMinutes: unknown) =>
+    challengeConfiguration.safeParse({ ...validConfiguration, walkWindowMinutes }).success;
+
+  it("accepts both bounds, which the product states as more than 2 minutes and less than 2 hours", () => {
+    expect(MINIMUM_WALK_WINDOW_MINUTES).toBe(3);
+    expect(MAXIMUM_WALK_WINDOW_MINUTES).toBe(119);
+    expect(withWindow(MINIMUM_WALK_WINDOW_MINUTES)).toBe(true);
+    expect(withWindow(MAXIMUM_WALK_WINDOW_MINUTES)).toBe(true);
+  });
+
+  it("rejects a window just outside either bound", () => {
+    expect(withWindow(MINIMUM_WALK_WINDOW_MINUTES - 1)).toBe(false);
+    expect(withWindow(MAXIMUM_WALK_WINDOW_MINUTES + 1)).toBe(false);
+  });
+
+  it("rejects a fractional window and a missing one", () => {
+    expect(withWindow(10.5)).toBe(false);
+    expect(withWindow(undefined)).toBe(false);
   });
 });
 

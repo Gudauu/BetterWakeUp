@@ -100,6 +100,11 @@ function openTask(now: Date, id: string, timeZone: string, daysAhead = 0): TaskV
   return taskView({
     id,
     date: localDate(opens, timeZone) ?? opens.toISOString().slice(0, 10),
+    // Already open when it is handed out, whatever window the configuration
+    // chose: the journeys walk it straight away. A minute back rather than at
+    // the instant itself, so a screen clock that ticked just before the read
+    // does not see a walk that has not opened yet.
+    opensAt: new Date(opens.getTime() - 60_000).toISOString(),
     deadline: deadline.toISOString(),
     pauseCutoff: new Date(opens.getTime() + HOUR_MS).toISOString(),
   });

@@ -20,6 +20,7 @@ import type { ChallengeView, TaskView } from "@betterwakeup/contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { formatMoney } from "../challenges/draft.ts";
+import { hasOpened, opensAtText } from "../challenges/walk-window.ts";
 import {
   type CheckState,
   type DailyCompletionState,
@@ -37,6 +38,11 @@ import type { PendingCompletionRecord, PendingCompletionStore } from "../complet
 import type { CompletionSync } from "../completions/sync.ts";
 import { deadlineMissedText, finishByText, timeLeft } from "../completions/time-left.ts";
 import { attemptsText, waitingReading } from "../completions/waiting-reason.ts";
+import {
+  type WalkOutsideWindow,
+  walkOutsideWindow,
+  walkOutsideWindowText,
+} from "../completions/walk-acceptance.ts";
 import {
   createConfiguredSettingsLauncher,
   type SettingsLauncher,
@@ -117,6 +123,8 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
   const [records, setRecords] = useState<readonly PendingCompletionRecord[]>([]);
   const [captureState, setCaptureState] = useState<CaptureState>(() => capture.getState());
   const [shortfall, setShortfall] = useState<number | null>(null);
+  /** A walk the phone would not record because it fell outside its window. */
+  const [outside, setOutside] = useState<WalkOutsideWindow | null>(null);
   /** The interrupted window already written down, so it is written down once. */
   const salvaged = useRef<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -187,6 +195,7 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
 
   const onStart = useCallback(async () => {
     setShortfall(null);
+    setOutside(null);
     await capture.start();
   }, [capture]);
 
@@ -196,6 +205,13 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
       const stopped = await capture.stop();
       const observation = stopped.status === "stopped" ? stopped.observation : null;
       if (observation === null || task === null) {
+        return;
+      }
+      // Held to the server's own window before anything is written down: a
+      // record the server can only refuse is not a saved walk.
+      const outsideWindow = walkOutsideWindow(task, observation);
+      if (outsideWindow !== null) {
+        setOutside(outsideWindow);
         return;
       }
       if (observation.steps < target) {
@@ -239,6 +255,11 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
       return;
     }
     salvaged.current = observation.startedAt;
+    const outsideWindow = walkOutsideWindow(task, observation);
+    if (outsideWindow !== null) {
+      setOutside(outsideWindow);
+      return;
+    }
     void (async () => {
       await sync.record({
         challengeId: challenge.id,
@@ -280,7 +301,11 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
   const recording = walk.recording;
   const steps = walk.steps;
   const deadlineTime = formatTimeOfDay(task.deadline, challenge.configuration.timeZone);
-  const left = timeLeft(state.minutesToDeadline);
+  // Before its window opens the walk cannot be started: steps taken then do
+  // not count, on this phone or on the server.
+  const opened = hasOpened(task, clock);
+  const opensAt = opensAtText(task, challenge.configuration.timeZone, clock);
+  const left = timeLeft(state.minutesToDeadline, opened);
   // A deadline that went by with nothing saved. Nothing started now can be
   // acknowledged - the server judges the instant the walk was finished - so the
   // screen says so rather than offering a walk that ends in a refusal.
@@ -320,7 +345,9 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
           ? `${SAVED_HERE} ${receiptGoneText(receipt.closesAt)}`
           : state.status === "syncPending" && waiting !== null
             ? `${SAVED_HERE} ${waiting.advice}`
-            : STATUS_ADVICE[state.status];
+            : state.status === "incomplete" && !opened
+              ? notOpenAdvice(opensAt)
+              : STATUS_ADVICE[state.status];
   // The receipt on the walk, drawn only where there is one to draw.
   const acceptedAt =
     state.status === "acknowledged"
@@ -476,6 +503,19 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
         </Banner>
       ) : null}
 
+      {outside === null ? null : (
+        <Banner tone="danger">
+          <AppText
+            variant="small"
+            tone="danger"
+            testID="walk-outside-window"
+            accessibilityRole="alert"
+          >
+            {walkOutsideWindowText(outside, task, challenge.configuration.timeZone)}
+          </AppText>
+        </Banner>
+      )}
+
       {shortfall === null ? null : (
         <Banner tone="warning">
           <AppText variant="small" tone="warning" testID="shortfall" accessibilityRole="alert">
@@ -573,7 +613,7 @@ export function DailyCompletionScreen(props: DailyCompletionScreenProps) {
       {/* A refused walk that can still be answered gets the same press as a
           morning nobody has started, because that is what the refusal's next
           step asks for; without it the screen named a fix it did not offer. */}
-      {((state.status === "incomplete" && !missed) || walkAgain) && !recording ? (
+      {((state.status === "incomplete" && !missed) || walkAgain) && !recording && opened ? (
         <Button
           testID="start-capture"
           label={
@@ -661,6 +701,14 @@ const STATUS_ADVICE: Readonly<
   syncPending: `${SAVED_HERE} Keep the app open where there is signal - it keeps trying to send it by itself.`,
   rejected: "This walk was not accepted. The reason is below.",
 };
+
+/**
+ * What replaces the incomplete advice before the walk opens. The start button
+ * is withheld until then, so the sentence says when it arrives.
+ */
+function notOpenAdvice(opensAt: string): string {
+  return `Your walk opens ${opensAt}. Steps taken before then do not count, so there is nothing to start yet.`;
+}
 
 /**
  * What replaces the acknowledged advice on the last day. Naming a next morning

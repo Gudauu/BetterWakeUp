@@ -20,15 +20,15 @@
  */
 
 import type { CreateProjectionResponse } from "@betterwakeup/contract";
-import { ALARM_LEAD_MINUTES } from "../reminders/reminders.ts";
 import { formatDay, formatDuration, formatTimeOfDay } from "../ui/format.ts";
 
 /**
  * How the wait until the first deadline reads.
  *
- * `closing` uses the alarm's own lead, the way every other countdown in the app
- * does: inside it the phone has no time left to wake anybody, so the challenge
- * would begin with a morning nothing but the user's own attention can meet.
+ * `closing` is the walk window: inside it the first walk is already open, so
+ * the reminder that rings when a walk opens has nothing left to ring for, and
+ * the challenge would begin with a morning nothing but the user's own
+ * attention can meet.
  * `stale` is not a matter of urgency at all - it is the plan on screen having
  * stopped describing what the server would make.
  */
@@ -55,9 +55,10 @@ export function firstMorningReading(input: {
   readonly projection: CreateProjectionResponse;
   readonly timeZone: string;
   readonly noRegretMinutes: number;
+  readonly walkWindowMinutes: number;
   readonly now: Date;
 }): FirstMorningReading | null {
-  const { projection, timeZone, noRegretMinutes, now } = input;
+  const { projection, timeZone, noRegretMinutes, walkWindowMinutes, now } = input;
   const at = new Date(projection.firstTaskDeadline).getTime();
   if (Number.isNaN(at)) {
     return null;
@@ -81,12 +82,14 @@ export function firstMorningReading(input: {
     };
   }
 
-  if (minutes <= ALARM_LEAD_MINUTES) {
+  // The first task has no earlier deadline to open after, so it opens exactly
+  // the window before its own.
+  if (minutes <= walkWindowMinutes) {
     return {
       due,
       urgency: "closing",
       countdown: `That is ${formatDuration(minutes)} from now.`,
-      caution: `Your first deadline is less than ${ALARM_LEAD_MINUTES} minutes away, which is sooner than this phone would set its alarm for, so nothing will wake you for it. Start now only if you can walk it straight away.`,
+      caution: `Your first walk is already open, so no reminder will ring for it. Start now only if you can walk it straight away.`,
     };
   }
 

@@ -31,7 +31,7 @@ The user sets all of these at creation. None can be changed after the challenge 
 | Step target | Steps the device must record before the deadline | 250 steps |
 | Deposit | Amount held for the duration. Either nothing, or at least $1 | $20 |
 | No Regret Time | Minimum advance notice required to pause the next task | 8 hours |
-| Walk window | How long before each deadline the walk opens. More than 2 minutes and less than 2 hours. Not built yet, see [Walk Window](#walk-window) | 10 minutes |
+| Walk window | How long before each deadline the walk opens. More than 2 minutes and less than 2 hours. See [Walk Window](#walk-window) | 10 minutes |
 | Time zone | Time zone the schedule is evaluated in | Confirmed by the user |
 
 Each active weekday may carry a different deadline.
@@ -85,10 +85,8 @@ It is all or nothing. There is no partial forfeit.
 
 ## Walk Window
 
-**Planned, not built.**
-Today a walk opens at the start of its day in the challenge's time zone, so 250 steps at 12:05 AM keep a 7:00 AM morning.
+A walk that could start at the beginning of its day would let 250 steps at 12:05 AM keep a 7:00 AM morning.
 That does not ask anyone to wake up, and the walk window closes the gap.
-The work is tracked in `docs/phased-plan.markdown` under issue 34a.
 
 A walk opens a fixed length of time before its deadline, and only movement inside that window counts.
 
@@ -114,9 +112,6 @@ Reminders are opt-in.
 
 A user who turns them on gets one reminder per walk, sent at the moment the walk opens.
 There is no separate reminder time to set: the walk window already says when the user has to be moving, and a second setting would only be a way for the two to disagree.
-
-Until the walk window is built, the app keeps its current reminder times.
-A reminder at the start of the day would be no reminder at all.
 
 A pending Emergency Recovery offer gets its own reminder an hour before it lapses, whether or not walk reminders are on, because that one decides whether the deposit is charged.
 

@@ -21,20 +21,19 @@
  * on both.
  */
 
-import { ALARM_LEAD_MINUTES } from "../reminders/reminders.ts";
+import type { TaskView } from "@betterwakeup/contract";
+import { hasOpened } from "../challenges/walk-window.ts";
 import { formatDuration } from "../ui/format.ts";
 
 /**
  * How urgently the remaining time reads.
  *
- * The boundary is the alarm's own lead time: the app has already decided that
- * `ALARM_LEAD_MINUTES` before the deadline is the moment a user should be up
- * and walking, so it is the same moment the countdown stops being background
- * information.
+ * The boundary is the walk opening: from then on movement counts, the one
+ * reminder the app sets has rung, and the user should be up and walking, so it
+ * is the same moment the countdown stops being background information. Before
+ * it the countdown is a fact about tomorrow rather than a reason to hurry.
  */
 export type TimeLeftUrgency = "ample" | "closing" | "expired";
-
-export const CLOSING_MINUTES = ALARM_LEAD_MINUTES;
 
 export interface TimeLeft {
   readonly urgency: TimeLeftUrgency;
@@ -45,10 +44,11 @@ export interface TimeLeft {
 
 /**
  * The countdown, from the whole minutes to the deadline that
- * `dailyCompletionState` derives. Null when there is no deadline to count to,
- * so a screen with no open task draws nothing rather than counting to zero.
+ * `dailyCompletionState` derives and whether the walk has opened yet. Null when
+ * there is no deadline to count to, so a screen with no open task draws nothing
+ * rather than counting to zero.
  */
-export function timeLeft(minutesToDeadline: number | null): TimeLeft | null {
+export function timeLeft(minutesToDeadline: number | null, opened: boolean): TimeLeft | null {
   if (minutesToDeadline === null) {
     return null;
   }
@@ -56,7 +56,7 @@ export function timeLeft(minutesToDeadline: number | null): TimeLeft | null {
     return { urgency: "expired", minutes: 0, sentence: "The deadline has passed." };
   }
   return {
-    urgency: minutesToDeadline <= CLOSING_MINUTES ? "closing" : "ample",
+    urgency: opened ? "closing" : "ample",
     minutes: minutesToDeadline,
     sentence: `${formatDuration(minutesToDeadline)} left to walk.`,
   };
@@ -67,12 +67,15 @@ export function timeLeft(minutesToDeadline: number | null): TimeLeft | null {
  * minutes `dailyCompletionState` derived. Home holds the task and not the
  * derived state, and the two screens must not word the same clock two ways.
  */
-export function timeLeftUntil(deadline: string, now: Date): TimeLeft | null {
-  const at = new Date(deadline).getTime();
+export function timeLeftUntil(
+  task: Pick<TaskView, "opensAt" | "deadline">,
+  now: Date,
+): TimeLeft | null {
+  const at = new Date(task.deadline).getTime();
   if (Number.isNaN(at)) {
     return null;
   }
-  return timeLeft(Math.floor((at - now.getTime()) / 60_000));
+  return timeLeft(Math.floor((at - now.getTime()) / 60_000), hasOpened(task, now));
 }
 
 /**
