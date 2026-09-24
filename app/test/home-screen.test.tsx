@@ -2420,6 +2420,54 @@ describe("the back gesture", () => {
     expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(back.listening()).toBe(0);
   });
+
+  it("leaves nothing under home when the challenge ends while its page is open", async () => {
+    // The challenge page re-reads on every return to the app, and a sweep can
+    // end the challenge while the phone is in a pocket. Home is drawn in its
+    // place, and has to be the top: a page nobody can see must not swallow the
+    // next back press or be what the screen reader names.
+    const back = fakeBackPress();
+    const reader = fakeScreenReader();
+    const appReturn = fakeAppReturn();
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: answers(runningChallenge(), {
+          challenge: null,
+          lastEnded: endedChallenge(),
+        }),
+      }),
+      { backPress: back.trigger, screenReader: reader, appReturn: appReturn.trigger },
+    );
+    await openDetails();
+
+    await appReturn.fire();
+
+    expect(await screen.findByTestId("home-finished")).toBeOnTheScreen();
+    expect(back.listening()).toBe(0);
+    expect(reader.said().at(-1)).toBe("Home.");
+  });
+
+  it("does not bring back a dropped page when a later read finds a challenge", async () => {
+    const appReturn = fakeAppReturn();
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: answers(
+          runningChallenge(),
+          { challenge: null, lastEnded: endedChallenge() },
+          runningChallenge(),
+        ),
+      }),
+      { appReturn: appReturn.trigger },
+    );
+    await openDetails();
+    await appReturn.fire();
+    await screen.findByTestId("home-finished");
+
+    await appReturn.fire();
+
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
+    expect(screen.queryByTestId("details")).toBeNull();
+  });
 });
 
 describe("the alarm being tapped", () => {

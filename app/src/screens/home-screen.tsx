@@ -231,6 +231,32 @@ const ROUTE_NAMES: Readonly<Record<Route, string>> = {
   paymentMethod: "Your card",
 };
 
+/**
+ * Whether a screen can still be drawn from what the last read said. Every
+ * screen about the running challenge needs one, and two need more: the time
+ * zone offer needs the device to disagree with the challenge's zone, and the
+ * card screen needs a deposit no card secures. The rest - the form, the account
+ * page, deletion - stand on the account alone.
+ */
+function routeDrawable(route: Route, challenge: ChallengeView | null, here: string): boolean {
+  switch (route) {
+    case "details":
+    case "task":
+    case "pause":
+    case "recovery":
+      return challenge !== null;
+    case "timeZone":
+      return challenge !== null && timeZoneMoveFor(challenge, here) !== null;
+    case "paymentMethod":
+      return challenge !== null && needsPaymentMethod(challenge);
+    case "home":
+    case "account":
+    case "create":
+    case "delete":
+      return true;
+  }
+}
+
 export function HomeScreen({
   onSignOut,
   createRuntime,
@@ -257,9 +283,7 @@ export function HomeScreen({
   const [readClock] = useState<() => Date>(() => now ?? (() => new Date()));
   const theme = useTheme();
   const { state, refreshing, refreshFailed, reload, refresh } = useCurrentChallenge(api);
-  const [stack, setStack] = useState<readonly Route[]>([]);
-  const route: Route = stack[stack.length - 1] ?? "home";
-  const openRoute = (next: Route) => setStack((current) => [...current, next]);
+  const [storedStack, setStack] = useState<readonly Route[]>([]);
   // The challenge as it stood when its last day was acknowledged, so the finish
   // is on screen the moment it happens rather than after the next read.
   const [finished, setFinished] = useState<EndedChallengeSummary | null>(null);
@@ -273,6 +297,24 @@ export function HomeScreen({
   // the app is open. The device's zone is checked again on the next launch.
   const [keptTimeZone, setKeptTimeZone] = useState(false);
   const here = deviceTimeZone ?? detectTimeZone();
+  // A read can take away what a screen on the stack was drawn from: a
+  // challenge that ended while its page was open, a deposit that no longer
+  // needs a card, a device that moved back into the challenge's zone. Such a
+  // screen is dropped rather than left under home, where it would swallow a
+  // back press and keep the screen reader naming a page nobody can see.
+  const loadedChallenge = state.status === "loaded" ? state.challenge : undefined;
+  const drawable = (candidate: Route) =>
+    loadedChallenge === undefined || routeDrawable(candidate, loadedChallenge, here);
+  const stack = storedStack.filter(drawable);
+  const route: Route = stack[stack.length - 1] ?? "home";
+  const openRoute = (next: Route) => setStack((current) => [...current.filter(drawable), next]);
+  // Held pruned as well, so a later read that brings a challenge back does not
+  // bring back a page the user was never returned to.
+  useEffect(() => {
+    if (stack.length !== storedStack.length) {
+      setStack(stack);
+    }
+  });
   // The sign-in itself is on a clock, and the app used to read it only at
   // launch: a session that ran out mid-challenge threw the user onto the
   // signed-out screen with no notice, on whichever morning the thirtieth day
@@ -284,7 +326,7 @@ export function HomeScreen({
   // screen is still up: `reload` puts home into its loading state, which would
   // pull that screen out from under the user mid-use.
   const goBack = (changed: boolean) => {
-    setStack((current) => current.slice(0, -1));
+    setStack((current) => current.filter(drawable).slice(0, -1));
     if (changed) {
       reload();
     }

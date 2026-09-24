@@ -225,6 +225,10 @@ Two of those answers are not just a pop.
 Backing out of the time zone offer counts as declining it, the same as the link does, or the banner that sent the user there would be waiting for them when they arrive.
 Leaving the setup form re-reads the challenge, because leaving an authorized hold might have changed the account and home cannot tell from outside the form which half of it the press came from.
 
+A read can also take away what a screen on the stack is drawn from: the challenge page re-reads on every return to the app, and a sweep may have ended the challenge while the phone was in a pocket.
+Home drops every screen the last read can no longer draw - anything about the challenge once there is none, the time zone offer once the zones agree, the card screen once a card secures the deposit - rather than drawing home over a stack that still holds them.
+Left there, the invisible page would swallow the next back press and be the screen the reader was told about.
+
 ### Saying where the user has arrived
 
 The same simplification costs a screen-reader user something the back gesture does not cover.
