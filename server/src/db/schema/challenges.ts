@@ -51,6 +51,7 @@ export const challengeStatus = pgEnum("challenge_status", [
   "succeeded",
   "failed",
   "expired",
+  "abandoned",
 ]);
 
 /** Matches the contract's `taskStatus`. */
@@ -82,8 +83,15 @@ export const movementProvenance = pgEnum("movement_provenance", [
 /** The statuses that hold an account's one challenge slot. */
 const OPEN_CHALLENGE_STATUSES = sql`('active', 'recovery_pending')`;
 
-/** The statuses from which no transition exists. */
-const TERMINAL_CHALLENGE_STATUSES = sql`('succeeded', 'failed', 'expired')`;
+/**
+ * The statuses from which no transition exists.
+ *
+ * Compared as text rather than as the enum. `abandoned` was added to the enum
+ * by the migration that also created the constraints naming it, and PostgreSQL
+ * refuses to cast a literal to an enum value added in the same, still open,
+ * transaction. A text comparison names the value without casting to it.
+ */
+const TERMINAL_CHALLENGE_STATUSES = sql`('succeeded', 'failed', 'expired', 'abandoned')`;
 
 export const challenges = pgTable(
   "challenges",
@@ -134,6 +142,13 @@ export const challenges = pgTable(
      * terminal statuses, so a challenge cannot carry two outcomes.
      */
     terminalAt: timestamp("terminal_at", { withTimezone: true, mode: "date" }),
+    /**
+     * When the owner deleted the ended challenge. Deleting hides it from the
+     * owner and removes nothing: the row, its tasks, and its money stay for a
+     * later view of past challenges. Only an ended challenge can carry one, and
+     * once set it never changes, which the transition trigger enforces.
+     */
+    deletedAt: timestamp("deleted_at", { withTimezone: true, mode: "date" }),
   },
   (table) => [
     // One active challenge per account. The slot is held by `recovery_pending`
@@ -164,7 +179,13 @@ export const challenges = pgTable(
     // and no outcome.
     check(
       "challenges_terminal_status_has_instant",
-      sql`(${table.status} in ${TERMINAL_CHALLENGE_STATUSES}) = (${table.terminalAt} is not null)`,
+      sql`(${table.status}::text in ${TERMINAL_CHALLENGE_STATUSES}) = (${table.terminalAt} is not null)`,
+    ),
+    // Only an ended challenge can be deleted, so a deleted challenge that still
+    // holds the account's slot, or still runs, is unrepresentable.
+    check(
+      "challenges_deleted_only_when_terminal",
+      sql`${table.deletedAt} is null or ${table.status}::text in ${TERMINAL_CHALLENGE_STATUSES}`,
     ),
     check(
       "challenges_terminal_after_activation",

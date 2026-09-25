@@ -204,7 +204,7 @@ Add a client state library only when an observed state-sharing problem requires 
 
 Home answers one question: what the next walk is and how long is left until its deadline.
 It holds the next walk as one card with a countdown, the walk number out of the required total, the amount at stake, and only the notices that ask the user to act - a refused permission, a recovery offer, a lapsed card, a time zone the device has left.
-Everything else about the challenge is on the challenge page, opened from that card: the calendar, the schedule, the deposit and what a miss would cost, the reminder switch, pausing, and the account controls.
+Everything else about the challenge is on the challenge page, opened from that card: the calendar, the schedule, the deposit and what a miss would cost, the reminder switch, pausing, ending the challenge early, and the account controls.
 With no challenge running there is no challenge page, so home offers the account controls behind an `Account` press of its own, and deletion stays reachable whatever the account holds.
 The walk number counts completed walks only, the way the server counts toward the total, because a skipped or forgiven day is not a walk.
 
@@ -391,18 +391,26 @@ The first day is named ("This challenge started today") rather than numbered, be
 
 `GET /challenges/current` answers null in `challenge` for every terminal challenge: "current" is the challenge holding the account's slot, and a challenge that ended holds nothing and offers nothing to act on.
 
-A challenge can end two ways, and the app hears about them differently.
+A challenge can end three ways, and the app hears about them differently.
 
 **The user finishes it.**
 The completion that ends a challenge says so in its own response, in `challengeStatus`, so the daily task screen says the challenge is over on the acknowledgment that ended it and hands that finish up to home, which shows it without waiting for another read.
+
+**The user ends it early.**
+`POST /challenges/:id/abandonment` answers with the ended summary itself, the same shape as `lastEnded`, so the challenge page hands the ending to home the way the task screen hands up a finish, and home shows it without the running challenge flashing back between the press and the next read.
+"End challenge" is a quiet link at the foot of the challenge page, offered while the challenge holds the account's slot, including while a recovery offer stands.
+It opens a `ConfirmAction` whose consequence comes from `app/src/challenges/end-cost.ts`: a funded challenge names the amount, that it is charged now, and that it cannot be undone, and the acting press says the amount again ("End it and pay $20.00").
+It never reads "Delete", because deleting sounds like undoing the challenge and ending a funded one costs the deposit.
 
 **The server decides it.**
 A failure and an expiry are decided by the sweep, which the app is never told about, so there is no response to carry them.
 `GET /challenges/current` therefore answers with `lastEnded` beside the null challenge: the outcome, the days that were done, the deposit, and what became of it.
 It is one summary of the account's most recent terminal challenge, not a history, and it is null while a challenge is running, because a running challenge is the whole answer.
+It is also null once the user has deleted that challenge.
+The most recent terminal challenge is looked at and then withheld, rather than filtered out of the query, because filtering would answer with the one before it: a challenge the user had already put away.
 
 `depositOutcome` is stated by the server rather than derived by the app from a status.
-Only a failure forfeits a deposit: a challenge that succeeded, and one that expired after a year of pause, both release the hold uncharged, and that rule belongs beside the settlement that carries it out.
+Only a failure forfeits a deposit, and ending a challenge early is a failure the user chose: a challenge that succeeded, and one that expired after a year of pause, both release the hold uncharged, and that rule belongs beside the settlement that carries it out.
 
 Home draws both the same way, so a month that ended reads as a month that ended however the app came to hear about it.
 Without this, a challenge that failed would read as an account that never held one, and a charged deposit would be something the user found out from their card statement.
@@ -422,8 +430,17 @@ That is a smaller compromise than it looks: the ending is a fact about a day tha
 The cause is one sentence per terminal status, and the one that matters is the failure: a morning went by with no walk saved in time, and one missed morning ends a challenge.
 Without it the pill reads as a verdict with the charge left off.
 An expiry names the pause limit it reached and says explicitly that it is neither a success nor a failure, which is the same thing `pauseExpirySentence` promises before it happens.
+An ending the user chose says so, and says that it counts the same as a missed morning, which is why the deposit line under it reads as charged.
 
 The finish the task screen reports locally stamps `endedAt` from home's own clock seam rather than from `new Date()`, so the two ways a challenge ends produce the same shape and a test states the instant it reads back.
+
+#### Putting the outcome away
+
+The card stands until another challenge exists or the user deletes it, and "Delete" behind a `ConfirmAction` is the only way to put it down.
+It used to carry a "Got it" link that hid it in home's memory only, so the card came back on the next launch; beside a permanent delete that would be a second way to put the card away that does not last.
+The confirmation says the challenge leaves the app for good and that no charge or refund changes, because both are true and both are what someone deleting a charged month wants to know.
+`DELETE /challenges/:id` sets `deleted_at` and removes nothing: the rows stay for a later view of past challenges.
+Home marks the card dismissed at once and re-reads quietly, so the empty state appears without a spinner.
 
 ### The answer on screen going out of date
 
@@ -1254,6 +1271,8 @@ POST   /challenges/:challengeId/time-zone
 POST   /challenges/:challengeId/pause            enter pause mode
 DELETE /challenges/:challengeId/pause            resume
 POST   /challenges/:challengeId/recovery
+POST   /challenges/:challengeId/abandonment      end early, settled as a failure
+DELETE /challenges/:challengeId                  delete an ended challenge from view
 POST   /tasks/:taskId/completions
 POST   /payments/webhooks/:provider
 ```
@@ -1468,12 +1487,30 @@ active ────────▶ succeeded
    │
    ├───────────▶ recovery_pending ─────▶ failed
    │                    │
-   │                    └──────────────▶ active
+   │                    ├──────────────▶ active
+   │                    │
+   │                    └──────────────▶ abandoned
+   │
+   ├───────────▶ abandoned
    │
    └───────────▶ failed
 ```
 
-`succeeded`, `failed`, and `expired` are terminal.
+`succeeded`, `failed`, `expired`, and `abandoned` are terminal.
+
+`abandoned` is a challenge its owner ended before it finished, paused or not, with or without a recovery offer standing.
+It is settled exactly as `failed` is: a funded challenge owes a capture of its whole deposit, due at once, which the settlement pass collects.
+From `active` that capture is created keyed on the ending; from `recovery_pending` the capture the offer was holding back is brought forward to now, since there is one forfeit and one open capture per challenge.
+Renewal stops in the same transaction, because it only renews holds whose challenge still holds the slot.
+Ending never offers or spends the Emergency Recovery, so an allowance standing on an open offer stays with the account.
+It is a status of its own rather than `failed` with a flag, so every reader that asks whether a morning was missed does not have to read a second column.
+
+Ending locks only the challenge row and touches no task.
+The completion command therefore locks the challenge after its task and reads the status under that lock; otherwise a completion that read `active` just before an ending committed would record a walk, and a release, on a challenge that had already been given up.
+Every writer that takes a challenge before a task either skips a locked task or never touches an open one, so the added lock cannot wait in a cycle.
+
+A terminal challenge can be deleted, which sets `deleted_at` once and changes nothing else.
+The database refuses `deleted_at` on an open challenge and refuses rewriting it, and since a terminal status is never left, a deleted challenge can never be reopened.
 
 `expired` is a challenge that spent a year paused.
 It is neither outcome: the authorization is released, nothing is charged, and the account's Emergency Recovery is untouched.
@@ -1493,7 +1530,7 @@ The direct path is the common case, not the exception.
 
 ### Emergency Recovery
 
-Recovery is never consumed by an `expired` challenge, which failed nothing.
+Recovery is never consumed by an `expired` challenge, which failed nothing, nor by an `abandoned` one, which the user ended rather than failed by a miss.
 
 Recovery applies only to funded challenges.
 A zero deposit challenge that misses a task goes straight to `failed`, and the account's recovery stays unspent.
@@ -1524,6 +1561,8 @@ The window is 24 hours from the miss, recorded in the challenge's policy version
 - One completion result per scheduled task.
 - One terminal outcome per scheduled task, with `missed` supersedable by `forgiven` at most once.
 - One terminal outcome per challenge.
+- Only an ended challenge is deleted, and its deletion instant is written once.
+- Every forfeited funded challenge, `failed` or `abandoned`, holds a capture that is pending or settled.
 - Task rows in `scheduled` or `completed` status equal the required task count, while the challenge is `active`.
 - Emergency Recovery is consumed at most once per account.
 - A challenge succeeds only after its required completion count is reached.
@@ -1531,6 +1570,10 @@ The window is 24 hours from the miss, recorded in the challenge's policy version
 
 These are constraints, not conventions.
 Express them as unique indexes, check constraints, foreign keys, and exclusion constraints wherever PostgreSQL can carry them, so they hold for code paths that do not exist yet.
+
+The forfeit rule is the one enforced by construction rather than by the schema: a capture command is keyed on what caused it (`capture:miss:<taskId>`, `capture:abandon:<challengeId>`), so a capture an accepted recovery cancelled cannot swallow a later forfeit on the same challenge.
+It was once keyed on the challenge alone, and a miss after an accepted recovery then failed the challenge with no capture at all.
+The whole-database invariant checker the concurrency suite asserts with reads it back.
 
 Two of them are aggregates and cannot be written that way.
 The task count is a count across many rows and the ledger balance is a sum across many rows, while a check constraint sees one row and a unique index sees one key.
@@ -1552,7 +1595,7 @@ The sweep, in one pass:
 2. Locks a bounded batch with `FOR UPDATE SKIP LOCKED` so concurrent invocations take disjoint work.
 3. Marks those tasks `missed`.
 4. Moves each affected challenge to `recovery_pending` or `failed`, according to whether the account still holds its recovery.
-5. Creates settlement commands with an `execute_after` instant, which is immediate for `failed` and the end of the recovery window for `recovery_pending`.
+5. Creates settlement commands with an `execute_after` instant, which is immediate for `failed` and the end of the recovery window for `recovery_pending`. A capture is keyed on the missed task, so each forfeit on a challenge gets its own.
 6. Executes any settlement command whose `execute_after` has passed and which has not been cancelled.
 7. Renews any authorization approaching its `capture_before` instant, and releases the authorization of any challenge that has succeeded.
 8. Repeats until no due batch remains.
@@ -1579,7 +1622,7 @@ The payment provider is not selected yet.
 The funds flow is.
 
 **Authorize on funding, capture only on failure.**
-The deposit is authorized against the user's card when the challenge is funded and is never captured unless the challenge fails.
+The deposit is authorized against the user's card when the challenge is funded and is never captured unless the challenge fails, whether by a missed morning or by the user ending it early.
 On success, and on expiry after a year-long pause, the authorization is cancelled and nothing is ever charged.
 
 Processing fees attach to capture, not to authorization, so a cancelled or expired authorization costs nothing.

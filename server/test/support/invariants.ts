@@ -78,7 +78,31 @@ const CHECKS: readonly InvariantCheck[] = [
     offendingRows: sql`
       select id, status, terminal_at
       from challenges
-      where (status in ('succeeded', 'failed', 'expired')) <> (terminal_at is not null)
+      where (status in ('succeeded', 'failed', 'expired', 'abandoned')) <> (terminal_at is not null)
+    `,
+  },
+  {
+    invariant: "only an ended challenge is deleted",
+    offendingRows: sql`
+      select id, status, deleted_at
+      from challenges
+      where deleted_at is not null and status in ('active', 'recovery_pending')
+    `,
+  },
+  {
+    // A forfeit is collected by a capture. A funded challenge that failed or was
+    // ended with no capture pending or settled is a deposit nobody will collect,
+    // which is the gap a capture keyed on its challenge alone once left open.
+    invariant: "every forfeited funded challenge has a capture to collect it",
+    offendingRows: sql`
+      select c.id, c.status
+      from challenges c
+      where c.status in ('failed', 'abandoned')
+        and c.deposit_minor_units > 0
+        and not exists (
+          select 1 from payment_commands p
+          where p.challenge_id = c.id and p.kind = 'capture' and p.status <> 'cancelled'
+        )
     `,
   },
   {

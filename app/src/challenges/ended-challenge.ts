@@ -53,6 +53,9 @@ export function endedCauseText(ended: EndedChallengeSummary): string {
   if (ended.status === "failed") {
     return "A morning went by with no walk saved in time, and one missed morning ends a challenge.";
   }
+  if (ended.status === "abandoned") {
+    return "You ended this challenge before it finished. Ending early counts the same as a missed morning.";
+  }
   return `It stayed paused for ${MAXIMUM_PAUSE_DAYS} days, which is the limit, so it closed on its own. That is neither a success nor a failure.`;
 }
 

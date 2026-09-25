@@ -25,6 +25,11 @@
  *   both.
  * - One idempotency key fired by many callers at once, which is the case
  *   issue 12's key insert exists for.
+ *
+ * Ending a challenge adds a fourth kind of contender, because it decides a
+ * challenge's outcome while touching no task. It races the final completion,
+ * the sweep's miss, and an accepted recovery, and in every case exactly one
+ * outcome stands and exactly one capture is owed.
  */
 
 import {
@@ -42,6 +47,7 @@ import { createChallengeHandlers } from "../../src/challenges/handlers.ts";
 import type { Database, DatabaseHandle } from "../../src/db/index.ts";
 import { challengeAuthorizations } from "../../src/db/schema/authorizations.ts";
 import {
+  accounts,
   challenges,
   ledgerEntries,
   ledgerTransactions,
@@ -422,6 +428,239 @@ describe("Emergency Recovery racing the settlement that closes its window", () =
     expect(forgiven + collected).toBe(offers.length);
 
     await assertInvariantsHold(test.db);
+  });
+});
+
+function abandonmentRequest(
+  token: string,
+  challengeId: string,
+  key: string,
+): [string, RequestInit] {
+  return [
+    `http://api.test/challenges/${challengeId}/abandonment`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+        [IDEMPOTENCY_HEADER]: key,
+      },
+      body: JSON.stringify({}),
+    },
+  ];
+}
+
+/** The captures of a challenge that can still move money or already did. */
+async function liveCaptures(db: Database, challengeId: string) {
+  const rows = await captureOf(db, challengeId);
+  return rows.filter((row) => row.status !== "cancelled");
+}
+
+describe("ending a challenge racing everything else that can decide it", () => {
+  it("lets either the final completion or the ending win, never both", async () => {
+    const test = testDatabase();
+    const contenders: Contender[] = [];
+    for (let index = 0; index < 4; index += 1) {
+      const { accountId, token } = await signIn(test.db);
+      const challengeId = await insertChallengeForAccount(test.db, accountId, {
+        requiredTaskCount: 1,
+        depositMinorUnits: DEPOSIT,
+      });
+      const [task] = await tasksOf(test.db, challengeId);
+      contenders.push({
+        accountId,
+        token,
+        challengeId,
+        taskId: task?.id ?? "",
+        connection: test.connect(),
+      });
+    }
+    const enders = contenders.map(() => test.connect());
+
+    const responses = await Promise.all(
+      contenders.map(async (contender, index) => {
+        const ender = enders[index];
+        if (ender === undefined) throw new Error("no connection for the ending");
+        return await Promise.all([
+          taskApp(contender.connection.db, RECEIVED_AT).request(
+            ...completionRequest(contender.token, contender.taskId, key(200 + index)),
+          ),
+          challengeApp(ender.db, RECEIVED_AT).request(
+            ...abandonmentRequest(contender.token, contender.challengeId, key(300 + index)),
+          ),
+        ]);
+      }),
+    );
+
+    for (const [index, contender] of contenders.entries()) {
+      const [completed, ended] = responses[index] ?? [];
+      if (completed === undefined || ended === undefined) throw new Error("a request vanished");
+      const challenge = await challengeRow(test.db, contender.challengeId);
+      // Exactly one side is acknowledged, and the other is refused by name.
+      expect([completed.status, ended.status].sort()).toEqual([200, 409]);
+      if (completed.status === 200) {
+        expect(challenge.status).toBe("succeeded");
+        expect((await body(ended)).code).toBe("challenge_not_active");
+        expect(await liveCaptures(test.db, contender.challengeId)).toEqual([]);
+      } else {
+        expect(challenge.status).toBe("abandoned");
+        expect((await body(completed)).code).toBe("challenge_not_active");
+        expect(await liveCaptures(test.db, contender.challengeId)).toHaveLength(1);
+      }
+    }
+
+    await assertInvariantsHold(test.db);
+  });
+
+  it("lets either the sweep's failure or the ending decide, and an open offer never stops an ending", async () => {
+    const test = testDatabase();
+    const contenders: Funded[] = [];
+    for (let index = 0; index < 6; index += 1) {
+      const { accountId, token } = await signIn(test.db);
+      // Half the accounts have spent their allowance, so the sweep fails their
+      // challenge outright; the other half get an offer, which ending may
+      // always cut short.
+      if (index % 2 === 0) {
+        await test.db
+          .update(accounts)
+          .set({ emergencyRecoveryConsumedAt: AUTHORIZED_AT })
+          .where(eq(accounts.id, accountId));
+      }
+      const challengeId = await insertChallengeForAccount(test.db, accountId, {
+        depositMinorUnits: DEPOSIT,
+      });
+      contenders.push({
+        accountId,
+        token,
+        challengeId,
+        authorizationId: "",
+        connection: test.connect(),
+      });
+    }
+    const sweepConnection = test.connect();
+
+    const [responses] = await Promise.all([
+      Promise.all(
+        contenders.map((contender, index) =>
+          challengeApp(contender.connection.db, SWEEP_AT).request(
+            ...abandonmentRequest(contender.token, contender.challengeId, key(400 + index)),
+          ),
+        ),
+      ),
+      createSweep({ db: sweepConnection.db, now: () => SWEEP_AT })(
+        scheduledEvent() as ScheduledEvent,
+        quietLogger(),
+      ),
+    ]);
+
+    for (const [index, contender] of contenders.entries()) {
+      const response = responses[index];
+      if (response === undefined) throw new Error("an ending produced no response");
+      const challenge = await challengeRow(test.db, contender.challengeId);
+      if (response.status === 200) {
+        expect(challenge.status).toBe("abandoned");
+      } else {
+        // Only a sweep that failed the challenge outright can beat an ending.
+        expect(index % 2).toBe(0);
+        expect(response.status).toBe(409);
+        expect((await body(response)).code).toBe("challenge_not_active");
+        expect(challenge.status).toBe("failed");
+      }
+      // One forfeit, whoever decided it.
+      expect(await liveCaptures(test.db, contender.challengeId)).toHaveLength(1);
+    }
+
+    await assertInvariantsHold(test.db);
+  });
+
+  it("spends the allowance only when the recovery won, and ends the challenge either way", async () => {
+    const test = testDatabase();
+    const contenders: Funded[] = [];
+    for (let index = 0; index < 4; index += 1) {
+      const { accountId, token } = await signIn(test.db);
+      const challengeId = await insertChallengeForAccount(test.db, accountId, {
+        depositMinorUnits: DEPOSIT,
+      });
+      contenders.push({
+        accountId,
+        token,
+        challengeId,
+        authorizationId: "",
+        connection: test.connect(),
+      });
+    }
+    await createSweep({ db: test.db, now: () => SWEEP_AT })(
+      scheduledEvent() as ScheduledEvent,
+      quietLogger(),
+    );
+    const at = new Date(SWEEP_AT.getTime() + HOUR_MS);
+    const enders = contenders.map(() => test.connect());
+
+    const responses = await Promise.all(
+      contenders.map(async (contender, index) => {
+        const ender = enders[index];
+        if (ender === undefined) throw new Error("no connection for the ending");
+        const missed = (await tasksOf(test.db, contender.challengeId)).find(
+          (task) => task.status === "missed",
+        );
+        return await Promise.all([
+          challengeApp(contender.connection.db, at).request(
+            ...recoveryRequest(
+              contender.token,
+              contender.challengeId,
+              missed?.id ?? "",
+              key(500 + index),
+            ),
+          ),
+          challengeApp(ender.db, at).request(
+            ...abandonmentRequest(contender.token, contender.challengeId, key(600 + index)),
+          ),
+        ]);
+      }),
+    );
+
+    for (const [index, contender] of contenders.entries()) {
+      const [recovered, ended] = responses[index] ?? [];
+      if (recovered === undefined || ended === undefined) throw new Error("a request vanished");
+      // The ending always lands: either on the offer, or on the challenge the
+      // recovery resumed.
+      expect(ended.status).toBe(200);
+      expect((await challengeRow(test.db, contender.challengeId)).status).toBe("abandoned");
+      const [account] = await test.db
+        .select({ consumedAt: accounts.emergencyRecoveryConsumedAt })
+        .from(accounts)
+        .where(eq(accounts.id, contender.accountId));
+      if (recovered.status === 200) {
+        expect(account?.consumedAt).not.toBeNull();
+      } else {
+        expect((await body(recovered)).code).toBe("recovery_not_offered");
+        expect(account?.consumedAt).toBeNull();
+      }
+      expect(await liveCaptures(test.db, contender.challengeId)).toHaveLength(1);
+    }
+
+    await assertInvariantsHold(test.db);
+  });
+
+  it("refuses a completion that arrives after the challenge was ended", async () => {
+    const test = testDatabase();
+    const { accountId, token } = await signIn(test.db);
+    const challengeId = await insertChallengeForAccount(test.db, accountId, {
+      depositMinorUnits: DEPOSIT,
+    });
+    const [task] = await tasksOf(test.db, challengeId);
+    const endedAt = new Date(DEADLINE.getTime() - HOUR_MS);
+    await challengeApp(test.db, endedAt).request(
+      ...abandonmentRequest(token, challengeId, key(700)),
+    );
+
+    const response = await taskApp(test.db, RECEIVED_AT).request(
+      ...completionRequest(token, task?.id ?? "", key(701)),
+    );
+
+    expect(response.status).toBe(409);
+    expect((await body(response)).code).toBe("challenge_not_active");
+    expect((await tasksOf(test.db, challengeId))[0]?.status).toBe("scheduled");
   });
 });
 

@@ -207,7 +207,12 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
       requiredTaskCount: current.progress.requiredTaskCount,
       completedTaskCount,
       deposit,
-      depositOutcome: deposit.amount === 0 ? "none" : status === "failed" ? "charged" : "kept",
+      depositOutcome:
+        deposit.amount === 0
+          ? "none"
+          : status === "failed" || status === "abandoned"
+            ? "charged"
+            : "kept",
     };
     challenge = null;
   }
@@ -378,6 +383,31 @@ export function journeyServer(options: JourneyServerOptions = {}): JourneyServer
       }
       challenge = { ...current, depositSecured: true };
       return { challenge };
+    },
+
+    // Ending is a failure the user chose: the challenge stops being current and
+    // its deposit is charged, whether or not a recovery offer was standing.
+    abandonChallenge: (input) => {
+      const current = live();
+      const { params } = input as { params: { challengeId: string } };
+      if (params.challengeId !== current.id) {
+        throw new ApiError("not_found", "No challenge with this identifier.");
+      }
+      endChallenge(current, "abandoned", current.progress.completedTaskCount);
+      return { ended: lastEnded };
+    },
+
+    // Deleting keeps nothing the app can read: the outcome is no longer
+    // reported, and only an ended challenge can be deleted.
+    deleteChallenge: (input) => {
+      const { params } = input as { params: { challengeId: string } };
+      if (challenge !== null && challenge.id === params.challengeId) {
+        throw new ApiError("challenge_not_ended", "Only an ended challenge can be deleted.");
+      }
+      if (lastEnded?.id === params.challengeId) {
+        lastEnded = null;
+      }
+      return {};
     },
 
     deleteAccount: () => {

@@ -32,6 +32,7 @@
             "idempotency_in_progress",
             "active_challenge_exists",
             "challenge_not_active",
+            "challenge_not_ended",
             "deposit_amount_invalid",
             "deposit_required_for_funding",
             "zero_deposit_required",
@@ -117,6 +118,7 @@
       "idempotency_in_progress": "retry",
       "active_challenge_exists": "reject",
       "challenge_not_active": "reject",
+      "challenge_not_ended": "reject",
       "deposit_amount_invalid": "reject",
       "deposit_required_for_funding": "reject",
       "zero_deposit_required": "reject",
@@ -551,7 +553,8 @@
                   "succeeded",
                   "failed",
                   "expired",
-                  "recovery_pending"
+                  "recovery_pending",
+                  "abandoned"
                 ]
               },
               "configuration": {
@@ -1087,7 +1090,8 @@
                   "succeeded",
                   "failed",
                   "expired",
-                  "recovery_pending"
+                  "recovery_pending",
+                  "abandoned"
                 ]
               },
               "configuration": {
@@ -1460,7 +1464,8 @@
                       "succeeded",
                       "failed",
                       "expired",
-                      "recovery_pending"
+                      "recovery_pending",
+                      "abandoned"
                     ]
                   },
                   "configuration": {
@@ -1818,7 +1823,8 @@
                     "enum": [
                       "succeeded",
                       "failed",
-                      "expired"
+                      "expired",
+                      "abandoned"
                     ]
                   },
                   "endedAt": {
@@ -1940,7 +1946,8 @@
                   "succeeded",
                   "failed",
                   "expired",
-                  "recovery_pending"
+                  "recovery_pending",
+                  "abandoned"
                 ]
               },
               "configuration": {
@@ -2396,7 +2403,8 @@
                   "succeeded",
                   "failed",
                   "expired",
-                  "recovery_pending"
+                  "recovery_pending",
+                  "abandoned"
                 ]
               },
               "configuration": {
@@ -2851,7 +2859,8 @@
                   "succeeded",
                   "failed",
                   "expired",
-                  "recovery_pending"
+                  "recovery_pending",
+                  "abandoned"
                 ]
               },
               "configuration": {
@@ -3320,7 +3329,8 @@
                   "succeeded",
                   "failed",
                   "expired",
-                  "recovery_pending"
+                  "recovery_pending",
+                  "abandoned"
                 ]
               },
               "configuration": {
@@ -3788,6 +3798,142 @@
           "forgivenTask",
           "appendedTask"
         ],
+        "additionalProperties": false
+      }
+    },
+    "abandonChallenge": {
+      "method": "POST",
+      "path": "/challenges/:challengeId/abandonment",
+      "auth": "session",
+      "idempotent": true,
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "challengeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "challengeId"
+        ],
+        "additionalProperties": false
+      },
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ended": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "succeeded",
+                  "failed",
+                  "expired",
+                  "abandoned"
+                ]
+              },
+              "endedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "requiredTaskCount": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "completedTaskCount": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "deposit": {
+                "type": "object",
+                "properties": {
+                  "amount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "currency": {
+                    "type": "string",
+                    "const": "USD"
+                  }
+                },
+                "required": [
+                  "amount",
+                  "currency"
+                ],
+                "additionalProperties": false
+              },
+              "depositOutcome": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "kept",
+                  "charged"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "status",
+              "endedAt",
+              "requiredTaskCount",
+              "completedTaskCount",
+              "deposit",
+              "depositOutcome"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ended"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "deleteChallenge": {
+      "method": "DELETE",
+      "path": "/challenges/:challengeId",
+      "auth": "session",
+      "idempotent": true,
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "challengeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "challengeId"
+        ],
+        "additionalProperties": false
+      },
+      "request": null,
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {},
         "additionalProperties": false
       }
     },

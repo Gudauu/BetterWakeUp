@@ -54,6 +54,8 @@ export const challengeStatus = z.enum([
   "failed",
   "expired",
   "recovery_pending",
+  /** Ended by its owner before it finished. Settled exactly like `failed`. */
+  "abandoned",
 ]);
 
 export const pauseState = z.object({
@@ -202,14 +204,15 @@ export const createFundingIntentResponse = z.object({
 export const endedChallengeSummary = z.object({
   id: resourceId,
   /** Terminal statuses only. An open challenge is answered as `challenge`. */
-  status: z.enum(["succeeded", "failed", "expired"]),
+  status: z.enum(["succeeded", "failed", "expired", "abandoned"]),
   endedAt: instant,
   requiredTaskCount: z.int().min(1),
   completedTaskCount: z.int().nonnegative(),
   deposit: depositAmount,
   /**
-   * What became of the deposit. Only a failure forfeits it: a challenge that
-   * succeeded, and one that expired after a year of pause, release the hold.
+   * What became of the deposit. Only a failure forfeits it, and ending a
+   * challenge early is a failure the user chose: a challenge that succeeded,
+   * and one that expired after a year of pause, release the hold.
    * Stated by the server so the app never has to derive money from a status.
    */
   depositOutcome: z.enum(["none", "kept", "charged"]),
@@ -271,6 +274,22 @@ export const resumeChallengeResponse = z.object({
 });
 
 /**
+ * Ending a running challenge before it finishes. Like pause, it takes no body
+ * beyond the idempotency key: the path names the challenge, and there is
+ * nothing to choose. It is settled as a failure, and the Emergency Recovery is
+ * neither offered nor spent.
+ */
+export const abandonChallengeRequest = z.object({});
+
+export const abandonChallengeResponse = z.object({
+  /**
+   * The challenge as it ended, in the shape `lastEnded` reports it, so the app
+   * can show the outcome without reading the account again.
+   */
+  ended: endedChallengeSummary,
+});
+
+/**
  * Accepting the Emergency Recovery offer. It is never applied automatically,
  * and accepting consumes the account's one lifetime allowance whatever
  * happens to the challenge afterward.
@@ -312,5 +331,7 @@ export type ChangeTimeZoneResponse = z.infer<typeof changeTimeZoneResponse>;
 export type PauseChallengeRequest = z.infer<typeof pauseChallengeRequest>;
 export type PauseChallengeResponse = z.infer<typeof pauseChallengeResponse>;
 export type ResumeChallengeResponse = z.infer<typeof resumeChallengeResponse>;
+export type AbandonChallengeRequest = z.infer<typeof abandonChallengeRequest>;
+export type AbandonChallengeResponse = z.infer<typeof abandonChallengeResponse>;
 export type AcceptRecoveryRequest = z.infer<typeof acceptRecoveryRequest>;
 export type AcceptRecoveryResponse = z.infer<typeof acceptRecoveryResponse>;

@@ -27,6 +27,7 @@ export const errorCode = z.enum([
   // Challenge lifecycle.
   "active_challenge_exists",
   "challenge_not_active",
+  "challenge_not_ended",
   "deposit_amount_invalid",
   "deposit_required_for_funding",
   "zero_deposit_required",
@@ -83,6 +84,7 @@ export const ERROR_DISPOSITIONS: Readonly<Record<ErrorCode, ErrorDisposition>> =
 
   active_challenge_exists: "reject",
   challenge_not_active: "reject",
+  challenge_not_ended: "reject",
   deposit_amount_invalid: "reject",
   deposit_required_for_funding: "reject",
   zero_deposit_required: "reject",

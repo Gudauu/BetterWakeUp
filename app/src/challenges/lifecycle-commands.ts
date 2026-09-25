@@ -1,10 +1,11 @@
 /**
- * The commands that pause, resume, spend the Emergency Recovery, and delete
- * the account.
+ * The commands that pause, resume, spend the Emergency Recovery, end a
+ * challenge, delete an ended one, and delete the account.
  *
- * Three of these cannot be taken back: pausing gives up the tasks it skips,
- * accepting the recovery consumes an allowance that never replenishes, and
- * deleting the account removes it. Each one therefore takes an explicit
+ * Five of these cannot be taken back: pausing gives up the tasks it skips,
+ * accepting the recovery consumes an allowance that never replenishes, ending
+ * a challenge forfeits its deposit, deleting an ended challenge takes it out
+ * of the app for good, and deleting the account removes it. Each one therefore takes an explicit
  * `confirmed` flag and refuses before it builds a request when that flag is
  * missing, so "requires explicit confirmation" is a property of the command
  * rather than of whichever screen happens to call it. A test proves it by
@@ -16,8 +17,10 @@
  */
 
 import type {
+  AbandonChallengeResponse,
   AcceptRecoveryResponse,
   ChallengeView,
+  EndedChallengeSummary,
   ErrorCode,
   PauseChallengeResponse,
   ResumeChallengeResponse,
@@ -59,6 +62,22 @@ export const RECOVERY_CONFIRMATION_REQUIRED =
   "Confirm that you want to spend your one Emergency Recovery. It cannot be undone.";
 export const DELETION_CONFIRMATION_REQUIRED =
   "Confirm that you want to delete your account. It cannot be undone.";
+export const END_CONFIRMATION_REQUIRED =
+  "Confirm that you want to end this challenge. It cannot be undone.";
+export const DELETE_CHALLENGE_CONFIRMATION_REQUIRED =
+  "Confirm that you want to delete this challenge. It cannot be undone.";
+
+/**
+ * What the shared messages would get wrong for these two commands. The shared
+ * `challenge_not_active` line is about pausing, and a user ending a challenge
+ * that already ended needs to hear that it ended, not that it cannot be paused.
+ */
+const END_MESSAGES: Partial<Record<ErrorCode, string>> = {
+  challenge_not_active: "This challenge has already ended.",
+};
+const DELETE_CHALLENGE_MESSAGES: Partial<Record<ErrorCode, string>> = {
+  challenge_not_ended: "This challenge is still running, so it cannot be deleted.",
+};
 
 export interface PauseInput {
   readonly api: ApiClient;
@@ -121,6 +140,51 @@ export async function acceptRecovery(
   );
 }
 
+export interface EndChallengeInput {
+  readonly api: ApiClient;
+  readonly challenge: ChallengeView;
+  readonly confirmed: boolean;
+}
+
+/**
+ * Ends a running challenge, which the server settles as a failure: a funded
+ * deposit is charged in full. Answers with the challenge as it ended, so home
+ * can show the outcome without reading the account again.
+ */
+export async function endChallenge(
+  input: EndChallengeInput,
+): Promise<CommandOutcome<AbandonChallengeResponse>> {
+  if (!input.confirmed) {
+    return { status: "blocked", reasons: [END_CONFIRMATION_REQUIRED] };
+  }
+  return await attempt(
+    async () =>
+      input.api.request("abandonChallenge", {
+        params: { challengeId: input.challenge.id },
+        body: {},
+      }),
+    END_MESSAGES,
+  );
+}
+
+export interface DeleteChallengeInput {
+  readonly api: ApiClient;
+  /** The ended challenge the card is showing. */
+  readonly ended: EndedChallengeSummary;
+  readonly confirmed: boolean;
+}
+
+/** Takes an ended challenge out of the app for good. No money moves. */
+export async function deleteChallenge(input: DeleteChallengeInput): Promise<CommandOutcome<null>> {
+  if (!input.confirmed) {
+    return { status: "blocked", reasons: [DELETE_CHALLENGE_CONFIRMATION_REQUIRED] };
+  }
+  return await attempt(async () => {
+    await input.api.request("deleteChallenge", { params: { challengeId: input.ended.id } });
+    return null;
+  }, DELETE_CHALLENGE_MESSAGES);
+}
+
 export interface DeleteAccountInput {
   readonly api: ApiClient;
   /** The account's current challenge, or null when it holds none. */
@@ -161,15 +225,18 @@ export function deletionBlocker(challenge: ChallengeView | null): string | null 
   return null;
 }
 
-async function attempt<Value>(run: () => Promise<Value>): Promise<CommandOutcome<Value>> {
+async function attempt<Value>(
+  run: () => Promise<Value>,
+  messages: Partial<Record<ErrorCode, string>> = {},
+): Promise<CommandOutcome<Value>> {
   try {
     return { status: "done", value: await run() };
   } catch (cause) {
-    return { status: "failed", message: messageFor(cause) };
+    return { status: "failed", message: messageFor(cause, messages) };
   }
 }
 
-function messageFor(cause: unknown): string {
+function messageFor(cause: unknown, messages: Partial<Record<ErrorCode, string>>): string {
   if (!(cause instanceof ApiError)) {
     return GENERIC_MESSAGE;
   }
@@ -177,5 +244,10 @@ function messageFor(cause: unknown): string {
   if (silence !== null) {
     return silence;
   }
-  return waitMessageFor(cause) ?? MESSAGES[cause.code] ?? unlistedMessage(cause, FAILURE_LEAD);
+  return (
+    waitMessageFor(cause) ??
+    messages[cause.code] ??
+    MESSAGES[cause.code] ??
+    unlistedMessage(cause, FAILURE_LEAD)
+  );
 }

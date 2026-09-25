@@ -10,6 +10,8 @@
 
 import { z } from "zod";
 import {
+  abandonChallengeRequest,
+  abandonChallengeResponse,
   acceptRecoveryRequest,
   acceptRecoveryResponse,
   changeTimeZoneRequest,
@@ -188,6 +190,26 @@ export const ENDPOINTS = {
     params: challengeParams,
     request: deepStrict(acceptRecoveryRequest),
     response: acceptRecoveryResponse,
+  },
+  abandonChallenge: {
+    method: "POST",
+    path: "/challenges/:challengeId/abandonment",
+    auth: "session",
+    idempotent: true,
+    params: challengeParams,
+    request: deepStrict(abandonChallengeRequest),
+    response: abandonChallengeResponse,
+  },
+  deleteChallenge: {
+    method: "DELETE",
+    path: "/challenges/:challengeId",
+    auth: "session",
+    idempotent: true,
+    params: challengeParams,
+    // No body, like the other `DELETE` commands. The challenge stops being
+    // shown; the server keeps its rows.
+    request: null,
+    response: emptyResponse,
   },
   createCompletion: {
     method: "POST",

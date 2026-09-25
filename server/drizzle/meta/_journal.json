@@ -85,6 +85,13 @@
       "when": 1790277756615,
       "tag": "0011_walk_window",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790281892921,
+      "tag": "0012_abandoned_and_deleted_challenges",
+      "breakpoints": true
     }
   ]
 }

@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   challengeConfiguration,
+  challengeStatus,
   createCompletionRequest,
   depositAmount,
   ERROR_DISPOSITIONS,
+  endedChallengeSummary,
   errorCode,
   ianaTimeZone,
   localTime,
@@ -192,6 +194,25 @@ describe("completion request", () => {
   });
 });
 
+describe("challenge status", () => {
+  it("names an ending the owner chose apart from a failure", () => {
+    expect(challengeStatus.options).toContain("abandoned");
+  });
+
+  it("reports an abandoned challenge as ended, and never an open one", () => {
+    const summary = {
+      id: "5f0e1a8e-8f4b-4c9a-9d6b-2f1c3e4d5a6b",
+      endedAt: "2026-01-06T16:00:00.000Z",
+      requiredTaskCount: 30,
+      completedTaskCount: 4,
+      deposit: { amount: 2000, currency: "USD" },
+      depositOutcome: "charged",
+    };
+    expect(endedChallengeSummary.safeParse({ ...summary, status: "abandoned" }).success).toBe(true);
+    expect(endedChallengeSummary.safeParse({ ...summary, status: "active" }).success).toBe(false);
+  });
+});
+
 describe("error dispositions", () => {
   it("classifies every error code", () => {
     expect(Object.keys(ERROR_DISPOSITIONS).sort()).toEqual([...errorCode.options].sort());
@@ -203,5 +224,9 @@ describe("error dispositions", () => {
       .map(([code]) => code)
       .sort();
     expect(retryable).toEqual(["idempotency_in_progress", "internal_error", "rate_limited"]);
+  });
+
+  it("refuses deleting a challenge that has not ended for good", () => {
+    expect(ERROR_DISPOSITIONS.challenge_not_ended).toBe("reject");
   });
 });

@@ -99,6 +99,10 @@ export const RATE_LIMITS: Readonly<Record<EndpointName, RateLimitPolicy | null>>
   createChallenge: null,
   changeChallengeTimeZone: null,
   acceptRecovery: null,
+  // A challenge ends once and is deleted once, and a repeat of either is one
+  // locked row read and nothing written, which the concurrency ceiling covers.
+  abandonChallenge: null,
+  deleteChallenge: null,
 
   // Not limited, deliberately. The caller is the payment provider proving
   // itself by signature, and dropping its retries would lose events that

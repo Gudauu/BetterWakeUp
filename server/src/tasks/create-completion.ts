@@ -38,6 +38,10 @@
  *
  * The task row is read `for update`, which is what makes this command and the
  * overdue sweep mutually exclusive over one task rather than each correct alone.
+ * The challenge row is then locked too, because ending a challenge changes its
+ * status without touching any task: without that lock a completion that read
+ * `active` just before an ending committed would record a walk, and a release,
+ * on a challenge that had already been given up.
  */
 
 import {
@@ -233,15 +237,27 @@ async function lockTask(
     .from(scheduledTasks)
     .innerJoin(challenges, eq(challenges.id, scheduledTasks.challengeId))
     .where(and(eq(scheduledTasks.id, command.taskId), eq(challenges.accountId, command.accountId)))
-    // Locks the task row only: the challenge is read for its configuration and
-    // is locked by the one statement that changes it, below.
+    // The task first, then the challenge in a statement of its own, so the lock
+    // order is fixed rather than left to the join's plan.
     .for("update", { of: scheduledTasks })
     .limit(1);
 
   if (row === undefined) {
     throw new AppError("not_found", "No task with this identifier.");
   }
-  return row;
+
+  // The status the join read may already be stale: an ending locks only the
+  // challenge, so it can commit between the two. Locking the row re-reads the
+  // latest committed status, and whichever of the two commits first decides.
+  // Every writer that locks a challenge before a task either skips a locked
+  // task or never touches an open one, so this cannot wait in a cycle.
+  const [challenge] = await tx
+    .select({ status: challenges.status })
+    .from(challenges)
+    .where(eq(challenges.id, row.challengeId))
+    .for("update")
+    .limit(1);
+  return { ...row, challengeStatus: challenge?.status ?? row.challengeStatus };
 }
 
 function assertWithinReceiptGrace(task: TaskAndChallenge, receivedAt: Date): void {

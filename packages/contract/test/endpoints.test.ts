@@ -25,6 +25,8 @@ describe("endpoint registry", () => {
         "POST /challenges/:challengeId/pause",
         "DELETE /challenges/:challengeId/pause",
         "POST /challenges/:challengeId/recovery",
+        "POST /challenges/:challengeId/abandonment",
+        "DELETE /challenges/:challengeId",
         "POST /tasks/:taskId/completions",
         "POST /payments/webhooks/:provider",
       ].sort(),
@@ -57,6 +59,31 @@ describe("endpoint registry", () => {
       .map((endpoint) => `${endpoint.auth} ${endpoint.path}`)
       .sort();
     expect(unauthenticated).toEqual(["none /sessions", "signature /payments/webhooks/:provider"]);
+  });
+
+  it("ends a challenge with a body-less command and answers with how it ended", () => {
+    const { abandonChallenge } = ENDPOINTS;
+    expect(abandonChallenge.request.safeParse({}).success).toBe(true);
+    expect(abandonChallenge.request.safeParse({ reason: "bored" }).success).toBe(false);
+    expect(
+      abandonChallenge.response.safeParse({
+        ended: {
+          id: "5f0e1a8e-8f4b-4c9a-9d6b-2f1c3e4d5a6b",
+          status: "abandoned",
+          endedAt: "2026-01-06T16:00:00.000Z",
+          requiredTaskCount: 30,
+          completedTaskCount: 4,
+          deposit: { amount: 2000, currency: "USD" },
+          depositOutcome: "charged",
+        },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("deletes a challenge with no body and no answer beyond success", () => {
+    const { deleteChallenge } = ENDPOINTS;
+    expect(deleteChallenge.request).toBeNull();
+    expect(deleteChallenge.response.safeParse({}).success).toBe(true);
   });
 
   it("gives every endpoint a response schema", () => {

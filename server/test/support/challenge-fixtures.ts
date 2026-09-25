@@ -127,7 +127,10 @@ export async function insertChallengeForAccount(
     ...overrides,
   };
   const terminal =
-    options.status === "succeeded" || options.status === "failed" || options.status === "expired";
+    options.status === "succeeded" ||
+    options.status === "failed" ||
+    options.status === "expired" ||
+    options.status === "abandoned";
 
   return await db.transaction(async (tx) => {
     const [challenge] = await tx

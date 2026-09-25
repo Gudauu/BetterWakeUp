@@ -195,6 +195,8 @@ const DEFAULTS: Partial<Record<ClientEndpointName, unknown>> = {
     challenge: challengeView(),
     rematerializedTasks: [taskView()],
   },
+  abandonChallenge: { ended: endedChallenge({ status: "abandoned", completedTaskCount: 0 }) },
+  deleteChallenge: {},
   acceptRecovery: {
     challenge: challengeView(),
     forgivenTask: taskView({ status: "forgiven" }),

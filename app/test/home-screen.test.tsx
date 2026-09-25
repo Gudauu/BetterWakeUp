@@ -1474,17 +1474,82 @@ describe("home says what happened to the challenge that ended", () => {
     expect(screen.getByTestId("home-finished-deposit")).toHaveTextContent(/released, not charged/);
   });
 
-  it("puts the outcome down when the user says they have read it", async () => {
-    // The server keeps reporting the last outcome until another challenge
-    // exists, which is right for someone opening the app to find out and wrong
-    // for someone who came back for something else.
+  it("offers no way to put the outcome down that comes back on the next launch", async () => {
     await renderHome(
       fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: endedChallenge() } }),
     );
-    await userEvent.press(await screen.findByTestId("home-finished-dismiss"));
+
+    expect(await screen.findByTestId("home-finished-delete")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-finished-dismiss")).toBeNull();
+  });
+
+  it("deletes the outcome once the user confirms, and says it moves no money", async () => {
+    const api = fakeApi({
+      getCurrentChallenge: answers(
+        { challenge: null, lastEnded: endedChallenge() },
+        { challenge: null, lastEnded: null },
+      ),
+    });
+    await renderHome(api);
+
+    await userEvent.press(await screen.findByTestId("home-finished-delete"));
+    expect(screen.getByTestId("home-finished-delete-consequence")).toHaveTextContent(
+      /for good.*does not change any charge or refund/,
+    );
+    expect(api.names()).not.toContain("deleteChallenge");
+    await userEvent.press(screen.getByTestId("home-finished-delete-confirm"));
 
     expect(await screen.findByTestId("home-no-challenge")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-finished")).toBeNull();
+    expect(api.calls.find((call) => call.name === "deleteChallenge")?.input).toEqual({
+      params: { challengeId: endedChallenge().id },
+    });
+  });
+
+  it("keeps the outcome when the user backs out of deleting it", async () => {
+    const api = fakeApi({ getCurrentChallenge: { challenge: null, lastEnded: endedChallenge() } });
+    await renderHome(api);
+
+    await userEvent.press(await screen.findByTestId("home-finished-delete"));
+    await userEvent.press(screen.getByTestId("home-finished-delete-cancel"));
+
+    expect(screen.getByTestId("home-finished")).toBeOnTheScreen();
+    expect(api.names()).not.toContain("deleteChallenge");
+  });
+
+  it("keeps the outcome and says why when the delete did not go through", async () => {
+    const api = fakeApi({
+      getCurrentChallenge: { challenge: null, lastEnded: endedChallenge() },
+      deleteChallenge: new ApiError("challenge_not_ended", "running", { status: 409 }),
+    });
+    await renderHome(api);
+
+    await userEvent.press(await screen.findByTestId("home-finished-delete"));
+    await userEvent.press(screen.getByTestId("home-finished-delete-confirm"));
+
+    expect(await screen.findByTestId("home-finished-delete-problem")).toHaveTextContent(
+      "This challenge is still running, so it cannot be deleted.",
+    );
+    expect(screen.getByTestId("home-finished")).toBeOnTheScreen();
+  });
+
+  it("names an ending the user chose apart from a missed morning", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          challenge: null,
+          lastEnded: endedChallenge({ status: "abandoned", depositOutcome: "charged" }),
+        },
+      }),
+    );
+
+    expect(await screen.findByTestId("home-finished-status")).toHaveTextContent(
+      "Challenge ended early",
+    );
+    expect(screen.getByTestId("home-finished-cause")).toHaveTextContent(/You ended this challenge/);
+    expect(screen.getByTestId("home-finished-deposit")).toHaveTextContent(
+      /\$20\.00 deposit was charged/,
+    );
   });
 
   it("does not show it beside a challenge that is running", async () => {
@@ -1496,6 +1561,113 @@ describe("home says what happened to the challenge that ended", () => {
 
     expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
     expect(screen.queryByTestId("home-finished")).toBeNull();
+  });
+});
+
+describe("ending the challenge from its page", () => {
+  it("ends nothing until the charge has been named and confirmed", async () => {
+    const api = fakeApi({
+      getCurrentChallenge: { lastEnded: null, challenge: fundedChallengeView() },
+    });
+    await renderHome(api);
+    await openDetails();
+
+    await userEvent.press(screen.getByTestId("details-end"));
+
+    expect(screen.getByTestId("details-end-consequence")).toHaveTextContent(
+      /charges your \$20\.00 now.*cannot be undone/,
+    );
+    expect(screen.getByTestId("details-end-confirm")).toHaveTextContent("End it and pay $20.00");
+    expect(api.names()).not.toContain("abandonChallenge");
+  });
+
+  it("keeps the challenge when the user backs out", async () => {
+    const api = fakeApi({
+      getCurrentChallenge: { lastEnded: null, challenge: fundedChallengeView() },
+    });
+    await renderHome(api);
+    await openDetails();
+
+    await userEvent.press(screen.getByTestId("details-end"));
+    await userEvent.press(screen.getByTestId("details-end-cancel"));
+
+    expect(screen.getByTestId("details")).toBeOnTheScreen();
+    expect(api.names()).not.toContain("abandonChallenge");
+  });
+
+  it("returns home to the ending once the server has ended it", async () => {
+    const ended = endedChallenge({ status: "abandoned", completedTaskCount: 3 });
+    const api = fakeApi({
+      getCurrentChallenge: answers(
+        { lastEnded: null, challenge: fundedChallengeView() },
+        { lastEnded: ended, challenge: null },
+      ),
+      abandonChallenge: { ended },
+    });
+    await renderHome(api);
+    await openDetails();
+
+    await userEvent.press(screen.getByTestId("details-end"));
+    await userEvent.press(screen.getByTestId("details-end-confirm"));
+
+    expect(await screen.findByTestId("home-finished")).toBeOnTheScreen();
+    expect(screen.getByTestId("home-finished-status")).toHaveTextContent("Challenge ended early");
+    expect(screen.queryByTestId("details")).toBeNull();
+  });
+
+  it("says nothing is charged for a challenge that staked nothing", async () => {
+    await renderHome(
+      fakeApi({ getCurrentChallenge: { lastEnded: null, challenge: challengeView() } }),
+    );
+    await openDetails();
+
+    await userEvent.press(screen.getByTestId("details-end"));
+
+    expect(screen.getByTestId("details-end-consequence")).toHaveTextContent(/charges nothing/);
+    expect(screen.getByTestId("details-end-confirm")).toHaveTextContent("End the challenge");
+  });
+
+  it("is offered while a recovery offer stands, and keeps the allowance", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: {
+          lastEnded: null,
+          challenge: fundedChallengeView({
+            status: "recovery_pending",
+            recoveryOffer: {
+              taskId: "44444444-4444-4444-8444-444444444444",
+              offeredAt: "2026-09-01T15:00:00.000Z",
+              expiresAt: "2026-09-02T15:00:00.000Z",
+            },
+          }),
+        },
+      }),
+    );
+    await openDetails();
+
+    await userEvent.press(screen.getByTestId("details-end"));
+
+    expect(screen.getByTestId("details-end-consequence")).toHaveTextContent(
+      /gives up this recovery offer.*stays with your account for a future challenge/,
+    );
+  });
+
+  it("stays on the page and says why when the ending did not go through", async () => {
+    await renderHome(
+      fakeApi({
+        getCurrentChallenge: { lastEnded: null, challenge: fundedChallengeView() },
+        abandonChallenge: new ApiError("challenge_not_active", "ended", { status: 409 }),
+      }),
+    );
+    await openDetails();
+
+    await userEvent.press(screen.getByTestId("details-end"));
+    await userEvent.press(screen.getByTestId("details-end-confirm"));
+
+    expect(await screen.findByTestId("details-end-problem")).toHaveTextContent(
+      "This challenge has already ended.",
+    );
+    expect(screen.getByTestId("details")).toBeOnTheScreen();
   });
 });
 

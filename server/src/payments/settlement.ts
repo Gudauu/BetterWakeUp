@@ -64,8 +64,12 @@ import type { Money, PaymentProviderClient, Settlement } from "./provider.ts";
  */
 export const MAX_COLLECTION_ATTEMPTS = 5;
 
-/** The challenge statuses a capture is still the right answer for. */
-const COLLECTABLE_CHALLENGE_STATUSES = ["failed", "recovery_pending"] as const;
+/**
+ * The challenge statuses a capture is still the right answer for. An
+ * `abandoned` challenge is one its owner ended, which forfeits exactly as a
+ * failure does.
+ */
+const COLLECTABLE_CHALLENGE_STATUSES = ["failed", "recovery_pending", "abandoned"] as const;
 
 export interface SettlementPassResult {
   /** Holds released because a challenge succeeded or expired. Nothing charged. */

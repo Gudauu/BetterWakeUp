@@ -64,6 +64,7 @@ export const ERROR_PROPERTIES: Readonly<Record<ErrorCode, CodeProperties>> = {
 
   active_challenge_exists: { status: 409, classification: "conflict" },
   challenge_not_active: { status: 409, classification: "conflict" },
+  challenge_not_ended: { status: 409, classification: "conflict" },
   deposit_amount_invalid: { status: 400, classification: "validation" },
   deposit_required_for_funding: { status: 409, classification: "conflict" },
   zero_deposit_required: { status: 409, classification: "conflict" },

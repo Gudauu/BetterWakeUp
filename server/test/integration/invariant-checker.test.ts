@@ -79,6 +79,8 @@ describe("a database nothing has broken", () => {
       "one completion result per scheduled task",
       "one terminal outcome per scheduled task, missed supersedable by forgiven once",
       "one terminal outcome per challenge",
+      "only an ended challenge is deleted",
+      "every forfeited funded challenge has a capture to collect it",
       "task rows in scheduled or completed status equal the required count while active",
       "Emergency Recovery is consumed at most once per account",
       "a challenge succeeds only after its required completion count is reached",
@@ -167,6 +169,35 @@ describe("each invariant, broken on purpose", () => {
     });
 
     expect(found).toContain("one terminal outcome per challenge");
+  });
+
+  it("finds a running challenge marked deleted", async () => {
+    const { db } = testDatabase();
+    const arranged = await arrange(db);
+
+    const found = await violationsAfter(db, async (tx) => {
+      await tx.execute(
+        sql`alter table challenges drop constraint challenges_deleted_only_when_terminal`,
+      );
+      await tx.execute(
+        sql`update challenges set deleted_at = now() where id = ${arranged.challengeId}`,
+      );
+    });
+
+    expect(found).toContain("only an ended challenge is deleted");
+  });
+
+  it("finds a forfeited funded challenge that no capture will collect", async () => {
+    const { db } = testDatabase();
+    const arranged = await arrange(db);
+
+    const found = await violationsAfter(db, async (tx) => {
+      await tx.execute(
+        sql`update challenges set status = 'abandoned', terminal_at = now() where id = ${arranged.challengeId}`,
+      );
+    });
+
+    expect(found).toContain("every forfeited funded challenge has a capture to collect it");
   });
 
   it("finds an active challenge short of its required task count", async () => {

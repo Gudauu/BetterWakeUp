@@ -19,13 +19,14 @@ import { and, count, desc, eq, inArray } from "drizzle-orm";
 
 import type { Database } from "../db/client.ts";
 import { challenges, scheduledTasks } from "../db/schema/challenges.ts";
-import { loadChallengeView } from "./challenge-view.ts";
+import { AppError } from "../errors/app-error.ts";
+import { loadChallengeView, type Readable } from "./challenge-view.ts";
 
 /** The challenge statuses that hold an account's one challenge slot. */
 const OPEN_CHALLENGE_STATUSES = ["active", "recovery_pending"] as const;
 
 /** The statuses from which no transition exists, which is what `lastEnded` reports on. */
-const TERMINAL_CHALLENGE_STATUSES = ["succeeded", "failed", "expired"] as const;
+const TERMINAL_CHALLENGE_STATUSES = ["succeeded", "failed", "expired", "abandoned"] as const;
 
 type TerminalChallengeStatus = (typeof TERMINAL_CHALLENGE_STATUSES)[number];
 
@@ -58,24 +59,23 @@ export async function getCurrentChallenge(
 }
 
 /**
- * The account's most recent terminal challenge, or null if it has none.
+ * The account's most recent terminal challenge, or null if it has none or the
+ * owner deleted it.
  *
  * Ordered by `terminalAt` rather than by creation, because that is the instant
  * the outcome the user is being told about happened, and a challenge created
  * later can end earlier than one created before it.
+ *
+ * A deleted challenge is looked at and then withheld, not filtered out of the
+ * query. Filtering would answer with the one before it, which is a challenge
+ * the user had already put away by starting the one they just deleted.
  */
 async function loadLastEnded(
   db: Database,
   accountId: string,
 ): Promise<EndedChallengeSummary | null> {
   const [ended] = await db
-    .select({
-      id: challenges.id,
-      status: challenges.status,
-      terminalAt: challenges.terminalAt,
-      requiredTaskCount: challenges.requiredTaskCount,
-      depositMinorUnits: challenges.depositMinorUnits,
-    })
+    .select({ id: challenges.id, deletedAt: challenges.deletedAt })
     .from(challenges)
     .where(
       and(
@@ -86,10 +86,36 @@ async function loadLastEnded(
     .orderBy(desc(challenges.terminalAt))
     .limit(1);
 
-  // The status and the instant agree by check constraint, so the null branch is
-  // unreachable; narrowing it here is cheaper than a cast that could outlive it.
+  if (ended === undefined || ended.deletedAt !== null) return null;
+  return await loadEndedSummary(db, ended.id);
+}
+
+/**
+ * One ended challenge as the account's notice of it: what `lastEnded` reports,
+ * and what ending a challenge answers with.
+ */
+export async function loadEndedSummary(
+  db: Readable,
+  challengeId: string,
+): Promise<EndedChallengeSummary> {
+  const [ended] = await db
+    .select({
+      id: challenges.id,
+      status: challenges.status,
+      terminalAt: challenges.terminalAt,
+      requiredTaskCount: challenges.requiredTaskCount,
+      depositMinorUnits: challenges.depositMinorUnits,
+    })
+    .from(challenges)
+    .where(eq(challenges.id, challengeId));
+
+  // The status and the instant agree by check constraint, so a challenge that
+  // is not terminal here was handed in by a caller that had not ended it.
   if (ended === undefined || ended.terminalAt === null || !isTerminal(ended.status)) {
-    return null;
+    throw new AppError(
+      "internal_error",
+      "an ended summary was asked of a challenge that has not ended",
+    );
   }
 
   const [completed] = await db
@@ -116,13 +142,14 @@ function isTerminal(status: string): status is TerminalChallengeStatus {
 
 /**
  * What became of the deposit, stated here so the app never derives money from a
- * status. Only a failure forfeits: a challenge that succeeded, and one that
- * expired after a year of pause, both release the hold uncharged.
+ * status. Only a failure forfeits, and ending a challenge early is a failure its
+ * owner chose: a challenge that succeeded, and one that expired after a year of
+ * pause, both release the hold uncharged.
  */
 function depositOutcomeOf(
   status: TerminalChallengeStatus,
   depositMinorUnits: number,
 ): EndedChallengeSummary["depositOutcome"] {
   if (depositMinorUnits === 0) return "none";
-  return status === "failed" ? "charged" : "kept";
+  return status === "failed" || status === "abandoned" ? "charged" : "kept";
 }

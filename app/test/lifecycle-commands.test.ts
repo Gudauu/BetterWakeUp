@@ -1,5 +1,5 @@
 /**
- * The pause, resume, recovery, and deletion commands.
+ * The pause, resume, recovery, ending, and deletion commands.
  *
  * The other half of issue 33's acceptance boundary: every irreversible action
  * requires explicit confirmation. Each of those tests asserts on requests that
@@ -11,9 +11,13 @@ import type { ChallengeView } from "@betterwakeup/contract";
 import { ApiError } from "../src/api/errors.ts";
 import {
   acceptRecovery,
+  DELETE_CHALLENGE_CONFIRMATION_REQUIRED,
   DELETION_CONFIRMATION_REQUIRED,
   deleteAccount,
+  deleteChallenge,
   deletionBlocker,
+  END_CONFIRMATION_REQUIRED,
+  endChallenge,
   FUNDED_CHALLENGE_HOLDS_DELETION,
   PAUSE_CONFIRMATION_REQUIRED,
   pauseChallenge,
@@ -21,7 +25,7 @@ import {
   RECOVERY_EXPIRED,
   resumeChallenge,
 } from "../src/challenges/lifecycle-commands.ts";
-import { challengeView, fakeApi } from "./support/fake-api.ts";
+import { challengeView, endedChallenge, fakeApi } from "./support/fake-api.ts";
 
 const NOW = new Date("2026-09-01T13:00:00.000Z");
 const OFFER_TASK_ID = "66666666-6666-4666-8666-666666666666";
@@ -172,6 +176,91 @@ describe("acceptRecovery", () => {
     expect(outcome).toEqual({
       status: "failed",
       message: "Your one Emergency Recovery has already been used.",
+    });
+  });
+});
+
+describe("endChallenge", () => {
+  it("ends nothing and charges nothing without an explicit confirmation", async () => {
+    const api = fakeApi();
+
+    const outcome = await endChallenge({ api, challenge: funded(), confirmed: false });
+
+    expect(outcome).toEqual({ status: "blocked", reasons: [END_CONFIRMATION_REQUIRED] });
+    expect(api.names()).toEqual([]);
+  });
+
+  it("ends the challenge once confirmed and hands back how it ended", async () => {
+    const api = fakeApi();
+
+    const outcome = await endChallenge({ api, challenge: funded(), confirmed: true });
+
+    expect(api.names()).toEqual(["abandonChallenge"]);
+    expect(api.calls[0]?.input).toMatchObject({
+      params: { challengeId: challengeView().id },
+      body: {},
+    });
+    expect(outcome).toMatchObject({ status: "done", value: { ended: { status: "abandoned" } } });
+  });
+
+  it("ends a challenge with a recovery offer standing, which is still running", async () => {
+    const api = fakeApi();
+
+    const outcome = await endChallenge({
+      api,
+      challenge: withOffer("2026-09-02T00:00:00.000Z"),
+      confirmed: true,
+    });
+
+    expect(outcome.status).toBe("done");
+  });
+
+  it("says a challenge that already ended has ended, not that it cannot be paused", async () => {
+    const api = fakeApi({
+      abandonChallenge: new ApiError("challenge_not_active", "ended", { status: 409 }),
+    });
+
+    const outcome = await endChallenge({ api, challenge: funded(), confirmed: true });
+
+    expect(outcome).toEqual({ status: "failed", message: "This challenge has already ended." });
+  });
+});
+
+describe("deleteChallenge", () => {
+  it("deletes nothing without an explicit confirmation", async () => {
+    const api = fakeApi();
+
+    const outcome = await deleteChallenge({ api, ended: endedChallenge(), confirmed: false });
+
+    expect(outcome).toEqual({
+      status: "blocked",
+      reasons: [DELETE_CHALLENGE_CONFIRMATION_REQUIRED],
+    });
+    expect(api.names()).toEqual([]);
+  });
+
+  it("deletes the ended challenge the card is showing", async () => {
+    const api = fakeApi();
+
+    const outcome = await deleteChallenge({ api, ended: endedChallenge(), confirmed: true });
+
+    expect(outcome).toEqual({ status: "done", value: null });
+    expect(api.calls[0]).toEqual({
+      name: "deleteChallenge",
+      input: { params: { challengeId: endedChallenge().id } },
+    });
+  });
+
+  it("says a challenge that is still running cannot be deleted", async () => {
+    const api = fakeApi({
+      deleteChallenge: new ApiError("challenge_not_ended", "running", { status: 409 }),
+    });
+
+    const outcome = await deleteChallenge({ api, ended: endedChallenge(), confirmed: true });
+
+    expect(outcome).toEqual({
+      status: "failed",
+      message: "This challenge is still running, so it cannot be deleted.",
     });
   });
 });

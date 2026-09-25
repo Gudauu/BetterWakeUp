@@ -194,6 +194,60 @@ describe("one terminal outcome per challenge", () => {
   });
 });
 
+describe("an ending the owner chose is final", () => {
+  it("rejects any move out of abandoned, and a rewritten ending instant", async () => {
+    const sql = rawSql();
+    const { challengeId } = await insertChallenge(sql, { status: "abandoned" });
+
+    for (const status of ["active", "recovery_pending", "failed", "succeeded", "expired"]) {
+      await expectSqlState(RESTRICT_VIOLATION, () =>
+        sql.query("update challenges set status = $2 where id = $1", [challengeId, status]),
+      );
+    }
+    await expectSqlState(RESTRICT_VIOLATION, () =>
+      sql.query("update challenges set terminal_at = now() where id = $1", [challengeId]),
+    );
+  });
+
+  it("accepts an ending from either status that holds the account's slot", async () => {
+    const sql = rawSql();
+    for (const status of ["active", "recovery_pending"] as const) {
+      const { challengeId } = await insertChallenge(sql, { status, depositMinorUnits: 2000 });
+      await sql.query(
+        "update challenges set status = 'abandoned', terminal_at = now() where id = $1",
+        [challengeId],
+      );
+    }
+  });
+});
+
+describe("only an ended challenge is deleted, and only once", () => {
+  it("rejects deleting a challenge that still holds the account's slot", async () => {
+    const sql = rawSql();
+    for (const status of ["active", "recovery_pending"] as const) {
+      const { challengeId } = await insertChallenge(sql, { status, depositMinorUnits: 2000 });
+      await expectSqlState(CHECK_VIOLATION, () =>
+        sql.query("update challenges set deleted_at = now() where id = $1", [challengeId]),
+      );
+    }
+  });
+
+  it("rejects rewriting or clearing a deletion once it is recorded", async () => {
+    const sql = rawSql();
+    const { challengeId } = await insertChallenge(sql, { status: "failed" });
+    await sql.query("update challenges set deleted_at = now() where id = $1", [challengeId]);
+
+    await expectSqlState(RESTRICT_VIOLATION, () =>
+      sql.query("update challenges set deleted_at = now() + interval '1 day' where id = $1", [
+        challengeId,
+      ]),
+    );
+    await expectSqlState(RESTRICT_VIOLATION, () =>
+      sql.query("update challenges set deleted_at = null where id = $1", [challengeId]),
+    );
+  });
+});
+
 describe("task rows equal the required count while the challenge is active", () => {
   it("rejects a task deleted out from under an active challenge", async () => {
     const sql = rawSql();

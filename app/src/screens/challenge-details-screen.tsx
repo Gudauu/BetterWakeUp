@@ -4,19 +4,21 @@
  * Home answers one question - what is the next walk, and how long is left -
  * and this page holds the rest: how the days have gone, the schedule the
  * deadlines come from, what is at stake and what a miss would cost, the
- * reminder switch, pausing, and the account. It is opened from home's next-walk
- * card and returns there.
+ * reminder switch, pausing, ending the challenge early, and the account. It is
+ * opened from home's next-walk card and returns there.
  *
  * The page owns no rules. Each block reads a helper that already decides what
  * it says, so moving a block between here and home moves no logic.
  */
 
-import type { ChallengeStatus, ChallengeView } from "@betterwakeup/contract";
-import type { ReactNode } from "react";
+import type { ChallengeStatus, ChallengeView, EndedChallengeSummary } from "@betterwakeup/contract";
+import { type ReactNode, useCallback, useState } from "react";
 import { StyleSheet, View } from "react-native";
+import type { ApiClient } from "../api/client.ts";
 import { challengeCalendar } from "../challenges/calendar.ts";
 import { challengeStartedOn } from "../challenges/challenge-age.ts";
 import { formatMoney } from "../challenges/draft.ts";
+import { endChallengeText } from "../challenges/end-cost.ts";
 import {
   challengeHistory,
   type DayState,
@@ -24,6 +26,7 @@ import {
   historyLegend,
   streakSentence,
 } from "../challenges/history.ts";
+import { endChallenge } from "../challenges/lifecycle-commands.ts";
 import { missCost } from "../challenges/miss-cost.ts";
 import { scheduleGroups } from "../challenges/schedule.ts";
 import { timeZoneLabel } from "../challenges/time-zone.ts";
@@ -33,6 +36,7 @@ import type { RemindersState } from "../reminders/notifier.ts";
 import { nextAlarmAt } from "../reminders/reminders.ts";
 import {
   AppText,
+  Banner,
   Button,
   Card,
   DayCalendar,
@@ -47,9 +51,11 @@ import {
 import { formatDay, formatTimeOfDay } from "../ui/format.ts";
 import { AccountSection } from "./account-section.tsx";
 import { BackLink } from "./back-link.tsx";
+import { ConfirmAction } from "./confirm-action.tsx";
 import { OpenSettingsAction } from "./open-settings-action.tsx";
 
 export interface ChallengeDetailsScreenProps {
+  readonly api: ApiClient;
   readonly challenge: ChallengeView;
   readonly reminders: RemindersState;
   readonly settings: OpenSettingsState;
@@ -57,6 +63,8 @@ export interface ChallengeDetailsScreenProps {
   readonly onOpenPause: () => void;
   readonly onSignOut: (() => void) | undefined;
   readonly onDeleteAccount: () => void;
+  /** Called with the challenge as it ended, once the server has ended it. */
+  readonly onEnded: (ended: EndedChallengeSummary) => void;
   /** Walks this phone holds that the server has not acknowledged. */
   readonly heldWalks: number;
 }
@@ -72,6 +80,7 @@ const STATUS_HEADLINE: Readonly<Record<ChallengeStatus, string>> = {
   failed: "This challenge ended short",
   expired: "This challenge expired while paused",
   recovery_pending: "One missed day is waiting on you",
+  abandoned: "You ended this challenge",
 };
 
 /**
@@ -85,6 +94,7 @@ const STATUS_TONE: Readonly<Record<ChallengeStatus, "accent" | "success" | "dang
     failed: "danger",
     expired: "danger",
     recovery_pending: "warning",
+    abandoned: "danger",
   };
 
 /**
@@ -126,6 +136,7 @@ function dayMarkFor(state: DayState): DayMark {
 }
 
 export function ChallengeDetailsScreen({
+  api,
   challenge,
   reminders,
   settings,
@@ -133,6 +144,7 @@ export function ChallengeDetailsScreen({
   onOpenPause,
   onSignOut,
   onDeleteAccount,
+  onEnded,
   heldWalks,
 }: ChallengeDetailsScreenProps): ReactNode {
   const paused = challenge.pause.pausedAt !== null;
@@ -293,6 +305,8 @@ export function ChallengeDetailsScreen({
         />
       ) : null}
 
+      <EndChallenge api={api} challenge={challenge} onEnded={onEnded} />
+
       <AccountSection
         testID="details-account"
         onSignOut={onSignOut}
@@ -301,6 +315,74 @@ export function ChallengeDetailsScreen({
         heldWalks={heldWalks}
       />
     </Screen>
+  );
+}
+
+/**
+ * Ending the challenge before it finishes.
+ *
+ * Offered while the challenge still holds the account's slot, including while
+ * a recovery offer stands, since ending is a separate decision from that one.
+ * It is a quiet link rather than a button: it is never the next thing to do,
+ * and the confirmation it opens is where the weight goes - the amount, that it
+ * is charged now, and that it cannot be undone.
+ */
+function EndChallenge({
+  api,
+  challenge,
+  onEnded,
+}: {
+  api: ApiClient;
+  challenge: ChallengeView;
+  onEnded: (ended: EndedChallengeSummary) => void;
+}): ReactNode {
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const onConfirm = useCallback(async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const outcome = await endChallenge({ api, challenge, confirmed: true });
+      if (outcome.status === "done") {
+        onEnded(outcome.value.ended);
+        return;
+      }
+      setProblem(outcome.status === "blocked" ? outcome.reasons.join(" ") : outcome.message);
+    } finally {
+      setBusy(false);
+    }
+  }, [api, challenge, onEnded]);
+
+  if (challenge.status !== "active" && challenge.status !== "recovery_pending") {
+    return null;
+  }
+  const staked = challenge.configuration.deposit.amount;
+  return (
+    <>
+      <ConfirmAction
+        testID="details-end"
+        quiet
+        variant="danger"
+        label="End challenge"
+        consequence={endChallengeText(challenge)}
+        confirmLabel={staked === 0 ? "End the challenge" : `End it and pay ${formatMoney(staked)}`}
+        cancelLabel="Keep the challenge"
+        busy={busy}
+        onConfirm={onConfirm}
+      />
+      {problem === null ? null : (
+        <Banner tone="danger">
+          <AppText
+            variant="small"
+            tone="danger"
+            testID="details-end-problem"
+            accessibilityRole="alert"
+          >
+            {problem}
+          </AppText>
+        </Banner>
+      )}
+    </>
   );
 }
 

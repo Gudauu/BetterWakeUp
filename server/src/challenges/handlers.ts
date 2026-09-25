@@ -1,8 +1,8 @@
 /**
  * The challenge endpoints, as handlers the route table can pick up: the
  * projection, creation, the current challenge, the time zone change, pause and
- * resume, Emergency Recovery, and the funding intent when a provider is
- * configured.
+ * resume, Emergency Recovery, ending and deleting a challenge, and the funding
+ * intent when a provider is configured.
  *
  * Thin by design, like the account and sign-in handlers: the gate established
  * who is calling, validation established that the body matches the contract,
@@ -15,10 +15,12 @@
 import { AppError } from "../errors/app-error.ts";
 import type { EndpointHandlers } from "../http/routes.ts";
 import type { PaymentProviderClient } from "../payments/provider.ts";
+import { abandonChallenge } from "./abandon-challenge.ts";
 import { acceptRecovery } from "./accept-recovery.ts";
 import { changeChallengeTimeZone } from "./change-time-zone.ts";
 import { type CreateChallengeDependencies, createChallenge } from "./create-challenge.ts";
 import { getCurrentChallenge } from "./current-challenge.ts";
+import { deleteChallenge } from "./delete-challenge.ts";
 import { createFundingIntent } from "./funding-intent.ts";
 import { pauseChallenge, resumeChallenge } from "./pause.ts";
 import { planChallenge } from "./plan.ts";
@@ -148,6 +150,37 @@ export function createChallengeHandlers(deps: ChallengeHandlerDependencies): End
         result: replayed ? "replayed" : "recovered",
         challengeId: response.challenge.id,
         taskId: response.forgivenTask.id,
+      });
+      return response;
+    },
+
+    abandonChallenge: async ({ params, session, idempotencyKey, logger }) => {
+      const { response, replayed } = await abandonChallenge(deps, {
+        accountId: session.accountId,
+        challengeId: params.challengeId,
+        idempotencyKey: requireKey("abandonChallenge", idempotencyKey),
+      });
+      // What became of the deposit is the fact support is asked about, and it
+      // is stated rather than the amount: the amount is on the challenge row,
+      // and a log line is not the financial record.
+      logger.info("challenge ended by its owner", {
+        command: "abandonChallenge",
+        result: replayed ? "replayed" : `deposit_${response.ended.depositOutcome}`,
+        challengeId: response.ended.id,
+      });
+      return response;
+    },
+
+    deleteChallenge: async ({ params, session, idempotencyKey, logger }) => {
+      const { response, replayed } = await deleteChallenge(deps, {
+        accountId: session.accountId,
+        challengeId: params.challengeId,
+        idempotencyKey: requireKey("deleteChallenge", idempotencyKey),
+      });
+      logger.info("ended challenge deleted", {
+        command: "deleteChallenge",
+        result: replayed ? "replayed" : "deleted",
+        challengeId: params.challengeId,
       });
       return response;
     },

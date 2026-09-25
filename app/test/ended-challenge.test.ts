@@ -42,6 +42,12 @@ describe("what ended the challenge", () => {
     );
   });
 
+  it("says the user ended it, and that ending counts as a missed morning", () => {
+    expect(endedCauseText(endedChallenge({ status: "abandoned" }))).toBe(
+      "You ended this challenge before it finished. Ending early counts the same as a missed morning.",
+    );
+  });
+
   it("names the pause limit an expired challenge reached, and that it is not a failure", () => {
     const cause = endedCauseText(endedChallenge({ status: "expired" }));
 

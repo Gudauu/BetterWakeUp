@@ -2426,7 +2426,53 @@ creation from an older app, and a funding intent stored before it no longer
 parses at its webhook. The development database needs migration 0011 before
 this server is deployed, as `docs/deployment.md` describes.
 
+### Issue 34c: end and delete a challenge
+
+A user can now end a running challenge from the challenge page, and delete an
+ended one from home. The behavior is specified in the OpenSpec change
+`end-and-delete-challenge`.
+
+Ending is `POST /challenges/:id/abandonment`. It moves an `active` or
+`recovery_pending` challenge, paused or not, to the new terminal status
+`abandoned`, and settles it as a failure. A funded challenge gets a capture due
+at once, or, with a recovery offer standing, the offer's capture is brought
+forward to now. Renewal stops because `abandoned` does not hold the slot. The
+Emergency Recovery is neither offered nor spent. The answer is the ended
+summary, which home shows at once.
+
+Deleting is `DELETE /challenges/:id`. It sets `deleted_at` on a terminal
+challenge and removes nothing, and `lastEnded` stops reporting the challenge
+without falling back to an older one. The ended card's "Got it" link is gone,
+so "Delete" is the only way to put the card down. Migration
+`0012_abandoned_and_deleted_challenges.sql` adds the enum value, the column, and
+the constraints, and compares statuses as text because the migrator applies
+every file in one transaction.
+
+Two existing bugs were found and fixed on the way. A miss after an accepted
+Emergency Recovery failed the challenge but never charged it: captures were
+deduplicated on the challenge, and the capture the recovery cancelled held the
+key. Captures are now keyed on their cause, and old rows keep their keys. The
+completion command locked only its task, so a completion racing an ending was
+recorded on the ended challenge; it now locks the challenge after the task.
+The invariant checker gained both rules.
+
+747 server, contract, infra, and tools tests and 1103 app tests pass, and both
+bundles export. The contract change is breaking: an app build older than this
+server cannot parse an `abandoned` summary, so the server and the app ship
+together, and migration 0012 goes to the development database first. Roll the
+API back only once every abandoned challenge's capture has settled: an older
+server's settlement pass does not treat `abandoned` as collectable, and would
+cancel the capture.
+
 ## Handed back
+
+### Issue 34c: ending and deleting on a device
+
+The screens are covered by screen and journey tests, but not yet run on a
+device. On a development build, end a funded challenge and a paused one from
+the challenge page, delete the ended card on home, relaunch, and check each
+confirmation and card at phone width. This needs the same development build as
+issue 27.
 
 ### Issue 44: production readiness sign-off
 

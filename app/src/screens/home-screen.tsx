@@ -12,13 +12,14 @@
  */
 
 import type { ChallengeView, EndedChallengeSummary, TaskView } from "@betterwakeup/contract";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { type AppReturnTrigger, useAppReturn } from "../challenges/app-return.ts";
 import { useCurrentChallenge } from "../challenges/current-challenge.ts";
 import { detectTimeZone, formatMoney } from "../challenges/draft.ts";
 import { endedReading } from "../challenges/ended-challenge.ts";
 import { challengeHistory } from "../challenges/history.ts";
+import { deleteChallenge } from "../challenges/lifecycle-commands.ts";
 import {
   pausedForSentence,
   pausedRestSentence,
@@ -589,6 +590,7 @@ export function HomeScreen({
     if (route === "details") {
       return (
         <ChallengeDetailsScreen
+          api={api}
           challenge={open}
           reminders={reminders}
           settings={openSettings}
@@ -596,6 +598,14 @@ export function HomeScreen({
           onOpenPause={() => openRoute("pause")}
           onSignOut={onSignOut}
           onDeleteAccount={() => openRoute("delete")}
+          onEnded={(ended) => {
+            // The ending is the answer, so home shows it at once, the way it
+            // shows a finish the task screen reported, and every screen about
+            // the running challenge goes with it.
+            setFinished(ended);
+            setStack([]);
+            reload();
+          }}
           heldWalks={heldWalks}
         />
       );
@@ -737,9 +747,17 @@ export function HomeScreen({
             ended={ended}
             timeZone={here}
             onStartAnother={() => openCreate(ended.id)}
-            onDismiss={() => {
+            onDelete={async () => {
+              const outcome = await deleteChallenge({ api, ended, confirmed: true });
+              if (outcome.status !== "done") {
+                return outcome.status === "blocked" ? outcome.reasons.join(" ") : outcome.message;
+              }
+              // Put away at once, and read again quietly: the server has
+              // stopped reporting it, and the empty state is what comes back.
               setFinished(null);
               setDismissed(ended.id);
+              refresh();
+              return null;
             }}
           />
         )
@@ -1271,28 +1289,42 @@ const ENDED_PILL: Readonly<
   succeeded: { label: "Challenge complete", tone: "success" },
   failed: { label: "Challenge ended short", tone: "danger" },
   expired: { label: "Challenge expired", tone: "danger" },
+  abandoned: { label: "Challenge ended early", tone: "danger" },
 };
 
 /**
  * The challenge that just ended, in place of the empty state.
  *
- * A challenge that succeeds says so on the completion that ended it, and one
- * that fails or expires is decided by a sweep the app never hears, so the
- * server reports the last outcome until another challenge exists. Either way
- * this is the same card: what happened, how many days were done, and what
+ * A challenge that succeeds says so on the completion that ended it, one the
+ * user ended says so on the press that ended it, and one that fails or expires
+ * is decided by a sweep the app never hears, so the server reports the last
+ * outcome until another challenge exists or the user deletes this one. Either
+ * way this is the same card: what happened, how many days were done, and what
  * became of the money - the three things the user staked a month on.
  */
 function FinishedCard({
   ended,
   timeZone,
   onStartAnother,
-  onDismiss,
+  onDelete,
 }: {
   ended: EndedChallengeSummary;
   timeZone: string;
   onStartAnother: () => void;
-  onDismiss: () => void;
+  /** Deletes the challenge, answering with why it could not, or null once it has. */
+  onDelete: () => Promise<string | null>;
 }) {
+  const [deleting, setDeleting] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const onConfirmDelete = useCallback(async () => {
+    setDeleting(true);
+    setProblem(null);
+    try {
+      setProblem(await onDelete());
+    } finally {
+      setDeleting(false);
+    }
+  }, [onDelete]);
   const pill = ENDED_PILL[ended.status];
   const reading = endedReading(ended, timeZone);
   return (
@@ -1325,10 +1357,31 @@ function FinishedCard({
         label={ended.status === "succeeded" ? "Start another challenge" : "Start a new challenge"}
         onPress={onStartAnother}
       />
-      {/* The way to put it down. The card stands until another challenge
-          exists, which is right for someone opening the app to find out what
-          happened and wrong for someone who already knows. */}
-      <TextButton testID="home-finished-dismiss" label="Got it" onPress={onDismiss} />
+      {/* The way to put it down for good. The card stands until another
+          challenge exists, which is right for someone opening the app to find
+          out what happened and wrong for someone who already knows. Deleting
+          is permanent and moves no money, and the confirmation says both. */}
+      <ConfirmAction
+        testID="home-finished-delete"
+        quiet
+        variant="danger"
+        label="Delete"
+        consequence="This removes the challenge from the app for good. It does not change any charge or refund: what happened to the deposit stays as it is."
+        confirmLabel="Delete this challenge"
+        cancelLabel="Keep it"
+        busy={deleting}
+        onConfirm={onConfirmDelete}
+      />
+      {problem === null ? null : (
+        <AppText
+          variant="small"
+          tone="danger"
+          testID="home-finished-delete-problem"
+          accessibilityRole="alert"
+        >
+          {problem}
+        </AppText>
+      )}
     </Card>
   );
 }

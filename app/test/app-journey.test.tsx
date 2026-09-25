@@ -402,6 +402,66 @@ describe("one account's life through the app's own screens", () => {
     expect(await screen.findByTestId("home-no-challenge")).toBeOnTheScreen();
   });
 
+  it("ends a paused challenge from its page, deletes the outcome, and it stays gone", async () => {
+    // Giving up is a decision the user makes on the challenge page, and it is
+    // allowed while paused. What comes back is the ending on home, and deleting
+    // it is the only way to put it down; a relaunch must not bring it back.
+    const server = journeyServer();
+    const { notifier } = await launch(server);
+    const user = userEvent.setup();
+
+    await user.press(await screen.findByTestId("sign-in-apple"));
+    await user.press(await screen.findByTestId("home-create-challenge"));
+    await waitFor(() => expect(screen.queryByTestId("projection")).not.toBeNull());
+    await fireEvent(screen.getByTestId("confirm-time-zone"), "valueChange", true);
+    for (const disclosure of disclosuresFor(0)) {
+      await fireEvent(screen.getByTestId(`disclosure-${disclosure.id}`), "valueChange", true);
+    }
+    await user.press(screen.getByTestId("start-challenge"));
+    await user.press(await screen.findByTestId("created-done"));
+    expect(await screen.findByTestId("home-summary")).toBeOnTheScreen();
+
+    // Reminders on, then paused, so the ending is taken from a paused challenge
+    // with the device still holding a schedule for it.
+    await user.press(screen.getByTestId("home-open-details"));
+    await user.press(await screen.findByTestId("details-enable-reminders"));
+    await waitFor(() => expect(notifier.requests).toBe(1));
+    await user.press(screen.getByTestId("details-open-pause"));
+    await user.press(await screen.findByTestId("pause"));
+    await user.press(screen.getByTestId("pause-confirm"));
+    await user.press(await screen.findByTestId("pause-done"));
+    expect(await screen.findByTestId("details-status")).toHaveTextContent("Paused");
+    const schedulesBeforeEnding = notifier.scheduled.length;
+
+    // Nothing is staked, and the confirmation says so before anything is sent.
+    await user.press(screen.getByTestId("details-end"));
+    expect(screen.getByTestId("details-end-consequence")).toHaveTextContent(/charges nothing/);
+    expect(server.names()).not.toContain("abandonChallenge");
+    await user.press(screen.getByTestId("details-end-confirm"));
+
+    expect(await screen.findByTestId("home-finished")).toBeOnTheScreen();
+    expect(screen.getByTestId("home-finished-status")).toHaveTextContent("Challenge ended early");
+    expect(screen.getByTestId("home-finished-deposit")).toHaveTextContent(/staked nothing/);
+    expect(server.challenge()).toBeNull();
+    // The device stops holding reminders for a challenge that is over.
+    await waitFor(() => expect(notifier.scheduled.length).toBeGreaterThan(schedulesBeforeEnding));
+    expect(notifier.scheduled.at(-1)).toEqual([]);
+
+    await user.press(screen.getByTestId("home-finished-delete"));
+    await user.press(screen.getByTestId("home-finished-delete-confirm"));
+    expect(await screen.findByTestId("home-no-challenge")).toBeOnTheScreen();
+
+    // Signing out and in again throws away everything home held in memory,
+    // which is what a relaunch loses, and reads the account from scratch. The
+    // ending is not in it.
+    await user.press(screen.getByTestId("home-open-account"));
+    // Nothing is running and nothing is held, so signing out asks nothing.
+    await user.press(await screen.findByTestId("account-sign-out"));
+    await user.press(await screen.findByTestId("sign-in-apple"));
+    expect(await screen.findByTestId("home-no-challenge")).toBeOnTheScreen();
+    expect(screen.queryByTestId("home-finished")).toBeNull();
+  });
+
   it("pauses from the challenge page and resumes from home", async () => {
     // A separate journey because pausing is only offered while a challenge is
     // running, and the first one deliberately finishes its challenge.

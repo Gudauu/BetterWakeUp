@@ -98,3 +98,93 @@ describe("0011_walk_window over existing challenges", () => {
     ]);
   });
 });
+
+describe("0012_abandoned_and_deleted_challenges over existing challenges", () => {
+  /**
+   * One challenge per status the schema had before 0012, each on its own
+   * account because an account holds one open challenge at a time.
+   */
+  async function insertEveryStatus(db: ReturnType<typeof testDatabase>["db"]) {
+    const statuses = ["active", "recovery_pending", "succeeded", "failed", "expired"] as const;
+    const ids: Record<(typeof statuses)[number], string> = {
+      active: "",
+      recovery_pending: "",
+      succeeded: "",
+      failed: "",
+      expired: "",
+    };
+    for (const status of statuses) {
+      await db.transaction(async (tx) => {
+        const [account] = await executeRows<{ id: string }>(
+          tx,
+          sql`insert into accounts default values returning id`,
+        );
+        const terminal = status === "succeeded" || status === "failed" || status === "expired";
+        const [challenge] = await executeRows<{ id: string }>(
+          tx,
+          sql`insert into challenges
+                (account_id, status, required_task_count, step_target, no_regret_minutes,
+                 walk_window_minutes, time_zone, deposit_minor_units, policy_version,
+                 projected_end_date, activated_at, terminal_at)
+              values (${account?.id}, ${status}, 1, 500, 0, 10, 'America/Los_Angeles', 2000,
+                      'disclosures.2', '2026-01-05', '2026-01-01T00:00:00Z',
+                      ${terminal ? "2026-01-06T00:00:00Z" : null})
+              returning id`,
+        );
+        const taskStatus =
+          status === "succeeded"
+            ? "completed"
+            : status === "recovery_pending"
+              ? "missed"
+              : "scheduled";
+        await tx.execute(sql`
+          insert into scheduled_tasks
+            (challenge_id, sequence, task_date, deadline, pause_cutoff, opens_at, status,
+             acknowledged_at, missed_at)
+          values (${challenge?.id}, 1, '2026-01-05', '2026-01-05T16:00:00Z',
+                  '2026-01-05T16:00:00Z', '2026-01-05T15:50:00Z', ${taskStatus},
+                  ${taskStatus === "completed" ? "2026-01-05T15:55:00Z" : null},
+                  ${taskStatus === "missed" ? "2026-01-05T16:01:00Z" : null})
+        `);
+        ids[status] = challenge?.id ?? "";
+      });
+    }
+    return ids;
+  }
+
+  it("keeps every existing challenge and lets them end and be deleted under the new rules", async () => {
+    const { handle, db } = testDatabase();
+    await runMigrations(handle, migrationsBefore("0012_abandoned_and_deleted_challenges"));
+    const ids = await insertEveryStatus(db);
+
+    await runMigrations(handle);
+
+    const rows = await executeRows<{ status: string; deleted_at: Date | null }>(
+      db,
+      sql`select status::text as status, deleted_at from challenges order by status`,
+    );
+    expect(rows).toEqual([
+      { status: "active", deleted_at: null },
+      { status: "expired", deleted_at: null },
+      { status: "failed", deleted_at: null },
+      { status: "recovery_pending", deleted_at: null },
+      { status: "succeeded", deleted_at: null },
+    ]);
+
+    // The value the migration added is usable once it has committed, from both
+    // statuses that hold an account's slot.
+    for (const id of [ids.active, ids.recovery_pending]) {
+      await db.execute(
+        sql`update challenges set status = 'abandoned', terminal_at = now() where id = ${id}`,
+      );
+    }
+    await db.execute(sql`update challenges set deleted_at = now() where id = ${ids.failed}`);
+
+    const ended = await executeRows<{ status: string }>(
+      db,
+      sql`select status::text as status from challenges
+          where id in (${ids.active}, ${ids.recovery_pending}) order by status`,
+    );
+    expect(ended).toEqual([{ status: "abandoned" }, { status: "abandoned" }]);
+  });
+});

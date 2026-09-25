@@ -17,7 +17,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const PAUSE_CUTOFF_LEAD_MS = 60 * 60 * 1000;
 
 export type TaskStatus = "scheduled" | "completed" | "skipped" | "missed" | "forgiven";
-export type ChallengeStatus = "active" | "recovery_pending" | "succeeded" | "failed" | "expired";
+export type ChallengeStatus =
+  | "active"
+  | "recovery_pending"
+  | "succeeded"
+  | "failed"
+  | "expired"
+  | "abandoned";
 
 export interface RawChallengeOptions {
   readonly status: ChallengeStatus;
@@ -109,7 +115,8 @@ export async function insertChallengeForAccount(
     depositMinorUnits: 2000,
     ...overrides,
   };
-  const terminal = status === "succeeded" || status === "failed" || status === "expired";
+  const terminal =
+    status === "succeeded" || status === "failed" || status === "expired" || status === "abandoned";
 
   let challengeId = "";
   await sql.transaction(async (tx) => {

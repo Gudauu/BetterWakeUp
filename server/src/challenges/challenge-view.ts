@@ -35,7 +35,7 @@ import { accounts } from "../db/schema/identity.ts";
 import { AppError } from "../errors/app-error.ts";
 
 /** A handle that can read. Both a `Database` and a transaction satisfy it. */
-type Readable = Pick<Database, "select">;
+export type Readable = Pick<Database, "select">;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
