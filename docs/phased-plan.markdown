@@ -399,6 +399,23 @@ deletion stays reachable. The opening time and the walk window field arrive with
 challenge page and back navigation, including Android's back press, are covered by
 tests; and account deletion is reachable with and without a challenge.
 
+### 34c. End and delete a challenge
+**Depends on:** 23, 24, 25, 33, 34b.
+The rule is in `product.md` under Ending a Challenge Early and Deleting an Ended
+Challenge. `POST /challenges/:id/abandonment` ends an `active` or
+`recovery_pending` challenge as the new terminal status `abandoned`, settled like a
+failure: a funded deposit's capture is due at once, the hold stops renewing, and
+the Emergency Recovery is neither offered nor spent. `DELETE /challenges/:id`
+marks an ended challenge deleted with a `deleted_at` instant, keeps every row, and
+stops `lastEnded` reporting it. The challenge page gains "End challenge" and the
+ended card gains "Delete", both behind a confirmation; the card's "Got it" goes.
+Capture commands are keyed by their cause, so a forfeit after an accepted recovery
+is still collected.
+**Done when:** every scenario in the OpenSpec change `end-and-delete-challenge`
+(`challenge-ending`, `challenge-deletion`, `forfeit-collection`) is covered by a
+test, the migration applies from empty and from 0011, and the database refuses a
+deleted open challenge and any move out of `abandoned`.
+
 ---
 
 ## Phase 6: infrastructure

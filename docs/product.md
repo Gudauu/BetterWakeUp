@@ -82,6 +82,7 @@ Nothing is saved until the deposit is authorized, so leaving the app partway thr
 5. Either check is missing at a deadline, so the challenge ends. If the account still holds its Emergency Recovery, nothing is charged while that offer stands. Otherwise the deposit is charged and forfeited.
 
 It is all or nothing. There is no partial forfeit.
+Ending a challenge early is a way to fail it, not a way out of the stake; see [Ending a Challenge Early](#ending-a-challenge-early).
 
 ## Walk Window
 
@@ -261,6 +262,38 @@ Because it exists at most once per account, most failures are never offered it.
 Any failure once the recovery is spent forfeits the deposit immediately.
 
 The length of the offer must be disclosed before the user deposits.
+
+## Ending a Challenge Early
+
+A user can end a running challenge at any time, whether it is running, paused, or waiting on an Emergency Recovery offer.
+
+Ending is a failure the user chooses.
+A funded deposit is charged in full, at once, exactly as a missed morning without a recovery would charge it.
+The hold stops being renewed the moment the challenge ends.
+A challenge with no deposit ends with nothing charged.
+
+Ending never offers the Emergency Recovery and never spends it.
+An unspent recovery stays with the account for a future challenge, including one that was standing on this challenge's open offer.
+
+An ended challenge is recorded as ended by the user, not as a missed morning, so the two stay distinguishable.
+
+Because it cannot be undone and it charges money, the app asks for a second, explicit confirmation that names the amount before ending anything.
+The action reads "End challenge" rather than "Delete", because deleting sounds like undoing the challenge, and ending a funded one costs the deposit.
+
+A paused challenge is no exception.
+A pause of a year still ends a challenge for free, but a user who wants out sooner pays what a failure costs.
+
+## Deleting an Ended Challenge
+
+Once a challenge has ended, however it ended, the user can delete it.
+Deleting removes it from what the app shows, for good.
+
+Deleting never changes money.
+By the time a challenge can be deleted its hold has already been released, or its charge has already been set in motion, and deleting does neither to it again.
+
+A deleted challenge is kept, not destroyed.
+It stays stored so a later version can show a user their past challenges.
+Deleting the account is different: that removes every challenge with it.
 
 ## Future Expansion
 
